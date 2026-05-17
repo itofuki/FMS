@@ -111,22 +111,35 @@ serve(async (req) => {
         - ブロック内に本当に文字がない場合や「-」「ー」のみの場合は、文字列の "-" を出力してください。
         - 「・」などの記号も正確に抽出してください。
 
-      【出力JSONフォーマット（★高速化・配列仕様）】
-      出力文字数を極限まで減らすため、1日につき1つのオブジェクトとし、各部屋の1限〜6限の値を**配列（長さ6）**で出力してください。値には null を絶対に含めないこと。
+      【具体例（Few-Shot）】
+      画像から配列を生成する際の絶対的な基準です。これを真似してください。
+      ・談話室に縦線がなく中央に「353」とある場合
+        -> layout: "1-6", array: ["353", "353", "353", "353", "353", "353"]
+      ・自習室で2限と3限の間に縦線があり、左に「361・374」、右に「341・345」とある場合
+        -> layout: "1-2, 3-6", array: ["361・374", "361・374", "341・345", "341・345", "341・345", "341・345"]
+      ・談話室で1〜2限、3〜5限が結合され、6限が独立している場合（例：左に「353」、中央に「342・353」、右端に「341・342・353」）
+        -> layout: "1-2, 3-5, 6", array: ["353", "353", "342・353", "342・353", "342・353", "341・342・353"]
+      ・談話室で2限と3限、4限と5限、5限と6限の間に縦線があり、3〜4限の枠に「ー」がある場合
+        -> layout: "1-2, 3-4, 5, 6", array: ["351・352", "351・352", "-", "-", "341・342", "311・341・342"]
+
+      【出力JSONフォーマット】
+      ハルシネーションを防ぐため、各部屋の配列を出力する直前に \`layout\` キーでその行の結合状態（ブロックの区切り）を超短縮記号でメモしてから、要素数6の配列を出力してください。
       {
-        "grid_analysis": "例外的な日のみを超短縮記号でメモ（例：「5/14談: 線[2|3, 5|6] 結合[1-2, 3-5, 6]」）。隣の行の線に騙されていないか必ず確認すること。",
         "start_date": "YYYY-MM-DD",
         "end_date": "YYYY-MM-DD",
         "schedules": [
           { 
-            "target_date": "YYYY-MM-DD", 
-            "talk_rooms": ["1限の値", "2限の値", "3限の値", "4限の値", "5限の値", "6限〜の値"], 
-            "study_rooms": ["1限の値", "2限の値", "3限の値", "4限の値", "5限の値", "6限〜の値"] 
+            "target_date": "YYYY-MM-DD",
+            "talk_room_layout": "例: 1-6",
+            "talk_rooms": ["1限", "2限", "3限", "4限", "5限", "6限〜"], 
+            "study_room_layout": "例: 1-2, 3-6",
+            "study_rooms": ["1限", "2限", "3限", "4限", "5限", "6限〜"] 
           }
         ]
       }
       `;
 
+      // ... 前半は変更なし ...
       const result = await generateContentWithRetry(model, [
         { inlineData: { data: pdfBase64, mimeType: "application/pdf" } },
         prompt
@@ -134,7 +147,8 @@ serve(async (req) => {
       
       const parsed = JSON.parse(result.response.text());
 
-      console.log("🧠 AIの自己分析結果 (grid_analysis):", parsed.grid_analysis);
+      // 修正1: grid_analysis のログを削除し、代わりに全体の件数などをログ出しする
+      console.log(`🧠 AI解析完了: ${parsed.schedules.length}日分のデータを取得しました。`);
 
       if (!parsed.start_date || !parsed.end_date) {
         throw new Error(`AIが期間の読み取りに失敗しました。`);
@@ -158,14 +172,20 @@ serve(async (req) => {
       }, { onConflict: 'filename' });
       if (metaError) throw new Error(`メタデータ保存エラー: ${metaError.message}`);
 
-      // 3. room_schedules への保存（新テーブル定義対応）
-      // target_date ごとに1行、talk_rooms/study_rooms は配列として一括保存
-      const { error: dbError } = await supabase.from('room_schedules').upsert(parsed.schedules, { 
+      // 修正2: DB保存用に、layoutキーを取り除いた新しい配列を作成する
+      const schedulesForDb = parsed.schedules.map((s: any) => ({
+        target_date: s.target_date,
+        talk_rooms: s.talk_rooms,
+        study_rooms: s.study_rooms
+      }));
+
+      // 3. room_schedules への保存
+      const { error: dbError } = await supabase.from('room_schedules').upsert(schedulesForDb, { 
         onConflict: 'target_date' 
       });
       if (dbError) throw new Error(`スケジュール保存エラー: ${dbError.message}`);
 
-      console.log(`✅ 完了！ ${fileName} の情報を解析し、${parsed.schedules.length}件のスケジュールを保存しました。`);
+      console.log(`✅ 完了！ ${fileName} の情報を解析し、${schedulesForDb.length}件のスケジュールを保存しました。`);
       return new Response("Success", { status: 200 });
     }
     return new Response("OK", { status: 200 });
