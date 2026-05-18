@@ -253,14 +253,14 @@ export default function MyPage() {
 
       // 開始5分前 〜 5分後 の間に開いた場合
       if (now >= openTime && now <= closeTime && !openedSubjects.includes(subject.id)) {
-        console.log(`${subject.name} のLMS出欠ページを開きます...`);
+        console.log(`${subject.name} のLMSページを開きます...`);
         const dbId = subject.id.split('-')[0];
         
-        // attendance_id があれば優先、なければ id を使用
-        const targetId = subject.attendanceId ? subject.attendanceId : dbId;
-        
-        // ★ ここをご指定の出欠ページ（attendance/view.php）のURLに変更しました！
-        const url = `https://lms-tokyo.iput.ac.jp/mod/attendance/view.php?id=${targetId}`;
+        // ★ attendanceIdの有無によってURLを分岐
+        const url = subject.attendanceId 
+          ? `https://lms-tokyo.iput.ac.jp/mod/attendance/view.php?id=${subject.attendanceId}` 
+          : `https://lms-tokyo.iput.ac.jp/course/view.php?id=${dbId}`;
+          
         window.open(url, '_blank');
         
         setOpenedSubjects(prev => [...prev, subject.id]);

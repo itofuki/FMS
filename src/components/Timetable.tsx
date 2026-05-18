@@ -73,9 +73,8 @@ const DailySchedule = ({ subjects, currentTime }: { subjects: Subject[], current
     {subjects.length > 0 ? (
       subjects.map(subject => {
         const dbId = subject.id.split('-')[0];
-        // ★変更: attendanceIdがあれば優先してURLに使用する
-        const targetId = subject.attendanceId ? subject.attendanceId : dbId;
-        const url = `https://lms-tokyo.iput.ac.jp/course/view.php?id=${targetId}`;
+        // attendance_idの有無に関わらずcourse/view.phpを使用する
+        const url = `https://lms-tokyo.iput.ac.jp/course/view.php?id=${dbId}`;
         
         const timeInfo = periodTimes.find(p => p.period === subject.period);
         const isCurrent = isCurrentClassTime(subject.period, currentTime);
@@ -143,9 +142,8 @@ const WeeklySchedule = ({ weeklySubjects, currentTime, today }: { weeklySubjects
 
               if (subject) {
                 const dbId = subject.id.split('-')[0];
-                // ★変更: attendanceIdがあれば優先してURLに使用する
-                const targetId = subject.attendanceId ? subject.attendanceId : dbId;
-                const url = `https://lms-tokyo.iput.ac.jp/course/view.php?id=${targetId}`;
+                // attendance_idの有無に関わらずcourse/view.phpを使用する
+                const url = `https://lms-tokyo.iput.ac.jp/course/view.php?id=${dbId}`;
                 
                 const isCurrent = day === today && isCurrentClassTime(subject.period, currentTime);
 
