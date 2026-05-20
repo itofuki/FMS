@@ -198,13 +198,28 @@ const Assignments: React.FC<AssignmentsProps> = ({ subject }) => {
     queryKey: ['lmsEvents', activeLmsCalendarUrl],
     queryFn: async () => {
       if (!activeLmsCalendarUrl) return []; 
+      
+      // 🌟 debug: true を付与してリクエスト
       const { data, error } = await supabase.functions.invoke('get-lms-calendar', {
-        body: { calendarUrl: activeLmsCalendarUrl }
+        body: { calendarUrl: activeLmsCalendarUrl, debug: false }
       });
+      
+      console.log("🔥 取得したレスポンス全体:", data); // 👈 この1行を追加
+
       if (error) {
         console.error("LMSカレンダー取得エラー:", error);
         return [];
       }
+
+      // 🌟 受け取ったデバッグ情報をコンソールに出力
+      if (data?.debugInfo) {
+        console.groupCollapsed('🔍 LMS Calendar Debug Info');
+        console.log('1. 整形後のイベント (events):', data.events);
+        console.log('2. パース直後の生データ (parsedRawEvents):', data.debugInfo.parsedRawEvents);
+        console.log('3. LMSからの生テキスト (rawIcsText):\n', data.debugInfo.rawIcsText);
+        console.groupEnd();
+      }
+
       return data?.events || [];
     },
     enabled: !!activeLmsCalendarUrl,
@@ -445,8 +460,6 @@ const Assignments: React.FC<AssignmentsProps> = ({ subject }) => {
 
     // 1. DB課題のフィルタリング
     const filteredDb = assignments.filter(assignment => {
-      // 🌟 DB課題（自分で設定した課題等）は、過去の期限のものも表示する
-      // 科目が未設定（個人タスク）、または履修科目名に一致するものだけ残す
       const isEnrolledOrNoSubject = !assignment.subject_name || enrolledSubjectNames.includes(assignment.subject_name);
       return isEnrolledOrNoSubject; 
     });
@@ -712,6 +725,7 @@ const Assignments: React.FC<AssignmentsProps> = ({ subject }) => {
               </Group>
             </form>
           </div>
+
         </div>
       </ChapterFrame>
     </div>
