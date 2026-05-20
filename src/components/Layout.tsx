@@ -1,15 +1,16 @@
-/* src/Layout.tsx */
+/* src/components/Layout.tsx */
 import { useRef, useEffect } from 'react';
 import { Outlet, Link } from "react-router-dom";
 import { Toaster } from 'sonner';
 import { useSidebar, type ChapterLink } from "../contexts/SidebarContext"; 
-import { FiMenu, FiSettings, FiCalendar, FiFileText, FiBookOpen, FiFolder, FiMessageSquare, FiExternalLink } from "react-icons/fi";
+import { FiMenu, FiSettings, FiCalendar, FiFileText, FiBookOpen, FiFolder, FiMessageSquare, FiExternalLink, FiPlay } from "react-icons/fi";
 
 const getChapterIcon = (id: string, size: number = 20) => {
   switch (id) {
     case 'timetable': return <FiCalendar size={size} />;
     case 'assignments': return <FiFileText size={size} />;
     case 'study-room': return <FiBookOpen size={size} />;
+    case 'minigame': return <FiPlay size={size} />;
     case 'setting': return <FiSettings size={size} />;
     case 'feedback': return <FiMessageSquare size={size} />;
     default: return <FiFolder size={size} />;
@@ -28,7 +29,7 @@ const SidebarContent: React.FC<{
   };
   
   // 下部に配置するメニューのIDリスト
-  const bottomLinkIds = ['feedback', 'setting'];
+  const bottomLinkIds = ['minigame', 'feedback', 'setting'];
   const topLinks = links.filter(link => !bottomLinkIds.includes(link.id));
   const bottomLinks = links.filter(link => bottomLinkIds.includes(link.id));
 
@@ -134,7 +135,7 @@ export default function Layout() {
   }, [isMobileMenuOpen, setIsMobileMenuOpen]);
 
   // ボトムナビゲーションに表示させないメニューのID
-  const bottomLinkIds = ['feedback', 'setting'];
+  const bottomLinkIds = ['minigame', 'feedback', 'setting'];
 
   return (
     <div 
