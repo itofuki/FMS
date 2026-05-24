@@ -13,7 +13,7 @@ import StudyRoom from '../components/StudyRoom';
 import Assignments from '../components/Assignments';
 import Setting from '../components/Setting';
 import Feedback from '../components/Feedback';
-import MiniGame from '../components/MiniGame';
+import Tips from '../components/Tips';
 
 const VALID_DAYS: Day[] = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri'];
 function isDay(key: any): key is Day {
@@ -78,7 +78,7 @@ const myPageChapters: ChapterLink[] = [
   { id: 'timetable', label: '時間割' },
   { id: 'assignments', label: '課題' },
   { id: 'study-room', label: '自習室' },
-  { id: 'minigame', label: 'ミニゲーム' },
+  { id: 'tips', label: 'Tips' },
   { id: 'feedback', label: 'ご意見' },
   { id: 'setting', label: '設定' },
 ];
@@ -335,8 +335,8 @@ export default function MyPage() {
         return <Assignments subject={uniqueSubjects as any} />;
       case 'study-room':
         return <StudyRoom />;
-      case 'minigame':
-        return <MiniGame />;
+      case 'tips':
+        return <Tips />;
       case 'feedback':
         return <Feedback />;
       case 'setting':
