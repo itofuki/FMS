@@ -348,7 +348,7 @@ export default function MyPage() {
 
   return (
     <div className="px-1 py-4 md:p-6 lg:p-8">
-      <div className="w-full max-w-4xl mx-auto pt-16">
+      <div className="w-full max-w-5xl mx-auto pt-16">
         <div className="flex justify-between items-center mb-5">
             <div className="flex flex-row items-baseline space-x-2 md:space-x-4">
                 <h1 className="text-[1.3rem] md:text-3xl font-bold text-white font-display pl-2">マイページ</h1>

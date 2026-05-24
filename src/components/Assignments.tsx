@@ -1,3 +1,5 @@
+/* src/components/Assignments.tsx */
+
 import React, { useState, useMemo, useRef } from 'react';
 import { supabase } from '../lib/supabaseClient';
 import ChapterFrame from './ChapterFrame';
@@ -534,6 +536,8 @@ const Assignments: React.FC<AssignmentsProps> = ({ subject }) => {
     });
   }, [assignments, lmsEvents, dbSubjects, subject, isAdminMode, userRole, lmsStatuses]);
 
+  // ... (上部のロジックはそのまま) ...
+
   if (loading) return <p className="text-slate-400 text-center py-10">読み込み中...</p>;
 
   return (
@@ -566,7 +570,7 @@ const Assignments: React.FC<AssignmentsProps> = ({ subject }) => {
           </>
         }
       >
-        <div className="w-full flex flex-col gap-8 md:px-10 p-2 sm:p-4 rounded-xl transition-all duration-300">
+        <div className="w-full max-w-5xl mx-auto flex flex-col gap-8 p-1 sm:p-4 rounded-xl transition-all duration-300">
           <div>
 
             {unifiedAssignments.length === 0 ? (
@@ -575,41 +579,53 @@ const Assignments: React.FC<AssignmentsProps> = ({ subject }) => {
                 <p className="text-slate-400 text-sm">{isAdminMode ? '表示できる公式課題はありません' : '直近2週間の課題はありません 🎉'}</p>
               </div>
             ) : (
-              <div className="space-y-3">
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                 {unifiedAssignments.map(assignment => {
                   const canDelete = !assignment.isLms && ((isAdminMode && userRole === 'admin') || (assignment.classification === 'private' && assignment.user_id === currentUser?.id));
                   const cleanTitle = (title: string) => title.replace(/[「」]|の提出期限/g, '');
                   const status = getDeadlineStatus(assignment.deadline, assignment.done);
 
                   return (
-                    <div key={assignment.id} className={`p-4 rounded-lg flex transition-all duration-300 ${getAssignmentStyles(assignment)} ring-cyan-500 ${editingId === assignment.id ? 'ring-2' : ''} items-center`}>
-                      <Checkbox
-                        checked={assignment.done}
-                        onChange={() => handleToggleDone(assignment.id, assignment.done, assignment.isLms)}
-                        size="md"
-                        className="flex-shrink-0"
-                      />
+                    <div key={assignment.id} className={`p-4 rounded-lg flex transition-all duration-300 ${getAssignmentStyles(assignment)} ring-cyan-500 ${editingId === assignment.id ? 'ring-2' : ''} h-full`}>
                       
-                      <div className="ml-4 w-full min-w-0 flex flex-col gap-1">
-                        <div className="flex justify-between items-center w-full gap-2">
-                          <span className={`text-[10px] sm:text-xs px-2.5 py-0.5 rounded-full border inline-block truncate max-w-full transition-colors duration-300 ${getBadgeStyle(assignment.subjectCategoryType, assignment.done)}`}>
-                            {assignment.subject_name || '未分類'}
-                          </span>
-                          <div className={`flex items-center gap-1 whitespace-nowrap text-xs md:text-sm flex-shrink-0 ${status.color}`}>
-                            <FiCalendar size={14} />
-                            <span>{formatDateTime(assignment.deadline)}</span>
-                            {status.label && <span className="hidden md:inline ml-1 text-[10px] md:text-xs opacity-90">{status.label}</span>}
-                          </div>
-                        </div>
+                      {/* 共通の左端: チェックボックス */}
+                      <div className="flex items-center justify-center pr-3 sm:pr-4">
+                        <Checkbox
+                          checked={assignment.done}
+                          onChange={() => handleToggleDone(assignment.id, assignment.done, assignment.isLms)}
+                          size="md"
+                          className="flex-shrink-0"
+                        />
+                      </div>
 
-                        <div className="flex justify-between items-end w-full gap-4">
+                      {/* --- 左右に分割するラッパー --- */}
+                      <div className="flex flex-1 min-w-0 gap-3">
+                        
+                        {/* 🌟 左側カラム: 科目、操作ボタン、タイトル、詳細 (右側領域に干渉せず残りの幅をすべて使う) */}
+                        <div className="flex flex-col flex-1 min-w-0 justify-center py-0.5">
+                          
+                          {/* 左側1段目: 科目バッジ と 操作ボタン */}
+                          <div className="flex items-center gap-2 mb-1.5">
+                            <span className={`text-[10px] sm:text-xs px-2 py-0.5 rounded border inline-block truncate max-w-[150px] sm:max-w-[180px] transition-colors duration-300 ${getBadgeStyle(assignment.subjectCategoryType, assignment.done)}`}>
+                              {assignment.subject_name || '未分類'}
+                            </span>
+                            
+                            {canDelete && (
+                              <div className="flex items-center gap-1">
+                                <button onClick={() => handleEditClick(assignment)} className="p-1 text-slate-400 hover:text-cyan-400 hover:bg-slate-700/80 rounded transition-colors"><FiEdit2 size={13}/></button>
+                                <button onClick={() => handleDeleteAssignment(assignment.id, assignment.isLms)} className="p-1 text-slate-400 hover:text-red-500 hover:bg-slate-700/80 rounded transition-colors"><FiTrash2 size={13}/></button>
+                              </div>
+                            )}
+                          </div>
+
+                          {/* 左側2段目: 課題タイトル */}
                           <div className="flex items-center gap-2 flex-wrap min-w-0">
                             {assignment.url ? (
                               <a 
                                 href={assignment.url} 
                                 target="_blank" 
                                 rel="noopener noreferrer" 
-                                className={`font-semibold text-base sm:text-lg truncate hover:underline transition-colors flex items-center gap-2 ${
+                                className={`font-bold text-base sm:text-[17px] hover:underline transition-colors flex items-center gap-2 line-clamp-2 leading-snug ${
                                   assignment.done ? 'text-slate-500 line-through' : 'text-slate-100'
                                 }`}
                               >
@@ -617,32 +633,39 @@ const Assignments: React.FC<AssignmentsProps> = ({ subject }) => {
                               </a>
                             ) : (
                               <p 
-                                className={`font-semibold text-base sm:text-lg truncate transition-colors flex items-center gap-2 ${
+                                className={`font-bold text-base sm:text-[17px] transition-colors flex items-center gap-2 line-clamp-2 leading-snug ${
                                   assignment.done ? 'text-slate-500 line-through' : 'text-slate-100'
                                 }`}
                               >
                                 {cleanTitle(assignment.name)}
-                                {assignment.isLms && <span className="text-[10px] bg-yellow-500/20 text-yellow-300 px-1.5 py-0.5 rounded border border-yellow-500/30 flex-shrink-0 mt-0.5">LMS</span>}
+                                {assignment.isLms && <span className="text-[10px] bg-yellow-500/20 text-yellow-300 px-1 py-0.5 rounded border border-yellow-500/30 flex-shrink-0 ml-1 mt-0.5">LMS</span>}
                               </p>
                             )}
                           </div>
 
-                          {canDelete && (
-                            <div className="flex items-center gap-1 flex-shrink-0">
-                              <button onClick={() => handleEditClick(assignment)} className="p-1.5 text-slate-500 hover:text-cyan-400 hover:bg-slate-700/50 rounded-md transition-colors"><FiEdit2 size={16}/></button>
-                              <button onClick={() => handleDeleteAssignment(assignment.id, assignment.isLms)} className="p-1.5 text-slate-500 hover:text-red-500 hover:bg-slate-700/50 rounded-md transition-colors"><FiTrash2 size={16}/></button>
-                            </div>
+                          {/* 左側3段目: 詳細説明 (LMSのみ) */}
+                          {assignment.isLms && assignment.description && (
+                            <div 
+                              className={`mt-1.5 text-xs line-clamp-2 prose prose-invert prose-sm whitespace-pre-wrap transition-colors duration-300 ${
+                                assignment.done ? 'text-slate-500 opacity-50' : 'text-slate-400'
+                              }`}
+                              dangerouslySetInnerHTML={{ __html: assignment.description }} 
+                            />
                           )}
                         </div>
 
-                        {assignment.isLms && assignment.description && (
-                          <div 
-                            className={`mt-2 text-xs line-clamp-2 prose prose-invert prose-sm whitespace-pre-wrap transition-colors duration-300 ${
-                              assignment.done ? 'text-slate-500 opacity-50' : 'text-slate-300'
-                            }`}
-                            dangerouslySetInnerHTML={{ __html: assignment.description }} 
-                          />
-                        )}
+                        {/* 🌟 右側カラム: 提出期限 (右上固定・幅はテキスト分のみ確保) */}
+                        <div className="flex-shrink-0 pt-0.5 text-right">
+                          <div className={`flex flex-col items-end text-xs sm:text-sm font-medium ${status.color}`}>
+                            <div className="flex items-center gap-1">
+                              <FiCalendar size={13} className="mb-[1px]" />
+                              <span>{formatDateTime(assignment.deadline)}</span>
+                            </div>
+                            {/* 「あと何日」などのラベル部分 */}
+                            {status.label && <span className="text-[10px] sm:text-xs opacity-90 mt-0.5">{status.label}</span>}
+                          </div>
+                        </div>
+
                       </div>
                     </div>
                   );
@@ -650,6 +673,8 @@ const Assignments: React.FC<AssignmentsProps> = ({ subject }) => {
               </div>
             )}
           </div>
+
+          {/* ... (LMS未連携の警告メッセージ部分はそのまま) ... */}
 
           {!myLmsUrl && !classRepresentativeLmsUrl && !courseRepresentativeLmsUrl && !isAdminMode && (
             <div className="mb-6 p-4 bg-blue-900/40 border border-blue-500/50 rounded-lg flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
@@ -703,7 +728,7 @@ const Assignments: React.FC<AssignmentsProps> = ({ subject }) => {
           )}
 
           {/* 課題フォーム */}
-          <div ref={formRef} className={`bg-slate-800/50 p-4 rounded-lg transition-all duration-300 ring-cyan-500 ${editingId ? 'ring-2 shadow-lg shadow-cyan-500/10' : ''}`}>
+          <div ref={formRef} className={`bg-slate-800/50 p-5 rounded-xl transition-all duration-300 ring-cyan-500 border border-slate-700 max-w-2xl mx-auto w-full ${editingId ? 'ring-2 shadow-lg shadow-cyan-500/10' : ''}`}>
             <div className="flex items-center justify-between mb-3">
               <h3 className="font-bold text-md text-slate-200 flex items-center gap-2">
                 {editingId ? <><FiEdit2 className="text-cyan-400" /> 課題を編集</> : <><FiPlus className="text-slate-400" /> {isAdminMode && userRole === 'admin' ? '新しい[公式]課題を追加' : '新しい個人課題を追加'}</>}

@@ -181,7 +181,7 @@ export default function Layout() {
 
         {/* ヘッダー */}
         <nav className="absolute top-0 left-0 w-full z-20 bg-slate-800/70 light:bg-white/70 backdrop-blur-lg border-b border-white/10 light:border-slate-200">
-          <div className="flex items-center justify-between h-15 md:h-16 px-4 sm:px-6 lg:px-8 max-w-7xl mx-auto w-full">
+          <div className="flex items-center justify-between h-15 md:h-16 px-4 sm:px-6 lg:px-8 max-w-[1500px] mx-auto w-full">
             
             {/* 左側：メニューボタンとFMSロゴ */}
             <div className="flex items-center gap-4">
@@ -232,7 +232,7 @@ export default function Layout() {
 
         {/* コンテンツエリア */}
         <div className="flex-1 overflow-y-auto w-full pb-20 md:pb-0">
-          <div className="flex w-full max-w-7xl mx-auto px-2 sm:px-6 lg:px-8">
+          <div className="flex w-full max-w-[1500px] mx-auto px-2 sm:px-6 lg:px-8">
             {chapterLinks.length > 0 && (
               <aside className="hidden lg:flex sticky top-0 self-start h-screen w-64 flex-shrink-0 bg-slate-900/60 light:bg-white/60 border-r border-white/10 light:border-slate-200 p-4 pt-16 flex-col justify-between z-10">
                 <SidebarContent links={chapterLinks} activeId={activeChapter} onNavigate={setActiveChapter} closeMenu={() => {}} />
