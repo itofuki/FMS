@@ -19,7 +19,11 @@ type SettingProps = {
 };
 
 // 🌟 Web Push用のキー変換ユーティリティ
-const urlB64ToUint8Array = (base64String: string) => {
+// 🌟 修正版：空っぽの場合はエラーをキャッチしてクラッシュを防ぐ
+const urlB64ToUint8Array = (base64String?: string) => {
+  if (!base64String) {
+    throw new Error("VAPID公開鍵が読み込めませんでした。.envファイルを確認してください。");
+  }
   const padding = '='.repeat((4 - base64String.length % 4) % 4);
   const base64 = (base64String + padding).replace(/\-/g, '+').replace(/_/g, '/');
   const rawData = window.atob(base64);
@@ -225,7 +229,7 @@ export default function Setting({ onSettingsSaved }: SettingProps) {
         
         // 【重要】ここでステップ1で生成したVAPIDの公開鍵をセットします
         // VITE_VAPID_PUBLIC_KEY を .env に追加するか、直接以下の文字列を置き換えてください
-        const vapidPublicKey = import.meta.env.VITE_VAPID_PUBLIC_KEY;
+        const vapidPublicKey = import.meta.env.VITE_VAPID_PUBLIC_KEY || "BMQZQj4x0TkqEaPEuqmEeGg5Ku1XpHhsETYrguHXCfstpmtAkZFjvpctd1OC33suCQJSC53ftXvSlYMADFLViUM";
         
         const subscription = await registration.pushManager.subscribe({
           userVisibleOnly: true,
