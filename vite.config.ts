@@ -15,8 +15,8 @@ export default defineConfig({
         name: 'FMS',
         short_name: 'FMS',
         description: 'FMSアプリケーション',
-        theme_color: '#ffffff',
-        background_color: '#ffffff',
+        theme_color: '#000000',
+        background_color: '#000000',
         display: 'standalone',
         icons: [
           {
