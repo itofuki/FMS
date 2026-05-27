@@ -18,6 +18,18 @@ type SettingProps = {
   onSettingsSaved?: () => void;
 };
 
+// 🌟 Web Push用のキー変換ユーティリティ
+const urlB64ToUint8Array = (base64String: string) => {
+  const padding = '='.repeat((4 - base64String.length % 4) % 4);
+  const base64 = (base64String + padding).replace(/\-/g, '+').replace(/_/g, '/');
+  const rawData = window.atob(base64);
+  const outputArray = new Uint8Array(rawData.length);
+  for (let i = 0; i < rawData.length; ++i) {
+    outputArray[i] = rawData.charCodeAt(i);
+  }
+  return outputArray;
+};
+
 export default function Setting({ onSettingsSaved }: SettingProps) {
   const navigate = useNavigate();
   const [searchParams, setSearchParams] = useSearchParams();
@@ -37,7 +49,10 @@ export default function Setting({ onSettingsSaved }: SettingProps) {
   const [isLightMode, setIsLightMode] = useState<boolean>(false);
   const [loading, setLoading] = useState<boolean>(false);
 
-  // 🌟 スクロール先の目印になるRefを作成
+  // 🌟 プッシュ通知用の状態を追加
+  const [pushEnabled, setPushEnabled] = useState<boolean>(false);
+  const [isPushLoading, setIsPushLoading] = useState<boolean>(false);
+
   const advancedRef = useRef<HTMLDivElement>(null);
   const isAdvancedFocused = searchParams.get("focus") === "advanced";
 
@@ -101,6 +116,22 @@ export default function Setting({ onSettingsSaved }: SettingProps) {
     fetchAllData();
   }, [navigate]);
 
+  // 🌟 初回ロード時にこのブラウザが通知設定済みかチェック
+  useEffect(() => {
+    const checkPushStatus = async () => {
+      if ('serviceWorker' in navigator && 'PushManager' in window) {
+        try {
+          const registration = await navigator.serviceWorker.ready;
+          const subscription = await registration.pushManager.getSubscription();
+          setPushEnabled(!!subscription);
+        } catch (error) {
+          console.error("Push status check failed:", error);
+        }
+      }
+    };
+    checkPushStatus();
+  }, []);
+
   useEffect(() => {
     if (isLightMode) {
       document.documentElement.classList.add("light");
@@ -129,16 +160,14 @@ export default function Setting({ onSettingsSaved }: SettingProps) {
     }
   }, [baseCourse, classesDB, courseClass]);
 
-  // 🌟 パラメータによってAdvancedを開くとき、その位置まで自動スクロールさせる
   useEffect(() => {
     if (isAdvancedFocused && advancedRef.current) {
-      // アニメーションなどで要素の高さが変わるのを少し待ってからスクロールする
       const timer = setTimeout(() => {
         advancedRef.current?.scrollIntoView({ behavior: 'smooth', block: 'center' });
       }, 150);
       return () => clearTimeout(timer);
     }
-  }, [isAdvancedFocused, department, baseCourse]); // フォームの内容が変わって高さが変化した際にも追従
+  }, [isAdvancedFocused, department, baseCourse]);
 
   const handleSubmit = async (event: FormEvent) => {
     event.preventDefault();
@@ -172,6 +201,90 @@ export default function Setting({ onSettingsSaved }: SettingProps) {
       toast.error(`エラーが発生しました: ${error.message}`);
     } finally {
       setLoading(false);
+    }
+  };
+
+  // 🌟 プッシュ通知のオン・オフ切り替え処理
+  const handlePushToggle = async (checked: boolean) => {
+    if (!user) return;
+    setIsPushLoading(true);
+
+    try {
+      if (checked) {
+        // 1. ブラウザの通知許可をリクエスト
+        const permission = await Notification.requestPermission();
+        if (permission !== 'granted') {
+          toast.error("通知が許可されていません。ブラウザの設定から通知を許可してください。");
+          setPushEnabled(false);
+          setIsPushLoading(false);
+          return;
+        }
+
+        // 2. Service Workerに登録
+        const registration = await navigator.serviceWorker.ready;
+        
+        // 【重要】ここでステップ1で生成したVAPIDの公開鍵をセットします
+        // VITE_VAPID_PUBLIC_KEY を .env に追加するか、直接以下の文字列を置き換えてください
+        const vapidPublicKey = import.meta.env.VITE_VAPID_PUBLIC_KEY;
+        
+        const subscription = await registration.pushManager.subscribe({
+          userVisibleOnly: true,
+          applicationServerKey: urlB64ToUint8Array(vapidPublicKey)
+        });
+
+        // 3. Supabaseに保存
+        const { error } = await supabase.from('user_subscriptions').insert({
+          user_id: user.id,
+          subscription: JSON.parse(JSON.stringify(subscription))
+        });
+
+        if (error) throw error;
+        setPushEnabled(true);
+        toast.success("プッシュ通知をオンにしました！");
+
+      } else {
+        // オフにする処理
+        const registration = await navigator.serviceWorker.ready;
+        const subscription = await registration.pushManager.getSubscription();
+        if (subscription) {
+          // ブラウザ側の購読を解除
+          await subscription.unsubscribe();
+          // DBから該当ユーザーの通知設定を削除
+          await supabase.from('user_subscriptions').delete().eq('user_id', user.id);
+        }
+        setPushEnabled(false);
+        toast.success("プッシュ通知をオフにしました。");
+      }
+    } catch (error: any) {
+      console.error(error);
+      toast.error("設定に失敗しました。詳細: " + error.message);
+      setPushEnabled(!checked); // 失敗したらスイッチを戻す
+    } finally {
+      setIsPushLoading(false);
+    }
+  };
+
+  // 🌟 テスト通知を送信する処理
+  const handleTestNotification = async () => {
+    if (!user) return;
+    toast.info("通知を送信中...");
+    
+    try {
+      // SupabaseのEdge Functions 'send-push' を呼び出す
+      const { error } = await supabase.functions.invoke('send-push', {
+        body: {
+          user_id: user.id,
+          title: "テスト通知🚀",
+          body: "FMSからのプッシュ通知テストに成功しました！"
+        }
+      });
+
+      if (error) throw error;
+      toast.success("サーバーから通知を送信しました！");
+      
+    } catch (error: any) {
+      console.error(error);
+      toast.error("送信エラー: " + error.message);
     }
   };
 
@@ -247,9 +360,10 @@ export default function Setting({ onSettingsSaved }: SettingProps) {
               onChange={(val) => setEnglishID(Number(val))} 
             />
             
-            {/* 🌟 ここを div で囲み、ref をセットしてスクロールの目標地点にする */}
             <div ref={advancedRef}>
               <Collapsible title="Advanced" defaultOpen={isAdvancedFocused} open={isAdvancedFocused}>
+                
+                {/* LMSカレンダーURLの設定 */}
                 <div className={`space-y-2 mb-6 p-4 rounded-xl transition-all duration-700 ${isAdvancedFocused ? 'bg-cyan-900/40 border border-cyan-400/80 shadow-[0_0_15px_rgba(34,211,238,0.3)]' : 'bg-slate-900/20 border border-slate-700/50'}`}>
                   <label className="block text-sm font-semibold text-cyan-100">
                     LMS カレンダーURL (任意)
@@ -266,8 +380,37 @@ export default function Setting({ onSettingsSaved }: SettingProps) {
                   </p>
                 </div>
 
-                <Switch label="授業開始前に自動で出席確認を開く" checked={autoOpen} onChange={setAutoOpen} />
-                <p className="text-xs text-slate-400 mt-2">※ポップアップブロックを解除してください</p>
+                <div className="space-y-6">
+                  {/* 自動オープンのスイッチ */}
+                  <div>
+                    <Switch label="授業開始前に自動で出席確認を開く" checked={autoOpen} onChange={setAutoOpen} />
+                    <p className="text-xs text-slate-400 mt-2">※ポップアップブロックを解除してください</p>
+                  </div>
+
+                  {/* 🌟 プッシュ通知のスイッチを追加 */}
+                  <div className="pt-2 border-t border-slate-700/50">
+                    <Switch 
+                      label={isPushLoading ? "設定中..." : "プッシュ通知を受け取る"} 
+                      checked={pushEnabled} 
+                      onChange={handlePushToggle} 
+                    />
+                    <p className="text-xs text-slate-400 mt-2">
+                      ※この端末で課題の追加などの通知を受け取ります。
+                    </p>
+
+                    {/* 🌟 テスト送信ボタンを追加 */}
+                    {pushEnabled && (
+                      <button 
+                        onClick={handleTestNotification}
+                        type="button"
+                        className="w-full py-2 rounded-lg border border-cyan-500 text-cyan-400 hover:bg-cyan-500/20 text-sm font-semibold transition-colors"
+                      >
+                        通知をテスト送信する
+                      </button>
+                    )}
+                  </div>
+                </div>
+
               </Collapsible>
             </div>
 
