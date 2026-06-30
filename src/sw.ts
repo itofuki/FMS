@@ -1,15 +1,72 @@
-/* src/sw.ts */
+// src/sw.ts
 /// <reference lib="webworker" />
 import { precacheAndRoute } from 'workbox-precaching';
+import { registerRoute } from 'workbox-routing';
+import { NetworkFirst, CacheFirst } from 'workbox-strategies';
+import { ExpirationPlugin } from 'workbox-expiration';
+import { CacheableResponsePlugin } from 'workbox-cacheable-response';
+// 🌟 これを追加：分割ダウンロード（Rangeリクエスト）対応プラグイン
+import { RangeRequestsPlugin } from 'workbox-range-requests';
 
 declare let self: ServiceWorkerGlobalScope;
 
-// ① VitePWAがビルド時に生成するキャッシュリストを読み込む（オフライン対応に必須）
+// ① VitePWAがビルド時に生成するキャッシュリストを読み込む
 precacheAndRoute(self.__WB_MANIFEST);
+
+// 1. ページ遷移（ナビゲーション）をキャッシュする設定
+registerRoute(
+  ({ request }) => request.mode === 'navigate',
+  new NetworkFirst({
+    cacheName: 'pages-cache',
+  })
+);
+
+// 2. 画像などの静的アセットをキャッシュする設定
+registerRoute(
+  ({ request, url }) => request.destination === 'image' || /\.(?:png|jpg|jpeg|svg|webp)$/.test(url.pathname),
+  new CacheFirst({
+    cacheName: 'images-cache',
+    plugins: [
+      new ExpirationPlugin({
+        maxEntries: 50,
+        maxAgeSeconds: 30 * 24 * 60 * 60, // 30日間
+      }),
+    ],
+  })
+);
+
+// 3. PDFファイルをキャッシュする設定（Supabase & react-pdf 完璧対応版）
+registerRoute(
+  // 🌟 条件：URLに .pdf が含まれるか、Supabaseのstorageドメイン宛てのリクエストならキャッシュ
+  ({ url }) => url.href.toLowerCase().includes('.pdf') || url.href.includes('supabase.co/storage'),
+  new CacheFirst({
+    cacheName: 'pdf-cache',
+    plugins: [
+      new CacheableResponsePlugin({
+        statuses: [0, 200], // 別ドメインからの取得(0)と成功(200)を許可
+      }),
+      new RangeRequestsPlugin(), // 🌟 追加：react-pdfの分割リクエストを処理可能にする
+      new ExpirationPlugin({
+        maxEntries: 5,
+        maxAgeSeconds: 30 * 24 * 60 * 60, // 30日間
+      }),
+    ],
+  })
+);
+
+// ... (以下、プッシュ通知の処理はそのまま) ...
+
+// ==========================================
+// 🌟 以下は既存のプッシュ通知の処理
+// ==========================================
 
 // ② プッシュ通知を「受け取った」時の処理
 self.addEventListener('push', (event) => {
-  let data = { title: 'FMS', body: '新しいお知らせがあります' };
+  // 🌟 修正ポイント：型を明示的に指定し、url?: string (省略可能) を追加する
+  let data: { title: string; body: string; url?: string } = { 
+    title: 'FMS', 
+    body: '新しいお知らせがあります' 
+  };
   
   if (event.data) {
     try {
@@ -19,40 +76,16 @@ self.addEventListener('push', (event) => {
     }
   }
 
-  // 通知の見た目の設定
   const options = {
     body: data.body,
-    icon: '/pwa-192x192.png', // スマホに表示されるアプリアイコン
-    badge: '/favicon.svg',    // Androidのステータスバーに出る小さなアイコン
+    icon: '/pwa-192x192.png',
+    badge: '/favicon.svg',
     data: {
-      url: '/' // 通知をタップした時に開くURL
+      url: data.url || '/' // 👈 これでエラーが消えます！
     }
   };
 
-  // スマホの画面にポップアップを出す
   event.waitUntil(
     self.registration.showNotification(data.title, options)
-  );
-});
-
-// ③ 通知が「タップされた」時の処理
-self.addEventListener('notificationclick', (event) => {
-  event.notification.close(); // タップされたら通知を消す
-  const urlToOpen = event.notification.data?.url || '/';
-
-  event.waitUntil(
-    self.clients.matchAll({ type: 'window', includeUncontrolled: true }).then((windowClients) => {
-      // 既にFMSが開いているタブがあれば、そこをアクティブにする
-      for (let i = 0; i < windowClients.length; i++) {
-        const client = windowClients[i];
-        if (client.url.includes(urlToOpen) && 'focus' in client) {
-          return client.focus();
-        }
-      }
-      // 開いていなければ新しくアプリを開く
-      if (self.clients.openWindow) {
-        return self.clients.openWindow(urlToOpen);
-      }
-    })
   );
 });

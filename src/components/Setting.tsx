@@ -19,7 +19,6 @@ type SettingProps = {
 };
 
 // 🌟 Web Push用のキー変換ユーティリティ
-// 🌟 修正版：空っぽの場合はエラーをキャッチしてクラッシュを防ぐ
 const urlB64ToUint8Array = (base64String?: string) => {
   if (!base64String) {
     throw new Error("VAPID公開鍵が読み込めませんでした。.envファイルを確認してください。");
@@ -53,7 +52,6 @@ export default function Setting({ onSettingsSaved }: SettingProps) {
   const [isLightMode, setIsLightMode] = useState<boolean>(false);
   const [loading, setLoading] = useState<boolean>(false);
 
-  // 🌟 プッシュ通知用の状態を追加
   const [pushEnabled, setPushEnabled] = useState<boolean>(false);
   const [isPushLoading, setIsPushLoading] = useState<boolean>(false);
 
@@ -75,11 +73,13 @@ export default function Setting({ onSettingsSaved }: SettingProps) {
       }
       setUser(user);
 
-      const [resDept, resCourse, resClass, resProfile] = await Promise.all([
+      // 🌟 DBから通知設定の有無も同時に取得するように修正
+      const [resDept, resCourse, resClass, resProfile, resPush] = await Promise.all([
         supabase.from('departments').select('*').order('id'),
         supabase.from('courses').select('*').order('id'),
         supabase.from('classes').select('*').order('id'),
-        supabase.from('profiles').select('class_id, english_id, auto_open, is_light_mode, lms_calendar_url').eq('user_id', user.id).single()
+        supabase.from('profiles').select('class_id, english_id, auto_open, is_light_mode, lms_calendar_url').eq('user_id', user.id).single(),
+        supabase.from('user_subscriptions').select('id').eq('user_id', user.id).limit(1)
       ]);
 
       const depts = resDept.data || [];
@@ -116,25 +116,13 @@ export default function Setting({ onSettingsSaved }: SettingProps) {
           if (firstClass) setCourseClass(firstClass.id);
         }
       }
+
+      // 🌟 DBに購読情報があればオンとして表示（端末依存を廃止）
+      const pushData = resPush.data || [];
+      setPushEnabled(pushData.length > 0);
     };
     fetchAllData();
   }, [navigate]);
-
-  // 🌟 初回ロード時にこのブラウザが通知設定済みかチェック
-  useEffect(() => {
-    const checkPushStatus = async () => {
-      if ('serviceWorker' in navigator && 'PushManager' in window) {
-        try {
-          const registration = await navigator.serviceWorker.ready;
-          const subscription = await registration.pushManager.getSubscription();
-          setPushEnabled(!!subscription);
-        } catch (error) {
-          console.error("Push status check failed:", error);
-        }
-      }
-    };
-    checkPushStatus();
-  }, []);
 
   useEffect(() => {
     if (isLightMode) {
@@ -208,7 +196,7 @@ export default function Setting({ onSettingsSaved }: SettingProps) {
     }
   };
 
-  // 🌟 プッシュ通知のオン・オフ切り替え処理
+  // 🌟 DBを正としてオン/オフを統一する処理（フリーズ対策版）
   const handlePushToggle = async (checked: boolean) => {
     if (!user) return;
     setIsPushLoading(true);
@@ -218,17 +206,23 @@ export default function Setting({ onSettingsSaved }: SettingProps) {
         // 1. ブラウザの通知許可をリクエスト
         const permission = await Notification.requestPermission();
         if (permission !== 'granted') {
-          toast.error("通知が許可されていません。ブラウザの設定から通知を許可してください。");
+          toast.error("通知が許可されていません。URLバーのアイコン等から通知を許可してください。");
           setPushEnabled(false);
-          setIsPushLoading(false);
           return;
         }
 
+        if (!('serviceWorker' in navigator)) {
+          throw new Error("このブラウザはプッシュ通知に対応していません。");
+        }
+
         // 2. Service Workerに登録
-        const registration = await navigator.serviceWorker.ready;
+        const registration = await Promise.race([
+          navigator.serviceWorker.ready,
+          new Promise<ServiceWorkerRegistration>((_, reject) => 
+            setTimeout(() => reject(new Error("Service Workerが見つかりません。画面をリロードしてください。")), 5000)
+          )
+        ]);
         
-        // 【重要】ここでステップ1で生成したVAPIDの公開鍵をセットします
-        // VITE_VAPID_PUBLIC_KEY を .env に追加するか、直接以下の文字列を置き換えてください
         const vapidPublicKey = import.meta.env.VITE_VAPID_PUBLIC_KEY || "BMQZQj4x0TkqEaPEuqmEeGg5Ku1XpHhsETYrguHXCfstpmtAkZFjvpctd1OC33suCQJSC53ftXvSlYMADFLViUM";
         
         const subscription = await registration.pushManager.subscribe({
@@ -236,26 +230,38 @@ export default function Setting({ onSettingsSaved }: SettingProps) {
           applicationServerKey: urlB64ToUint8Array(vapidPublicKey)
         });
 
-        // 3. Supabaseに保存
-        const { error } = await supabase.from('user_subscriptions').insert({
-          user_id: user.id,
-          subscription: JSON.parse(JSON.stringify(subscription))
-        });
+        // 🌟 👇 修正ポイント：delete と insert をやめて upsert を使う
+        const { error } = await supabase.from('user_subscriptions').upsert(
+          {
+            user_id: user.id,
+            subscription: JSON.parse(JSON.stringify(subscription))
+          },
+          { onConflict: 'user_id' } // 🔥 user_idが同じなら最新の端末情報で上書きする
+        );
 
         if (error) throw error;
+        // 🌟 👆 ここまで
+
         setPushEnabled(true);
-        toast.success("プッシュ通知をオンにしました！");
+        toast.success("この端末でプッシュ通知を受け取るように設定しました！");
 
       } else {
         // オフにする処理
-        const registration = await navigator.serviceWorker.ready;
-        const subscription = await registration.pushManager.getSubscription();
-        if (subscription) {
-          // ブラウザ側の購読を解除
-          await subscription.unsubscribe();
-          // DBから該当ユーザーの通知設定を削除
-          await supabase.from('user_subscriptions').delete().eq('user_id', user.id);
+        // 🚨 修正ポイント： ここも ready ではなく getRegistration() を使って安全に取得する
+        if ('serviceWorker' in navigator && 'PushManager' in window) {
+          const registration = await navigator.serviceWorker.getRegistration();
+          if (registration) {
+            const subscription = await registration.pushManager.getSubscription();
+            if (subscription) {
+              await subscription.unsubscribe();
+            }
+          }
         }
+        
+        // DBから該当ユーザーの通知設定をすべて削除（全端末でオフに統一）
+        const { error } = await supabase.from('user_subscriptions').delete().eq('user_id', user.id);
+        if (error) throw error;
+        
         setPushEnabled(false);
         toast.success("プッシュ通知をオフにしました。");
       }
@@ -264,17 +270,15 @@ export default function Setting({ onSettingsSaved }: SettingProps) {
       toast.error("設定に失敗しました。詳細: " + error.message);
       setPushEnabled(!checked); // 失敗したらスイッチを戻す
     } finally {
-      setIsPushLoading(false);
+      setIsPushLoading(false); // エラーが起きても必ずローディングを解除する
     }
   };
 
-  // 🌟 テスト通知を送信する処理
   const handleTestNotification = async () => {
     if (!user) return;
     toast.info("通知を送信中...");
     
     try {
-      // SupabaseのEdge Functions 'send-push' を呼び出す
       const { error } = await supabase.functions.invoke('send-push', {
         body: {
           user_id: user.id,
@@ -391,7 +395,7 @@ export default function Setting({ onSettingsSaved }: SettingProps) {
                     <p className="text-xs text-slate-400 mt-2">※ポップアップブロックを解除してください</p>
                   </div>
 
-                  {/* 🌟 プッシュ通知のスイッチを追加 */}
+                  {/* プッシュ通知のスイッチ */}
                   <div className="pt-2 border-t border-slate-700/50">
                     <Switch 
                       label={isPushLoading ? "設定中..." : "プッシュ通知を受け取る"} 
@@ -399,15 +403,15 @@ export default function Setting({ onSettingsSaved }: SettingProps) {
                       onChange={handlePushToggle} 
                     />
                     <p className="text-xs text-slate-400 mt-2">
-                      ※この端末で課題の追加などの通知を受け取ります。
+                      ※設定をオンにした端末に通知が届くようになります。他の端末の設定は上書きされます。
                     </p>
 
-                    {/* 🌟 テスト送信ボタンを追加 */}
+                    {/* テスト送信ボタン */}
                     {pushEnabled && (
                       <button 
                         onClick={handleTestNotification}
                         type="button"
-                        className="w-full py-2 rounded-lg border border-cyan-500 text-cyan-400 hover:bg-cyan-500/20 text-sm font-semibold transition-colors"
+                        className="w-full py-2 rounded-lg border border-cyan-500 text-cyan-400 hover:bg-cyan-500/20 text-sm font-semibold transition-colors mt-4"
                       >
                         通知をテスト送信する
                       </button>

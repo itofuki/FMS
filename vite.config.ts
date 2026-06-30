@@ -1,3 +1,5 @@
+// vite.config.ts
+
 import { defineConfig } from 'vite';
 import react from '@vitejs/plugin-react';
 import tailwindcss from "@tailwindcss/vite";
@@ -9,47 +11,23 @@ export default defineConfig({
     react(),
     tailwindcss(),
     VitePWA({
-      strategies: 'injectManifest', // 🌟 追加（自作のファイルを使うモード）
-      srcDir: 'src',                // 🌟 追加（ファイルがあるフォルダ）
-      filename: 'sw.ts',            // 🌟 追加（ファイル名）
+      strategies: 'injectManifest', // 🌟 自作の src/sw.ts を使う
+      srcDir: 'src',
+      filename: 'sw.ts',
       registerType: 'autoUpdate',
       includeAssets: ['favicon.svg', 'apple-touch-icon.png'],
-      workbox: {
-        globPatterns: ['**/*.{js,css,html,ico,png,svg,webp}'],
-        runtimeCaching: [
-          {
-            // ページ遷移（ナビゲーション）をキャッシュする設定
-            urlPattern: ({ request }) => request.mode === 'navigate',
-            handler: 'NetworkFirst', // ネットワーク優先で取得し、失敗したらキャッシュを表示
-            options: {
-              cacheName: 'pages-cache',
-            },
-          },
-          {
-            // 画像などの静的アセットをキャッシュする設定
-            urlPattern: /\.(?:png|jpg|jpeg|svg|webp)$/,
-            handler: 'CacheFirst', // キャッシュ優先で取得
-            options: {
-              cacheName: 'images-cache',
-              expiration: {
-                maxEntries: 50,
-                maxAgeSeconds: 30 * 24 * 60 * 60, // 30日間
-              },
-            },
-          },
-          {
-            urlPattern: /\.(?:pdf)$/,
-            handler: 'CacheFirst', // 一度開いたらキャッシュから表示
-            options: {
-              cacheName: 'pdf-cache',
-              expiration: {
-                maxEntries: 5, // 保持するPDFの数
-                maxAgeSeconds: 30 * 24 * 60 * 60, // 30日間
-              },
-            },
-          },
-        ],
+      
+      // 🌟 workbox ではなく injectManifest オプションに変更
+      injectManifest: {
+        globPatterns: ['**/*.{js,css,html,ico,png,svg,webp,pdf}'],
       },
+      
+      // 🌟 超重要：これがないと npm run dev (localhost) で動かない
+      devOptions: {
+        enabled: true,
+        type: 'module',
+      },
+
       manifest: {
         name: 'FMS',
         short_name: 'FMS',
