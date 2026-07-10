@@ -559,11 +559,9 @@ const Assignments: React.FC<AssignmentsProps> = ({ subject }) => {
 
     // 2. LMS課題 (credentials 自動取得 or iCal URL、同じ形式で処理)
     const excludedKeywords = ['出欠', '出席', 'attendance', 'アンケート開始'];
-    const now = new Date();
 
     // 🚧 動作確認のため一時的に絞り込みを無効化（元は「2週間以内・除外キーワード対象外・履修科目一致」のみ表示）
     const filteredLms = lmsEvents;
-    void now;
     void twoWeeksLater;
     void excludedKeywords;
     void enrolledSubjectIds;
@@ -603,6 +601,9 @@ const Assignments: React.FC<AssignmentsProps> = ({ subject }) => {
 
     let combined = [...dbUnified, ...lmsUnified];
     if (isAdminMode && userRole === 'admin') combined = combined.filter(a => a.classification === 'official');
+    // 期限切れから1日以内までは表示し、それ以降は非表示にする
+    const oneDayAfterDeadlineCutoff = nowDate.getTime() - 24 * 60 * 60 * 1000;
+    combined = combined.filter(a => new Date(a.deadline).getTime() >= oneDayAfterDeadlineCutoff);
     return combined.sort((a, b) => {
       if (a.done !== b.done) return a.done ? 1 : -1;
       return new Date(a.deadline).getTime() - new Date(b.deadline).getTime();
