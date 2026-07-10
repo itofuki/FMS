@@ -217,7 +217,7 @@ const Assignments: React.FC<AssignmentsProps> = ({ subject }) => {
     } catch { return {}; }
   };
 
-  const { data: lmsEvents = [], isLoading: isLoadingLmsEvents, isFetching: isFetchingLmsEvents, isError: isLmsApiError } = useQuery<LmsEvent[]>({
+  const { data: lmsEvents = [], isLoading: isLoadingLmsEvents, isFetching: isFetchingLmsEvents, isError: isLmsApiError, refetch: refetchLmsEvents } = useQuery<LmsEvent[]>({
     queryKey: ['lmsEvents', 'api', lmsCredentials.username],
     queryFn: async () => {
       const cachedToken = localStorage.getItem('fms_lms_token') ?? undefined;
@@ -467,6 +467,12 @@ const Assignments: React.FC<AssignmentsProps> = ({ subject }) => {
     }
   };
 
+  const handleForceRefreshLms = () => {
+    if (!hasLmsCredentials || isFetchingLmsEvents) return;
+    localStorage.setItem(LMS_FULL_REFRESH_KEY, '0');
+    refetchLmsEvents();
+  };
+
   const handleDeleteAssignment = (id: number | string, isLms: boolean) => {
     if (isLms) return; 
     if (!window.confirm("本当にこの課題を削除しますか？")) return;
@@ -569,8 +575,16 @@ const Assignments: React.FC<AssignmentsProps> = ({ subject }) => {
               <span className={`font-orbitron font-bold text-glow text-xl sm:text-3xl transition-colors ${isAdminMode ? 'text-yellow-400' : 'text-cyan-300'}`}>
                 課題
               </span>
-              {isFetchingLmsEvents && hasLmsCredentials && (
-                <FiRefreshCw size={14} className="text-cyan-500 opacity-70 animate-spin" title="LMS同期中..." />
+              {hasLmsCredentials && (
+                <button
+                  type="button"
+                  onClick={handleForceRefreshLms}
+                  disabled={isFetchingLmsEvents}
+                  title={isFetchingLmsEvents ? "LMS同期中..." : "LMSの提出状況を今すぐ更新"}
+                  className="text-cyan-500 opacity-70 hover:opacity-100 disabled:cursor-not-allowed transition-opacity"
+                >
+                  <FiRefreshCw size={14} className={isFetchingLmsEvents ? 'animate-spin' : ''} />
+                </button>
               )}
             </div>
             {userRole === 'admin' && (
