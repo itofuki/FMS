@@ -761,7 +761,7 @@ const Assignments: React.FC<AssignmentsProps> = ({ subject }) => {
                                       onClick={(e) => { e.stopPropagation(); handlePlayAudio(key, file.url); }}
                                       disabled={isLoading}
                                       title={file.filename}
-                                      className={`flex flex-shrink-0 items-center gap-1 text-[10px] sm:text-xs px-1.5 py-0.5 rounded border transition-colors max-w-[160px] truncate disabled:opacity-60 ${
+                                      className={`flex flex-shrink-0 items-center gap-1 text-[10px] sm:text-xs px-1.5 py-0.5 rounded border transition-colors max-w-[240px] truncate disabled:opacity-60 ${
                                         isError
                                           ? 'border-red-500/60 bg-red-900/20 text-red-300'
                                           : 'border-slate-600 bg-slate-800/60 text-slate-300 hover:text-cyan-300 hover:border-cyan-500/60'
@@ -779,7 +779,7 @@ const Assignments: React.FC<AssignmentsProps> = ({ subject }) => {
                                     target="_blank"
                                     rel="noopener noreferrer"
                                     onClick={(e) => e.stopPropagation()}
-                                    className="flex flex-shrink-0 items-center gap-1 text-[10px] sm:text-xs px-1.5 py-0.5 rounded border border-slate-600 bg-slate-800/60 text-slate-300 hover:text-cyan-300 hover:border-cyan-500/60 transition-colors max-w-[160px] truncate"
+                                    className="flex flex-shrink-0 items-center gap-1 text-[10px] sm:text-xs px-1.5 py-0.5 rounded border border-slate-600 bg-slate-800/60 text-slate-300 hover:text-cyan-300 hover:border-cyan-500/60 transition-colors max-w-[240px] truncate"
                                     title={file.filename}
                                   >
                                     <FiPaperclip size={11} className="flex-shrink-0" />
