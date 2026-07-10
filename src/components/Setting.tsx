@@ -38,7 +38,6 @@ export default function Setting({ onSettingsSaved }: SettingProps) {
 
   const [lmsUsername, setLmsUsername] = useState('');
   const [lmsPassword, setLmsPassword] = useState('');
-  const [lmsMfaSecret] = useState('');
   const [isLmsLoading, setIsLmsLoading] = useState(false);
   const [lmsStatus, setLmsStatus] = useState<{ ok: boolean; message: string } | null>(null);
   const [lmsCredentialsSaved, setLmsCredentialsSaved] = useState(
