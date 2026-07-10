@@ -649,7 +649,7 @@ const Assignments: React.FC<AssignmentsProps> = ({ subject }) => {
           </>
         }
       >
-        <div className="w-full max-w-5xl mx-auto flex flex-col gap-8 p-1 sm:p-4 rounded-xl transition-all duration-300">
+        <div className="w-full max-w-3xl mx-auto flex flex-col gap-8 p-1 sm:p-4 rounded-xl transition-all duration-300">
           <div>
 
             {unifiedAssignments.length === 0 ? (
