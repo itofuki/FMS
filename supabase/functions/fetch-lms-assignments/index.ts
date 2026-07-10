@@ -83,7 +83,7 @@ serve(async (req) => {
     const oneMonthAgo = now - 30 * 24 * 60 * 60;
 
     type RawAssign = {
-      id: number; name: string; intro: string;
+      id: number; cmid: number; name: string; intro: string;
       duedate: number; allowsubmissionsfromdate: number;
       courseShortname: string;
     };
@@ -91,6 +91,7 @@ serve(async (req) => {
     const targets: RawAssign[] = (assignData.courses ?? []).flatMap((course: any) =>
       (course.assignments ?? []).map((a: any) => ({
         id: a.id,
+        cmid: a.cmid,
         name: a.name,
         intro: a.intro ?? "",
         duedate: a.duedate ?? 0,
@@ -143,7 +144,7 @@ serve(async (req) => {
   }
 });
 
-function buildEvent(a: { id: number; name: string; intro: string; duedate: number; allowsubmissionsfromdate: number; courseShortname: string }, submissionStatus: string | null) {
+function buildEvent(a: { id: number; cmid: number; name: string; intro: string; duedate: number; allowsubmissionsfromdate: number; courseShortname: string }, submissionStatus: string | null) {
   return {
     uid: `assign_${a.id}`,
     summary: a.name,
@@ -152,5 +153,6 @@ function buildEvent(a: { id: number; name: string; intro: string; duedate: numbe
     end: new Date(a.duedate * 1000),
     categoryCode: a.courseShortname,
     submissionStatus,
+    url: `${LMS_BASE}/mod/assign/view.php?id=${a.cmid}`,
   };
 }

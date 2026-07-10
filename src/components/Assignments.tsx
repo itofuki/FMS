@@ -528,9 +528,9 @@ const Assignments: React.FC<AssignmentsProps> = ({ subject }) => {
         s => s.category_code && event.categoryCode && s.category_code === event.categoryCode
       );
       let eventUrl = '';
-      if (matched) eventUrl = `https://lms-tokyo.iput.ac.jp/course/view.php?id=${matched.id}`;
+      if (event.url) eventUrl = event.url;
+      else if (matched) eventUrl = `https://lms-tokyo.iput.ac.jp/course/view.php?id=${matched.id}`;
       else if (event.categoryCode) eventUrl = `https://lms-tokyo.iput.ac.jp/course/search.php?search=${event.categoryCode}`;
-      else if (event.url) eventUrl = event.url;
       const displaySubjectName = subject.find(s => s.id === matched?.id)?.name || '未分類(LMS)';
       const manualDone = lmsStatuses.find(s => s.lms_uid === event.uid)?.done ?? false;
       // LMSのステータスが取得できている場合はLMSを優先（提出削除でチェックが外れる）
