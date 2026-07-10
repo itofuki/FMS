@@ -48,22 +48,22 @@ serve(async (req) => {
       });
     }
 
-    // 🌟 変更点: 取得したすべての端末（サブスクリプション）に通知を一斉送信する
-    const sendPromises = subDataList.map((subData) => {
-      return webpush.sendNotification(
-        subData.subscription, 
-        JSON.stringify({ title, body })
-      ).catch((e) => {
-        console.error("個別の送信エラー:", e);
-      });
-    });
+    const results = await Promise.allSettled(
+      subDataList.map((subData) =>
+        webpush.sendNotification(subData.subscription, JSON.stringify({ title, body }))
+      )
+    );
 
-    // すべての送信処理が終わるのを待つ
-    await Promise.all(sendPromises);
+    const failed = results.filter((r) => r.status === 'rejected');
+    if (failed.length > 0) {
+      failed.forEach((r) => console.error("個別の送信エラー:", (r as PromiseRejectedResult).reason));
+    }
 
-    return new Response(JSON.stringify({ success: true, count: subDataList.length }), { 
-      headers: { ...corsHeaders, "Content-Type": "application/json" } 
-    });
+    const succeeded = results.length - failed.length;
+    return new Response(
+      JSON.stringify({ success: succeeded > 0, sent: succeeded, failed: failed.length }),
+      { headers: { ...corsHeaders, "Content-Type": "application/json" } }
+    );
 
   } catch (error: any) {
     return new Response(JSON.stringify({ error: error.message }), {

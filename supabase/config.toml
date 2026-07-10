@@ -416,17 +416,6 @@ entrypoint = "./functions/process-schedule-image/index.ts"
 # For example, if you want to serve static HTML pages in your function:
 # static_files = [ "./functions/process-schedule-image/*.html" ]
 
-[functions.get-lms-calendar]
-enabled = true
-verify_jwt = true
-import_map = "./functions/get-lms-calendar/deno.json"
-# Uncomment to specify a custom file path to the entrypoint.
-# Supported file extensions are: .ts, .js, .mjs, .jsx, .tsx
-entrypoint = "./functions/get-lms-calendar/index.ts"
-# Specifies static files to be bundled with the function. Supports glob patterns.
-# For example, if you want to serve static HTML pages in your function:
-# static_files = [ "./functions/get-lms-calendar/*.html" ]
-
 [functions.slack-schedule-receiver]
 enabled = true
 verify_jwt = true
@@ -448,3 +437,9 @@ entrypoint = "./functions/send-push/index.ts"
 # Specifies static files to be bundled with the function. Supports glob patterns.
 # For example, if you want to serve static HTML pages in your function:
 # static_files = [ "./functions/send-push/*.html" ]
+
+[functions.fetch-lms-assignments]
+enabled = true
+verify_jwt = true
+import_map = "./functions/fetch-lms-assignments/deno.json"
+entrypoint = "./functions/fetch-lms-assignments/index.ts"

@@ -3,7 +3,7 @@
 import React, { useState, useMemo, useRef } from 'react';
 import { supabase } from '../lib/supabaseClient';
 import ChapterFrame from './ChapterFrame';
-import { FiPlus, FiTrash2, FiCalendar, FiInbox, FiFileText, FiTool, FiLink, FiEdit2, FiX, FiInfo } from 'react-icons/fi';
+import { FiPlus, FiTrash2, FiCalendar, FiInbox, FiFileText, FiTool, FiLink, FiEdit2, FiX, FiInfo, FiRefreshCw } from 'react-icons/fi';
 import { format } from 'date-fns';
 import { TextInput, Select, Button, Group, Checkbox, useMantineTheme, SimpleGrid } from '@mantine/core';
 import { DatePickerInput, type DayProps } from '@mantine/dates';
@@ -47,7 +47,9 @@ interface LmsEvent {
   end: string;
   categoryCode?: string;
   url?: string;
+  submissionStatus?: 'submitted' | 'draft' | 'new' | null;
 }
+
 
 type UnifiedAssignment = {
   id: number | string;
@@ -61,6 +63,7 @@ type UnifiedAssignment = {
   isLms: boolean;
   description?: string;
   subjectCategoryType: 'class' | 'department' | 'course' | 'none';
+  submissionStatus?: 'submitted' | 'draft' | 'new' | null;
 };
 
 type LmsStatus = {
@@ -123,6 +126,13 @@ const Assignments: React.FC<AssignmentsProps> = ({ subject }) => {
   const theme = useMantineTheme();
   const queryClient = useQueryClient();
 
+  // LMS認証情報 (localStorage から読み取り)
+  const [lmsCredentials] = useState(() => ({
+    username: localStorage.getItem('fms_lms_username'),
+    password: localStorage.getItem('fms_lms_password'),
+  }));
+  const hasLmsCredentials = !!(lmsCredentials.username && lmsCredentials.password);
+
   // --- ローカルステート ---
   const [isAdminMode, setIsAdminMode] = useState(false);
   const [editingId, setEditingId] = useState<number | null>(null);
@@ -148,22 +158,13 @@ const Assignments: React.FC<AssignmentsProps> = ({ subject }) => {
     queryKey: ['userProfile', currentUser?.id],
     queryFn: async () => {
       if (!currentUser) return null;
-      
+
       const { data, error } = await supabase
         .from('profiles')
-        .select(`
-          role, 
-          lms_calendar_url,
-          classes (
-            representative_lms_url,
-            courses (
-              representative_lms_url
-            )
-          )
-        `)
+        .select('role')
         .eq('user_id', currentUser.id)
         .single();
-        
+
       if (error) {
         console.error("Profile fetch error:", error);
         return null;
@@ -174,15 +175,6 @@ const Assignments: React.FC<AssignmentsProps> = ({ subject }) => {
   });
 
   const userRole = userProfile?.role || 'user';
-  
-  const myLmsUrl = userProfile?.lms_calendar_url;
-  const classData = Array.isArray(userProfile?.classes) ? userProfile?.classes[0] : userProfile?.classes;
-  const classRepresentativeLmsUrl = classData?.representative_lms_url;
-  
-  const courseData = Array.isArray(classData?.courses) ? classData?.courses[0] : classData?.courses;
-  const courseRepresentativeLmsUrl = courseData?.representative_lms_url;
-  
-  const activeLmsCalendarUrl = myLmsUrl || classRepresentativeLmsUrl || courseRepresentativeLmsUrl;
 
   const { data: assignments = [], isLoading: isLoadingAssignments } = useQuery<Assignment[]>({
     queryKey: ['assignments'],
@@ -196,35 +188,71 @@ const Assignments: React.FC<AssignmentsProps> = ({ subject }) => {
     }
   });
 
-  const { data: lmsEvents = [], isLoading: isLoadingLmsEvents } = useQuery<LmsEvent[]>({
-    queryKey: ['lmsEvents', activeLmsCalendarUrl],
+  // credentials があれば自動ログイン取得、なければ既存のiCal URL取得
+  const LMS_EVENTS_CACHE_KEY = `fms_lms_events_${lmsCredentials.username}`;
+  const LMS_FULL_REFRESH_KEY = `fms_lms_full_refresh_${lmsCredentials.username}`;
+  const FULL_REFRESH_INTERVAL = 10 * 60 * 1000; // 10分に1回はフルリフレッシュ（提出削除を検知）
+
+  const getCachedLmsEvents = (): LmsEvent[] | undefined => {
+    try {
+      const raw = localStorage.getItem(LMS_EVENTS_CACHE_KEY);
+      if (!raw) return undefined;
+      const { events, ts } = JSON.parse(raw);
+      if (Date.now() - ts > 24 * 60 * 60 * 1000) return undefined;
+      return events.map((e: any) => ({ ...e, start: new Date(e.start), end: new Date(e.end) }));
+    } catch { return undefined; }
+  };
+
+  // キャッシュから uid→submissionStatus のマップを作る
+  const getCachedStatuses = (): Record<string, string> => {
+    try {
+      const raw = localStorage.getItem(LMS_EVENTS_CACHE_KEY);
+      if (!raw) return {};
+      const { events } = JSON.parse(raw);
+      const map: Record<string, string> = {};
+      for (const e of events ?? []) {
+        if (e.uid && e.submissionStatus) map[e.uid] = e.submissionStatus;
+      }
+      return map;
+    } catch { return {}; }
+  };
+
+  const { data: lmsEvents = [], isLoading: isLoadingLmsEvents, isFetching: isFetchingLmsEvents, isError: isLmsApiError } = useQuery<LmsEvent[]>({
+    queryKey: ['lmsEvents', 'api', lmsCredentials.username],
     queryFn: async () => {
-      if (!activeLmsCalendarUrl) return []; 
-      
-      // 🌟 debug: true を付与してリクエスト
-      const { data, error } = await supabase.functions.invoke('get-lms-calendar', {
-        body: { calendarUrl: activeLmsCalendarUrl, debug: false }
+      const cachedToken = localStorage.getItem('fms_lms_token') ?? undefined;
+      const cachedUserId = Number(localStorage.getItem('fms_lms_userid')) || undefined;
+
+      // 30分以上経過していたらフルリフレッシュ（差分スキップなし）
+      const lastFull = Number(localStorage.getItem(LMS_FULL_REFRESH_KEY) ?? 0);
+      const isFullRefresh = Date.now() - lastFull > FULL_REFRESH_INTERVAL;
+      const cachedStatuses = isFullRefresh ? {} : getCachedStatuses();
+
+      const { data, error } = await supabase.functions.invoke('fetch-lms-assignments', {
+        body: {
+          username: lmsCredentials.username,
+          password: lmsCredentials.password,
+          cachedToken,
+          cachedUserId,
+          cachedStatuses,
+        },
       });
-      
-      console.log("🔥 取得したレスポンス全体:", data); // 👈 この1行を追加
-
-      if (error) {
-        console.error("LMSカレンダー取得エラー:", error);
-        return [];
-      }
-
-      // 🌟 受け取ったデバッグ情報をコンソールに出力
-      if (data?.debugInfo) {
-        console.groupCollapsed('🔍 LMS Calendar Debug Info');
-        console.log('1. 整形後のイベント (events):', data.events);
-        console.log('2. パース直後の生データ (parsedRawEvents):', data.debugInfo.parsedRawEvents);
-        console.log('3. LMSからの生テキスト (rawIcsText):\n', data.debugInfo.rawIcsText);
-        console.groupEnd();
-      }
-
-      return data?.events || [];
+      if (error) throw new Error(error.message);
+      if (data?.code === 'AUTH_FAILED') throw new Error('AUTH_FAILED');
+      if (data?.token) localStorage.setItem('fms_lms_token', data.token);
+      if (data?.userId) localStorage.setItem('fms_lms_userid', String(data.userId));
+      if (isFullRefresh) localStorage.setItem(LMS_FULL_REFRESH_KEY, String(Date.now()));
+      const events: LmsEvent[] = data?.events ?? [];
+      localStorage.setItem(LMS_EVENTS_CACHE_KEY, JSON.stringify({ events, ts: Date.now() }));
+      return events;
     },
-    enabled: !!activeLmsCalendarUrl,
+    placeholderData: getCachedLmsEvents,  // リロード時はキャッシュを即座に表示
+    enabled: hasLmsCredentials,
+    staleTime: 0,
+    refetchOnWindowFocus: true,
+    refetchInterval: 2 * 60 * 1000,
+    refetchIntervalInBackground: false,
+    retry: false,
   });
 
   const { data: dbSubjects = [], isLoading: isLoadingDbSubjects } = useQuery<DbSubject[]>({
@@ -456,75 +484,66 @@ const Assignments: React.FC<AssignmentsProps> = ({ subject }) => {
   const unifiedAssignments = useMemo(() => {
     const nowDate = new Date();
     const twoWeeksLater = new Date(nowDate.getTime() + 14 * 24 * 60 * 60 * 1000);
-    
+
     const enrolledSubjectNames = subject.map(s => s.name);
     const enrolledSubjectIds = subject.map(s => s.id);
 
-    // 1. DB課題のフィルタリング
-    const filteredDb = assignments.filter(assignment => {
-      const isEnrolledOrNoSubject = !assignment.subject_name || enrolledSubjectNames.includes(assignment.subject_name);
-      return isEnrolledOrNoSubject; 
-    });
-    
-    const dbUnified: UnifiedAssignment[] = filteredDb.map(a => {
-      const matchedSubjectProp = subject.find(s => s.name === a.subject_name);
-      const dbSub = matchedSubjectProp ? dbSubjects.find(s => s.id === matchedSubjectProp.id) : undefined;
-      return {
-        ...a,
-        isLms: false,
-        subjectCategoryType: getSubjectCategoryType(dbSub)
-      };
-    });
+    // 1. DB課題
+    const dbUnified: UnifiedAssignment[] = assignments
+      .filter(a => !a.subject_name || enrolledSubjectNames.includes(a.subject_name))
+      .map(a => {
+        const matchedSubjectProp = subject.find(s => s.name === a.subject_name);
+        const dbSub = matchedSubjectProp ? dbSubjects.find(s => s.id === matchedSubjectProp.id) : undefined;
+        return { ...a, isLms: false, subjectCategoryType: getSubjectCategoryType(dbSub) };
+      });
 
-    // 2. LMS課題のフィルタリング
+    // 2. LMS課題 (credentials 自動取得 or iCal URL、同じ形式で処理)
     const excludedKeywords = ['出欠', '出席', 'attendance', 'アンケート開始'];
     const now = new Date();
 
     const filteredLms = lmsEvents.filter(e => {
       const eventTime = e.end ? new Date(e.end) : new Date(e.start);
-
-      const isNotExpired = eventTime >= now;
-      const isWithinTwoWeeks = eventTime <= twoWeeksLater;
       const summaryLower = e.summary.toLowerCase();
-      const hasExcludedKeyword = excludedKeywords.some(keyword =>
-        summaryLower.includes(keyword)
-      );
-
-      const matchedDbSubject = dbSubjects.find(
+      const hasExcludedKeyword = excludedKeywords.some(k => summaryLower.includes(k));
+      const matched = dbSubjects.find(
         s => s.category_code && e.categoryCode && s.category_code === e.categoryCode
       );
-
-      const isEnrolled = matchedDbSubject
-        ? enrolledSubjectIds.includes(matchedDbSubject.id)
-        : false;
-
-      return isNotExpired && isWithinTwoWeeks && !hasExcludedKeyword && isEnrolled;
+      return (
+        eventTime >= now &&
+        eventTime <= twoWeeksLater &&
+        !hasExcludedKeyword &&
+        (matched ? enrolledSubjectIds.includes(matched.id) : false)
+      );
     });
 
     const lmsUnified: UnifiedAssignment[] = filteredLms.map(event => {
-      const matchedDbSubject = dbSubjects.find(s => s.category_code && event.categoryCode && s.category_code === event.categoryCode);
-      
+      const matched = dbSubjects.find(
+        s => s.category_code && event.categoryCode && s.category_code === event.categoryCode
+      );
       let eventUrl = '';
-      if (matchedDbSubject) eventUrl = `https://lms-tokyo.iput.ac.jp/course/view.php?id=${matchedDbSubject.id}`;
+      if (matched) eventUrl = `https://lms-tokyo.iput.ac.jp/course/view.php?id=${matched.id}`;
       else if (event.categoryCode) eventUrl = `https://lms-tokyo.iput.ac.jp/course/search.php?search=${event.categoryCode}`;
       else if (event.url) eventUrl = event.url;
-      
-      const displaySubjectName = subject.find(s => s.id === matchedDbSubject?.id)?.name || '未分類(LMS)';
-      const statusObj = lmsStatuses.find(s => s.lms_uid === event.uid);
-      const isDone = statusObj ? statusObj.done : false;
-
+      const displaySubjectName = subject.find(s => s.id === matched?.id)?.name || '未分類(LMS)';
+      const manualDone = lmsStatuses.find(s => s.lms_uid === event.uid)?.done ?? false;
+      // LMSのステータスが取得できている場合はLMSを優先（提出削除でチェックが外れる）
+      // LMSデータがない場合のみ手動チェック状態にフォールバック
+      const isDone = event.submissionStatus != null
+        ? event.submissionStatus === 'submitted'
+        : manualDone;
       return {
         id: event.uid,
         name: event.summary,
         deadline: event.end || event.start,
-        done: isDone, 
-        classification: 'official',
+        done: isDone,
+        classification: 'official' as const,
         user_id: null,
         subject_name: displaySubjectName,
         url: eventUrl,
         isLms: true,
         description: event.description,
-        subjectCategoryType: getSubjectCategoryType(matchedDbSubject)
+        subjectCategoryType: getSubjectCategoryType(matched),
+        submissionStatus: event.submissionStatus,
       };
     });
 
@@ -550,6 +569,9 @@ const Assignments: React.FC<AssignmentsProps> = ({ subject }) => {
               <span className={`font-orbitron font-bold text-glow text-xl sm:text-3xl transition-colors ${isAdminMode ? 'text-yellow-400' : 'text-cyan-300'}`}>
                 課題
               </span>
+              {isFetchingLmsEvents && hasLmsCredentials && (
+                <FiRefreshCw size={14} className="text-cyan-500 opacity-70 animate-spin" title="LMS同期中..." />
+              )}
             </div>
             {userRole === 'admin' && (
               <div className="absolute top-1/2 right-1 -translate-y-1/2">
@@ -639,6 +661,8 @@ const Assignments: React.FC<AssignmentsProps> = ({ subject }) => {
                               >
                                 {cleanTitle(assignment.name)}
                                 {assignment.isLms && <span className="text-[10px] bg-yellow-500/20 text-yellow-300 px-1 py-0.5 rounded border border-yellow-500/30 flex-shrink-0 ml-1 mt-0.5">LMS</span>}
+                                {assignment.submissionStatus === 'submitted' && <span className="text-[10px] bg-emerald-500/20 text-emerald-300 px-1 py-0.5 rounded border border-emerald-500/30 flex-shrink-0 ml-1 mt-0.5">提出済</span>}
+                                {assignment.submissionStatus === 'draft' && <span className="text-[10px] bg-blue-500/20 text-blue-300 px-1 py-0.5 rounded border border-blue-500/30 flex-shrink-0 ml-1 mt-0.5">下書き</span>}
                               </p>
                             )}
                           </div>
@@ -674,17 +698,16 @@ const Assignments: React.FC<AssignmentsProps> = ({ subject }) => {
             )}
           </div>
 
-          {/* ... (LMS未連携の警告メッセージ部分はそのまま) ... */}
-
-          {!myLmsUrl && !classRepresentativeLmsUrl && !courseRepresentativeLmsUrl && !isAdminMode && (
+          {/* LMS未設定・エラー時のバナー */}
+          {!isAdminMode && !hasLmsCredentials && (
             <div className="mb-6 p-4 bg-blue-900/40 border border-blue-500/50 rounded-lg flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
               <div className="flex items-start gap-3 text-blue-200">
                 <FiInfo className="mt-0.5 flex-shrink-0 text-blue-400" size={18} />
                 <p className="text-sm">
-                  LMSの課題を自動で取得するには、設定画面からご自身のカレンダーURLを登録してください。
+                  LMSの課題を自動で取得するには、設定画面からLMSのIDとパスワードを登録してください。
                 </p>
               </div>
-              <Link 
+              <Link
                 to="?tab=setting&focus=advanced"
                 className="bg-blue-600 hover:bg-blue-500 text-white text-xs font-bold py-2 px-4 rounded transition-colors whitespace-nowrap self-end sm:self-auto"
               >
@@ -693,36 +716,19 @@ const Assignments: React.FC<AssignmentsProps> = ({ subject }) => {
             </div>
           )}
 
-          {!myLmsUrl && classRepresentativeLmsUrl && !isAdminMode && (
-            <div className="mb-6 p-4 bg-emerald-900/40 border border-emerald-500/50 rounded-lg flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
-              <div className="flex items-start gap-3 text-emerald-200">
-                <FiInfo className="mt-0.5 flex-shrink-0 text-emerald-400" size={18} />
+          {!isAdminMode && hasLmsCredentials && isLmsApiError && (
+            <div className="mb-6 p-4 bg-red-900/40 border border-red-500/50 rounded-lg flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
+              <div className="flex items-start gap-3 text-red-200">
+                <FiInfo className="mt-0.5 flex-shrink-0 text-red-400" size={18} />
                 <p className="text-sm">
-                  現在、<strong>クラス代表者</strong>のカレンダーデータを使用して課題を表示しています。個人の履修科目を正確に反映させたい場合は、ご自身のURLをご登録ください。
+                  LMSへのログインに失敗しました。IDとパスワードが正しいか確認してください。
                 </p>
               </div>
-              <Link 
+              <Link
                 to="?tab=setting&focus=advanced"
-                className="bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-bold py-2 px-4 rounded transition-colors whitespace-nowrap self-end sm:self-auto"
+                className="bg-red-600 hover:bg-red-500 text-white text-xs font-bold py-2 px-4 rounded transition-colors whitespace-nowrap self-end sm:self-auto"
               >
-                設定を開く
-              </Link>
-            </div>
-          )}
-
-          {!myLmsUrl && !classRepresentativeLmsUrl && courseRepresentativeLmsUrl && !isAdminMode && (
-            <div className="mb-6 p-4 bg-purple-900/40 border border-purple-500/50 rounded-lg flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
-              <div className="flex items-start gap-3 text-purple-200">
-                <FiInfo className="mt-0.5 flex-shrink-0 text-purple-400" size={18} />
-                <p className="text-sm">
-                  現在、<strong>コース代表者</strong>のカレンダーデータを使用して課題を表示しています。あなた自身の履修科目やクラス情報を正確に反映させたい場合は、ご自身のURLをご登録ください。
-                </p>
-              </div>
-              <Link 
-                to="?tab=setting&focus=advanced"
-                className="bg-purple-600 hover:bg-purple-500 text-white text-xs font-bold py-2 px-4 rounded transition-colors whitespace-nowrap self-end sm:self-auto"
-              >
-                設定を開く
+                設定を確認
               </Link>
             </div>
           )}

@@ -9,12 +9,8 @@ import '@mantine/core/styles.css';
 import '@mantine/dates/styles.css';
 import { MantineProvider, createTheme } from '@mantine/core';
 
-// 🌟 👇これを追加：アプリ起動時に Service Worker を登録する
 import { registerSW } from 'virtual:pwa-register';
-if ('serviceWorker' in navigator) {
-  registerSW({ immediate: true });
-}
-// 🌟 👆ここまで
+registerSW({ immediate: true });
 
 const theme = createTheme({
   fontFamily: '"Noto Sans JP", sans-serif',

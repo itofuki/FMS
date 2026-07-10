@@ -18,21 +18,6 @@ type SettingProps = {
   onSettingsSaved?: () => void;
 };
 
-// 🌟 Web Push用のキー変換ユーティリティ
-const urlB64ToUint8Array = (base64String?: string) => {
-  if (!base64String) {
-    throw new Error("VAPID公開鍵が読み込めませんでした。.envファイルを確認してください。");
-  }
-  const padding = '='.repeat((4 - base64String.length % 4) % 4);
-  const base64 = (base64String + padding).replace(/\-/g, '+').replace(/_/g, '/');
-  const rawData = window.atob(base64);
-  const outputArray = new Uint8Array(rawData.length);
-  for (let i = 0; i < rawData.length; ++i) {
-    outputArray[i] = rawData.charCodeAt(i);
-  }
-  return outputArray;
-};
-
 export default function Setting({ onSettingsSaved }: SettingProps) {
   const navigate = useNavigate();
   const [searchParams, setSearchParams] = useSearchParams();
@@ -47,13 +32,18 @@ export default function Setting({ onSettingsSaved }: SettingProps) {
   const [courseClass, setCourseClass] = useState<number | null>(null);
   
   const [englishID, setEnglishID] = useState<number | null>(null);
-  const [lmsCalendarUrl, setLmsCalendarUrl] = useState<string>("");
   const [autoOpen, setAutoOpen] = useState<boolean>(true);
   const [isLightMode, setIsLightMode] = useState<boolean>(false);
   const [loading, setLoading] = useState<boolean>(false);
 
-  const [pushEnabled, setPushEnabled] = useState<boolean>(false);
-  const [isPushLoading, setIsPushLoading] = useState<boolean>(false);
+  const [lmsUsername, setLmsUsername] = useState('');
+  const [lmsPassword, setLmsPassword] = useState('');
+  const [lmsMfaSecret] = useState('');
+  const [isLmsLoading, setIsLmsLoading] = useState(false);
+  const [lmsStatus, setLmsStatus] = useState<{ ok: boolean; message: string } | null>(null);
+  const [lmsCredentialsSaved, setLmsCredentialsSaved] = useState(
+    () => !!(localStorage.getItem('fms_lms_username') && localStorage.getItem('fms_lms_password'))
+  );
 
   const advancedRef = useRef<HTMLDivElement>(null);
   const isAdvancedFocused = searchParams.get("focus") === "advanced";
@@ -73,13 +63,11 @@ export default function Setting({ onSettingsSaved }: SettingProps) {
       }
       setUser(user);
 
-      // 🌟 DBから通知設定の有無も同時に取得するように修正
-      const [resDept, resCourse, resClass, resProfile, resPush] = await Promise.all([
+      const [resDept, resCourse, resClass, resProfile] = await Promise.all([
         supabase.from('departments').select('*').order('id'),
         supabase.from('courses').select('*').order('id'),
         supabase.from('classes').select('*').order('id'),
-        supabase.from('profiles').select('class_id, english_id, auto_open, is_light_mode, lms_calendar_url').eq('user_id', user.id).single(),
-        supabase.from('user_subscriptions').select('id').eq('user_id', user.id).limit(1)
+        supabase.from('profiles').select('class_id, english_id, auto_open, is_light_mode').eq('user_id', user.id).single(),
       ]);
 
       const depts = resDept.data || [];
@@ -103,7 +91,6 @@ export default function Setting({ onSettingsSaved }: SettingProps) {
           }
         }
         setEnglishID(profile.english_id || null);
-        setLmsCalendarUrl(profile.lms_calendar_url || "");
         setAutoOpen(profile.auto_open ?? true);
         setIsLightMode(profile.is_light_mode ?? false);
       } else if (depts.length > 0 && crses.length > 0 && clses.length > 0) {
@@ -116,10 +103,6 @@ export default function Setting({ onSettingsSaved }: SettingProps) {
           if (firstClass) setCourseClass(firstClass.id);
         }
       }
-
-      // 🌟 DBに購読情報があればオンとして表示（端末依存を廃止）
-      const pushData = resPush.data || [];
-      setPushEnabled(pushData.length > 0);
     };
     fetchAllData();
   }, [navigate]);
@@ -153,6 +136,11 @@ export default function Setting({ onSettingsSaved }: SettingProps) {
   }, [baseCourse, classesDB, courseClass]);
 
   useEffect(() => {
+    setLmsUsername(localStorage.getItem('fms_lms_username') ?? '');
+    setLmsPassword(localStorage.getItem('fms_lms_password') ?? '');
+  }, []);
+
+  useEffect(() => {
     if (isAdvancedFocused && advancedRef.current) {
       const timer = setTimeout(() => {
         advancedRef.current?.scrollIntoView({ behavior: 'smooth', block: 'center' });
@@ -175,7 +163,6 @@ export default function Setting({ onSettingsSaved }: SettingProps) {
         user_id: user.id,
         class_id: courseClass,
         english_id: englishID,
-        lms_calendar_url: lmsCalendarUrl ? lmsCalendarUrl.trim() : null,
         auto_open: autoOpen,
         is_light_mode: isLightMode,
         updated_at: new Date().toISOString(),
@@ -196,104 +183,58 @@ export default function Setting({ onSettingsSaved }: SettingProps) {
     }
   };
 
-  // 🌟 DBを正としてオン/オフを統一する処理（フリーズ対策版）
-  const handlePushToggle = async (checked: boolean) => {
-    if (!user) return;
-    setIsPushLoading(true);
-
+  const handleSaveLmsCredentials = async () => {
+    if (!lmsUsername || !lmsPassword) {
+      toast.error('IDとパスワードを入力してください');
+      return;
+    }
+    setIsLmsLoading(true);
+    setLmsStatus(null);
     try {
-      if (checked) {
-        // 1. ブラウザの通知許可をリクエスト
-        const permission = await Notification.requestPermission();
-        if (permission !== 'granted') {
-          toast.error("通知が許可されていません。URLバーのアイコン等から通知を許可してください。");
-          setPushEnabled(false);
-          return;
-        }
+      const { data, error } = await supabase.functions.invoke('fetch-lms-assignments', {
+        body: {
+          username: lmsUsername,
+          password: lmsPassword,
+        },
+      });
 
-        if (!('serviceWorker' in navigator)) {
-          throw new Error("このブラウザはプッシュ通知に対応していません。");
-        }
+      // 詳細なデバッグ情報をコンソールに出力
+      if (data?.hint) console.warn('[LMS Debug]', data.hint);
+      if (error) console.error('[LMS Error]', error);
 
-        // 2. Service Workerに登録
-        const registration = await Promise.race([
-          navigator.serviceWorker.ready,
-          new Promise<ServiceWorkerRegistration>((_, reject) => 
-            setTimeout(() => reject(new Error("Service Workerが見つかりません。画面をリロードしてください。")), 5000)
-          )
-        ]);
-        
-        const vapidPublicKey = import.meta.env.VITE_VAPID_PUBLIC_KEY || "BMQZQj4x0TkqEaPEuqmEeGg5Ku1XpHhsETYrguHXCfstpmtAkZFjvpctd1OC33suCQJSC53ftXvSlYMADFLViUM";
-        
-        const subscription = await registration.pushManager.subscribe({
-          userVisibleOnly: true,
-          applicationServerKey: urlB64ToUint8Array(vapidPublicKey)
-        });
-
-        // 🌟 👇 修正ポイント：delete と insert をやめて upsert を使う
-        const { error } = await supabase.from('user_subscriptions').upsert(
-          {
-            user_id: user.id,
-            subscription: JSON.parse(JSON.stringify(subscription))
-          },
-          { onConflict: 'user_id' } // 🔥 user_idが同じなら最新の端末情報で上書きする
-        );
-
-        if (error) throw error;
-        // 🌟 👆 ここまで
-
-        setPushEnabled(true);
-        toast.success("この端末でプッシュ通知を受け取るように設定しました！");
-
-      } else {
-        // オフにする処理
-        // 🚨 修正ポイント： ここも ready ではなく getRegistration() を使って安全に取得する
-        if ('serviceWorker' in navigator && 'PushManager' in window) {
-          const registration = await navigator.serviceWorker.getRegistration();
-          if (registration) {
-            const subscription = await registration.pushManager.getSubscription();
-            if (subscription) {
-              await subscription.unsubscribe();
-            }
-          }
-        }
-        
-        // DBから該当ユーザーの通知設定をすべて削除（全端末でオフに統一）
-        const { error } = await supabase.from('user_subscriptions').delete().eq('user_id', user.id);
-        if (error) throw error;
-        
-        setPushEnabled(false);
-        toast.success("プッシュ通知をオフにしました。");
+      if (error) {
+        setLmsStatus({ ok: false, message: `通信エラー: ${error.message}` });
+        return;
       }
-    } catch (error: any) {
-      console.error(error);
-      toast.error("設定に失敗しました。詳細: " + error.message);
-      setPushEnabled(!checked); // 失敗したらスイッチを戻す
+      if (data?.code === 'AUTH_FAILED') {
+        setLmsStatus({ ok: false, message: data.error ?? 'IDまたはパスワードが正しくありません。' });
+        return;
+      }
+
+      localStorage.setItem('fms_lms_username', lmsUsername);
+      localStorage.setItem('fms_lms_password', lmsPassword);
+      localStorage.removeItem('fms_lms_mfa_secret');
+      setLmsCredentialsSaved(true);
+      setLmsStatus({ ok: true, message: `接続に成功しました！${data.events?.length ?? 0}件のイベントを取得できます。` });
+      toast.success('LMSの認証情報を保存しました。');
+    } catch (e: any) {
+      setLmsStatus({ ok: false, message: 'エラー: ' + e.message });
     } finally {
-      setIsPushLoading(false); // エラーが起きても必ずローディングを解除する
+      setIsLmsLoading(false);
     }
   };
 
-  const handleTestNotification = async () => {
-    if (!user) return;
-    toast.info("通知を送信中...");
-    
-    try {
-      const { error } = await supabase.functions.invoke('send-push', {
-        body: {
-          user_id: user.id,
-          title: "テスト通知🚀",
-          body: "FMSからのプッシュ通知テストに成功しました！"
-        }
-      });
-
-      if (error) throw error;
-      toast.success("サーバーから通知を送信しました！");
-      
-    } catch (error: any) {
-      console.error(error);
-      toast.error("送信エラー: " + error.message);
-    }
+  const handleClearLmsCredentials = () => {
+    localStorage.removeItem('fms_lms_username');
+    localStorage.removeItem('fms_lms_password');
+    localStorage.removeItem('fms_lms_mfa_secret');
+    localStorage.removeItem('fms_lms_token');
+    localStorage.removeItem('fms_lms_userid');
+    setLmsUsername('');
+    setLmsPassword('');
+    setLmsCredentialsSaved(false);
+    setLmsStatus(null);
+    toast.success('LMSの認証情報を削除しました。');
   };
 
   const handleLogout = async () => {
@@ -371,21 +312,62 @@ export default function Setting({ onSettingsSaved }: SettingProps) {
             <div ref={advancedRef}>
               <Collapsible title="Advanced" defaultOpen={isAdvancedFocused} open={isAdvancedFocused}>
                 
-                {/* LMSカレンダーURLの設定 */}
-                <div className={`space-y-2 mb-6 p-4 rounded-xl transition-all duration-700 ${isAdvancedFocused ? 'bg-cyan-900/40 border border-cyan-400/80 shadow-[0_0_15px_rgba(34,211,238,0.3)]' : 'bg-slate-900/20 border border-slate-700/50'}`}>
-                  <label className="block text-sm font-semibold text-cyan-100">
-                    LMS カレンダーURL (任意)
-                  </label>
-                  <input
-                    type="url"
-                    value={lmsCalendarUrl}
-                    onChange={(e) => setLmsCalendarUrl(e.target.value)}
-                    placeholder="https://lms-tokyo.iput.ac.jp/calendar/export_execute.php?..."
-                    className={`w-full bg-slate-900 border rounded-lg p-3 text-slate-200 outline-none transition-colors text-sm placeholder:text-slate-600 ${isAdvancedFocused ? 'border-cyan-500 focus:border-cyan-300' : 'border-slate-600 focus:border-cyan-400'}`}
-                  />
-                  <p className="text-xs text-slate-400 mt-1">
-                    LMSから取得したカレンダーの「エクスポートURL」を入力すると、個人の課題が自動で反映されます。
-                  </p>
+                {/* LMS ログイン情報 */}
+                <div className={`space-y-3 mb-6 p-4 rounded-xl transition-all duration-700 ${isAdvancedFocused ? 'bg-cyan-900/40 border border-cyan-400/80 shadow-[0_0_15px_rgba(34,211,238,0.3)]' : 'bg-slate-900/20 border border-slate-700/50'}`}>
+                  <div>
+                    <label className="block text-sm font-semibold text-cyan-100 mb-1">
+                      LMS ログイン情報
+                      {lmsCredentialsSaved && (
+                        <span className="ml-2 text-xs text-emerald-400 font-normal">✓ 保存済み</span>
+                      )}
+                    </label>
+                    <p className="text-xs text-slate-400">
+                      LMSのIDとパスワードを入力すると課題を自動取得できます。
+                      認証情報はこのブラウザ内にのみ保存され、サーバーには保存されません。
+                    </p>
+                  </div>
+                  <div className="space-y-2">
+                    <input
+                      type="text"
+                      autoComplete="username"
+                      value={lmsUsername}
+                      onChange={(e) => setLmsUsername(e.target.value)}
+                      placeholder="LMSのユーザーID"
+                      className="w-full bg-slate-900 border border-slate-600 rounded-lg p-3 text-slate-200 outline-none text-sm placeholder:text-slate-600 focus:border-cyan-400 transition-colors"
+                    />
+                    <input
+                      type="password"
+                      autoComplete="current-password"
+                      value={lmsPassword}
+                      onChange={(e) => setLmsPassword(e.target.value)}
+                      placeholder="LMSのパスワード"
+                      className="w-full bg-slate-900 border border-slate-600 rounded-lg p-3 text-slate-200 outline-none text-sm placeholder:text-slate-600 focus:border-cyan-400 transition-colors"
+                    />
+                  </div>
+                  {lmsStatus && (
+                    <p className={`text-xs ${lmsStatus.ok ? 'text-emerald-400' : 'text-red-400'}`}>
+                      {lmsStatus.ok ? '✓ ' : '✗ '}{lmsStatus.message}
+                    </p>
+                  )}
+                  <div className="flex gap-2">
+                    <button
+                      type="button"
+                      onClick={handleSaveLmsCredentials}
+                      disabled={isLmsLoading}
+                      className="flex-1 py-2 rounded-lg bg-cyan-700 hover:bg-cyan-600 text-white text-sm font-semibold transition-colors disabled:opacity-50"
+                    >
+                      {isLmsLoading ? '接続確認中...' : '保存して接続テスト'}
+                    </button>
+                    {lmsCredentialsSaved && (
+                      <button
+                        type="button"
+                        onClick={handleClearLmsCredentials}
+                        className="px-4 py-2 rounded-lg border border-red-500/50 text-red-400 hover:bg-red-500/10 text-sm transition-colors"
+                      >
+                        削除
+                      </button>
+                    )}
+                  </div>
                 </div>
 
                 <div className="space-y-6">
@@ -393,29 +375,6 @@ export default function Setting({ onSettingsSaved }: SettingProps) {
                   <div>
                     <Switch label="授業開始前に自動で出席確認を開く" checked={autoOpen} onChange={setAutoOpen} />
                     <p className="text-xs text-slate-400 mt-2">※ポップアップブロックを解除してください</p>
-                  </div>
-
-                  {/* プッシュ通知のスイッチ */}
-                  <div className="pt-2 border-t border-slate-700/50">
-                    <Switch 
-                      label={isPushLoading ? "設定中..." : "プッシュ通知を受け取る"} 
-                      checked={pushEnabled} 
-                      onChange={handlePushToggle} 
-                    />
-                    <p className="text-xs text-slate-400 mt-2">
-                      ※設定をオンにした端末に通知が届くようになります。他の端末の設定は上書きされます。
-                    </p>
-
-                    {/* テスト送信ボタン */}
-                    {pushEnabled && (
-                      <button 
-                        onClick={handleTestNotification}
-                        type="button"
-                        className="w-full py-2 rounded-lg border border-cyan-500 text-cyan-400 hover:bg-cyan-500/20 text-sm font-semibold transition-colors mt-4"
-                      >
-                        通知をテスト送信する
-                      </button>
-                    )}
                   </div>
                 </div>
 
