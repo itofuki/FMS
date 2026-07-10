@@ -702,7 +702,7 @@ const Assignments: React.FC<AssignmentsProps> = ({ subject }) => {
 
                           {/* 左側4段目: 添付資料 (LMSのみ) */}
                           {assignment.isLms && assignment.attachments && assignment.attachments.length > 0 && (
-                            <div className="mt-1.5 flex flex-wrap gap-1.5">
+                            <div className="mt-1.5 flex flex-nowrap gap-1.5 overflow-x-auto [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
                               {assignment.attachments.map((file, i) => (
                                 <a
                                   key={i}
@@ -710,7 +710,7 @@ const Assignments: React.FC<AssignmentsProps> = ({ subject }) => {
                                   target="_blank"
                                   rel="noopener noreferrer"
                                   onClick={(e) => e.stopPropagation()}
-                                  className="flex items-center gap-1 text-[10px] sm:text-xs px-1.5 py-0.5 rounded border border-slate-600 bg-slate-800/60 text-slate-300 hover:text-cyan-300 hover:border-cyan-500/60 transition-colors max-w-[160px] truncate"
+                                  className="flex flex-shrink-0 items-center gap-1 text-[10px] sm:text-xs px-1.5 py-0.5 rounded border border-slate-600 bg-slate-800/60 text-slate-300 hover:text-cyan-300 hover:border-cyan-500/60 transition-colors max-w-[160px] truncate"
                                   title={file.filename}
                                 >
                                   <FiPaperclip size={11} className="flex-shrink-0" />
