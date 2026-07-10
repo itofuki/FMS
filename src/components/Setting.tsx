@@ -9,7 +9,8 @@ import { FiSettings } from "react-icons/fi";
 import RadioGroup from "./RadioGroup";
 import Switch from "./Switch";
 import Collapsible from "./Collapsible";
-import ChapterFrame from "../components/ChapterFrame"; 
+import ChapterFrame from "../components/ChapterFrame";
+import Loading from "./Loading";
 
 type DeptDB = { id: number; name: string; code: string };
 type CourseDB = { id: number; department_id: number; name: string; code: string };
@@ -242,7 +243,7 @@ export default function Setting({ onSettingsSaved }: SettingProps) {
     navigate("/");
   };
 
-  if (!user) return <div>Loading...</div>;
+  if (!user) return <Loading fullScreen />;
 
   const departmentOptions = departmentsDB.map(d => ({ value: String(d.id), label: d.name }));
   const courseOptions = coursesDB

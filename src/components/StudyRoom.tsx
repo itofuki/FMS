@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react';
 import ChapterFrame from './ChapterFrame';
+import Loading from './Loading';
 import { FiBookOpen } from 'react-icons/fi';
 import { supabase } from '../lib/supabaseClient';
 import { useQuery } from '@tanstack/react-query';
@@ -136,7 +137,7 @@ const StudyRoom = () => {
               <p className="text-slate-400 text-xs md:text-sm mb-1">自習室</p>
               <div className="flex-1 flex items-center justify-center">
                 {isLoadingSchedule ? (
-                  <span className="text-slate-500 text-xs md:text-sm animate-pulse">読み込み中...</span>
+                  <Loading size="sm" label="" />
                 ) : currentRooms ? (
                   <span className="text-lg md:text-3xl font-bold text-white tracking-wider">{currentRooms.study}</span>
                 ) : (
@@ -150,7 +151,7 @@ const StudyRoom = () => {
               <p className="text-slate-400 text-xs md:text-sm mb-1">談話室</p>
               <div className="flex-1 flex items-center justify-center">
                 {isLoadingSchedule ? (
-                  <span className="text-slate-500 text-xs md:text-sm animate-pulse">読み込み中...</span>
+                  <Loading size="sm" label="" />
                 ) : currentRooms ? (
                   <span className="text-lg md:text-3xl font-bold text-white tracking-wider">{currentRooms.talk}</span>
                 ) : (
@@ -170,7 +171,7 @@ const StudyRoom = () => {
         {/* PDF表示セクション (Google Viewer 方式) */}
         <div className="w-full max-w-2xl my-2 flex justify-center items-center min-h-[150px]">
           {isLoadingPdf ? (
-            <span className="text-slate-400 animate-pulse">スケジュール表を準備中...</span>
+            <Loading label="スケジュール表を準備中..." />
           ) : pdfPath ? (
             <div className="w-full h-[450px] md:h-[820px] border border-slate-700 rounded overflow-hidden shadow-xl bg-white">
               <iframe

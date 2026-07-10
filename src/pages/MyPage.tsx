@@ -14,6 +14,7 @@ import Assignments from '../components/Assignments';
 import Setting from '../components/Setting';
 import Feedback from '../components/Feedback';
 import Tips from '../components/Tips';
+import Loading from '../components/Loading';
 
 const VALID_DAYS: Day[] = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri'];
 function isDay(key: any): key is Day {
@@ -271,7 +272,7 @@ export default function MyPage() {
   }, [loading, autoOpenEnabled, weeklySubjects, openedSubjects]);
 
   if (loading) {
-    return <div className="min-h-screen flex items-center justify-center bg-gray-900 text-white">Loading...</div>;
+    return <Loading fullScreen />;
   }
 
   const generateDynamicTitle = () => {

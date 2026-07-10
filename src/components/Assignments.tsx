@@ -3,6 +3,7 @@
 import React, { useState, useMemo, useRef } from 'react';
 import { supabase } from '../lib/supabaseClient';
 import ChapterFrame from './ChapterFrame';
+import Loading from './Loading';
 import { FiPlus, FiTrash2, FiCalendar, FiInbox, FiFileText, FiTool, FiLink, FiEdit2, FiX, FiInfo, FiRefreshCw } from 'react-icons/fi';
 import { format } from 'date-fns';
 import { TextInput, Select, Button, Group, Checkbox, useMantineTheme, SimpleGrid } from '@mantine/core';
@@ -563,7 +564,7 @@ const Assignments: React.FC<AssignmentsProps> = ({ subject }) => {
 
   // ... (上部のロジックはそのまま) ...
 
-  if (loading) return <p className="text-slate-400 text-center py-10">読み込み中...</p>;
+  if (loading) return <Loading />;
 
   return (
     <div className={`transition-all duration-300 ${isAdminMode ? 'bg-yellow-900/30' : ''}`}>
