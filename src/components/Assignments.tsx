@@ -658,7 +658,7 @@ const Assignments: React.FC<AssignmentsProps> = ({ subject }) => {
                 <p className="text-slate-400 text-sm">{isAdminMode ? '表示できる公式課題はありません' : '直近2週間の課題はありません 🎉'}</p>
               </div>
             ) : (
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              <div className="grid grid-cols-1 gap-4">
                 {unifiedAssignments.map(assignment => {
                   const canDelete = !assignment.isLms && ((isAdminMode && userRole === 'admin') || (assignment.classification === 'private' && assignment.user_id === currentUser?.id));
                   const cleanTitle = (title: string) => title.replace(/[「」]|の提出期限/g, '');
