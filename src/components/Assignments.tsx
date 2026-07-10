@@ -1,10 +1,10 @@
 /* src/components/Assignments.tsx */
 
-import React, { useState, useMemo, useRef } from 'react';
+import React, { useState, useMemo, useRef, useEffect } from 'react';
 import { supabase } from '../lib/supabaseClient';
 import ChapterFrame from './ChapterFrame';
 import Loading from './Loading';
-import { FiPlus, FiTrash2, FiCalendar, FiInbox, FiFileText, FiTool, FiLink, FiEdit2, FiX, FiInfo, FiRefreshCw, FiPaperclip } from 'react-icons/fi';
+import { FiPlus, FiTrash2, FiCalendar, FiInbox, FiFileText, FiTool, FiLink, FiEdit2, FiX, FiInfo, FiRefreshCw, FiPaperclip, FiPlay } from 'react-icons/fi';
 import { format } from 'date-fns';
 import { TextInput, Select, Button, Group, Checkbox, useMantineTheme, SimpleGrid } from '@mantine/core';
 import { DatePickerInput, type DayProps } from '@mantine/dates';
@@ -151,6 +151,18 @@ const Assignments: React.FC<AssignmentsProps> = ({ subject }) => {
   const [newTime, setNewTime] = useState('');
   const [newSubjectId, setNewSubjectId] = useState<string | null>(null);
   const [newUrl, setNewUrl] = useState('');
+
+  // 添付の音声ファイル再生用（tokenクエリ付きURLはRangeリクエストに対応していないため、Blobで一括取得して再生する）
+  const [audioBlobUrls, setAudioBlobUrls] = useState<Record<string, string>>({});
+  const [loadingAudioKey, setLoadingAudioKey] = useState<string | null>(null);
+  const [audioErrorKey, setAudioErrorKey] = useState<string | null>(null);
+
+  useEffect(() => {
+    return () => {
+      Object.values(audioBlobUrls).forEach(url => URL.revokeObjectURL(url));
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   // --- React Queryによるデータ取得 ---
   const { data: currentUser, isLoading: isLoadingUser } = useQuery<User | null>({
@@ -481,6 +493,28 @@ const Assignments: React.FC<AssignmentsProps> = ({ subject }) => {
     refetchLmsEvents();
   };
 
+  const isAudioFile = (filename: string) => /\.(mp3|wav|m4a|aac|ogg|oga|flac|wma)$/i.test(filename);
+
+  const handlePlayAudio = async (key: string, url: string) => {
+    if (audioBlobUrls[key] || loadingAudioKey === key) return;
+    setAudioErrorKey(prev => (prev === key ? null : prev));
+    setLoadingAudioKey(key);
+    try {
+      // token付きURLへの直接再生はMoodle側がRangeリクエストに対応しておらず途中で止まるため、
+      // 一旦Blobとして丸ごと取得してからaudio要素に渡す
+      const res = await fetch(url);
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      const blob = await res.blob();
+      const blobUrl = URL.createObjectURL(blob);
+      setAudioBlobUrls(prev => ({ ...prev, [key]: blobUrl }));
+    } catch (err) {
+      console.error('音声の読み込みに失敗しました:', err);
+      setAudioErrorKey(key);
+    } finally {
+      setLoadingAudioKey(prev => (prev === key ? null : prev));
+    }
+  };
+
   const handleDeleteAssignment = (id: number | string, isLms: boolean) => {
     if (isLms) return; 
     if (!window.confirm("本当にこの課題を削除しますか？")) return;
@@ -702,21 +736,57 @@ const Assignments: React.FC<AssignmentsProps> = ({ subject }) => {
 
                           {/* 左側4段目: 添付資料 (LMSのみ) */}
                           {assignment.isLms && assignment.attachments && assignment.attachments.length > 0 && (
-                            <div className="mt-1.5 flex flex-nowrap gap-1.5 overflow-x-auto [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
-                              {assignment.attachments.map((file, i) => (
-                                <a
-                                  key={i}
-                                  href={file.url}
-                                  target="_blank"
-                                  rel="noopener noreferrer"
-                                  onClick={(e) => e.stopPropagation()}
-                                  className="flex flex-shrink-0 items-center gap-1 text-[10px] sm:text-xs px-1.5 py-0.5 rounded border border-slate-600 bg-slate-800/60 text-slate-300 hover:text-cyan-300 hover:border-cyan-500/60 transition-colors max-w-[160px] truncate"
-                                  title={file.filename}
-                                >
-                                  <FiPaperclip size={11} className="flex-shrink-0" />
-                                  <span className="truncate">{file.filename}</span>
-                                </a>
-                              ))}
+                            <div className="mt-1.5 flex flex-nowrap gap-1.5 overflow-x-auto snap-x snap-proximity scroll-px-1 px-0.5 py-0.5 -mx-0.5 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
+                              {assignment.attachments.map((file, i) => {
+                                const key = `${assignment.id}_${i}`;
+                                if (isAudioFile(file.filename)) {
+                                  if (audioBlobUrls[key]) {
+                                    return (
+                                      <audio
+                                        key={key}
+                                        controls
+                                        autoPlay
+                                        src={audioBlobUrls[key]}
+                                        onClick={(e) => e.stopPropagation()}
+                                        className="flex-shrink-0 snap-start h-7 w-[220px]"
+                                      />
+                                    );
+                                  }
+                                  const isLoading = loadingAudioKey === key;
+                                  const isError = audioErrorKey === key;
+                                  return (
+                                    <button
+                                      key={key}
+                                      type="button"
+                                      onClick={(e) => { e.stopPropagation(); handlePlayAudio(key, file.url); }}
+                                      disabled={isLoading}
+                                      title={file.filename}
+                                      className={`flex flex-shrink-0 snap-start items-center gap-1 text-[10px] sm:text-xs px-1.5 py-0.5 rounded border transition-colors max-w-[160px] truncate disabled:opacity-60 ${
+                                        isError
+                                          ? 'border-red-500/60 bg-red-900/20 text-red-300'
+                                          : 'border-slate-600 bg-slate-800/60 text-slate-300 hover:text-cyan-300 hover:border-cyan-500/60'
+                                      }`}
+                                    >
+                                      <FiPlay size={11} className={`flex-shrink-0 ${isLoading ? 'animate-pulse' : ''}`} />
+                                      <span className="truncate">{isError ? '再生に失敗（再試行）' : isLoading ? '読み込み中...' : file.filename}</span>
+                                    </button>
+                                  );
+                                }
+                                return (
+                                  <a
+                                    key={key}
+                                    href={file.url}
+                                    target="_blank"
+                                    rel="noopener noreferrer"
+                                    onClick={(e) => e.stopPropagation()}
+                                    className="flex flex-shrink-0 snap-start items-center gap-1 text-[10px] sm:text-xs px-1.5 py-0.5 rounded border border-slate-600 bg-slate-800/60 text-slate-300 hover:text-cyan-300 hover:border-cyan-500/60 transition-colors max-w-[160px] truncate"
+                                    title={file.filename}
+                                  >
+                                    <FiPaperclip size={11} className="flex-shrink-0" />
+                                    <span className="truncate">{file.filename}</span>
+                                  </a>
+                                );
+                              })}
                             </div>
                           )}
                         </div>
