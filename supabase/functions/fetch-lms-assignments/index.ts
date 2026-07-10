@@ -82,10 +82,11 @@ serve(async (req) => {
     const now = Math.floor(Date.now() / 1000);
     const oneMonthAgo = now - 30 * 24 * 60 * 60;
 
+    type RawAttachment = { filename: string; fileurl: string };
     type RawAssign = {
       id: number; cmid: number; name: string; intro: string;
       duedate: number; allowsubmissionsfromdate: number;
-      courseShortname: string;
+      courseShortname: string; attachments: RawAttachment[];
     };
 
     const targets: RawAssign[] = (assignData.courses ?? []).flatMap((course: any) =>
@@ -97,6 +98,9 @@ serve(async (req) => {
         duedate: a.duedate ?? 0,
         allowsubmissionsfromdate: a.allowsubmissionsfromdate ?? 0,
         courseShortname: course.shortname,
+        attachments: [...(a.introattachments ?? []), ...(a.activityattachments ?? [])]
+          .filter((f: any) => f.filename && f.fileurl)
+          .map((f: any) => ({ filename: f.filename, fileurl: f.fileurl })),
       }))
     ).filter((a: RawAssign) => a.duedate > 0 && a.duedate > oneMonthAgo);
 
@@ -121,11 +125,11 @@ serve(async (req) => {
         const attempt = result.value.lastattempt;
         submissionStatus = attempt?.submission?.status ?? attempt?.teamsubmission?.status ?? null;
       }
-      return buildEvent(assignment, submissionStatus);
+      return buildEvent(assignment, submissionStatus, token.value);
     });
 
     const cachedEvents = useCache.map(assignment =>
-      buildEvent(assignment, "submitted")
+      buildEvent(assignment, "submitted", token.value)
     );
 
     const events = [...freshEvents, ...cachedEvents]
@@ -144,7 +148,11 @@ serve(async (req) => {
   }
 });
 
-function buildEvent(a: { id: number; cmid: number; name: string; intro: string; duedate: number; allowsubmissionsfromdate: number; courseShortname: string }, submissionStatus: string | null) {
+function buildEvent(
+  a: { id: number; cmid: number; name: string; intro: string; duedate: number; allowsubmissionsfromdate: number; courseShortname: string; attachments: { filename: string; fileurl: string }[] },
+  submissionStatus: string | null,
+  token: string
+) {
   return {
     uid: `assign_${a.id}`,
     summary: a.name,
@@ -154,5 +162,9 @@ function buildEvent(a: { id: number; cmid: number; name: string; intro: string; 
     categoryCode: a.courseShortname,
     submissionStatus,
     url: `${LMS_BASE}/mod/assign/view.php?id=${a.cmid}`,
+    attachments: a.attachments.map((f) => ({
+      filename: f.filename,
+      url: `${f.fileurl}${f.fileurl.includes("?") ? "&" : "?"}token=${token}`,
+    })),
   };
 }

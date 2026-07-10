@@ -4,7 +4,7 @@ import React, { useState, useMemo, useRef } from 'react';
 import { supabase } from '../lib/supabaseClient';
 import ChapterFrame from './ChapterFrame';
 import Loading from './Loading';
-import { FiPlus, FiTrash2, FiCalendar, FiInbox, FiFileText, FiTool, FiLink, FiEdit2, FiX, FiInfo, FiRefreshCw } from 'react-icons/fi';
+import { FiPlus, FiTrash2, FiCalendar, FiInbox, FiFileText, FiTool, FiLink, FiEdit2, FiX, FiInfo, FiRefreshCw, FiPaperclip } from 'react-icons/fi';
 import { format } from 'date-fns';
 import { TextInput, Select, Button, Group, Checkbox, useMantineTheme, SimpleGrid } from '@mantine/core';
 import { DatePickerInput, type DayProps } from '@mantine/dates';
@@ -40,6 +40,11 @@ type DbSubject = {
 
 interface AssignmentsProps { subject: Subject[] }
 
+interface LmsAttachment {
+  filename: string;
+  url: string;
+}
+
 interface LmsEvent {
   uid: string;
   summary: string;
@@ -49,6 +54,7 @@ interface LmsEvent {
   categoryCode?: string;
   url?: string;
   submissionStatus?: 'submitted' | 'draft' | 'new' | null;
+  attachments?: LmsAttachment[];
 }
 
 
@@ -65,6 +71,7 @@ type UnifiedAssignment = {
   description?: string;
   subjectCategoryType: 'class' | 'department' | 'course' | 'none';
   submissionStatus?: 'submitted' | 'draft' | 'new' | null;
+  attachments?: LmsAttachment[];
 };
 
 type LmsStatus = {
@@ -551,6 +558,7 @@ const Assignments: React.FC<AssignmentsProps> = ({ subject }) => {
         description: event.description,
         subjectCategoryType: getSubjectCategoryType(matched),
         submissionStatus: event.submissionStatus,
+        attachments: event.attachments,
       };
     });
 
@@ -688,8 +696,28 @@ const Assignments: React.FC<AssignmentsProps> = ({ subject }) => {
                               className={`mt-1.5 text-xs line-clamp-2 prose prose-invert prose-sm whitespace-pre-wrap transition-colors duration-300 ${
                                 assignment.done ? 'text-slate-500 opacity-50' : 'text-slate-400'
                               }`}
-                              dangerouslySetInnerHTML={{ __html: assignment.description }} 
+                              dangerouslySetInnerHTML={{ __html: assignment.description }}
                             />
+                          )}
+
+                          {/* 左側4段目: 添付資料 (LMSのみ) */}
+                          {assignment.isLms && assignment.attachments && assignment.attachments.length > 0 && (
+                            <div className="mt-1.5 flex flex-wrap gap-1.5">
+                              {assignment.attachments.map((file, i) => (
+                                <a
+                                  key={i}
+                                  href={file.url}
+                                  target="_blank"
+                                  rel="noopener noreferrer"
+                                  onClick={(e) => e.stopPropagation()}
+                                  className="flex items-center gap-1 text-[10px] sm:text-xs px-1.5 py-0.5 rounded border border-slate-600 bg-slate-800/60 text-slate-300 hover:text-cyan-300 hover:border-cyan-500/60 transition-colors max-w-[160px] truncate"
+                                  title={file.filename}
+                                >
+                                  <FiPaperclip size={11} className="flex-shrink-0" />
+                                  <span className="truncate">{file.filename}</span>
+                                </a>
+                              ))}
+                            </div>
                           )}
                         </div>
 
