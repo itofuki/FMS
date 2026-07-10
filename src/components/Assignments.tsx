@@ -577,11 +577,9 @@ const Assignments: React.FC<AssignmentsProps> = ({ subject }) => {
       else if (event.categoryCode) eventUrl = `https://lms-tokyo.iput.ac.jp/course/search.php?search=${event.categoryCode}`;
       const displaySubjectName = subject.find(s => s.id === matched?.id)?.name || '未分類(LMS)';
       const manualDone = lmsStatuses.find(s => s.lms_uid === event.uid)?.done ?? false;
-      // LMSのステータスが取得できている場合はLMSを優先（提出削除でチェックが外れる）
-      // LMSデータがない場合のみ手動チェック状態にフォールバック
-      const isDone = event.submissionStatus != null
-        ? event.submissionStatus === 'submitted'
-        : manualDone;
+      // Moodleが提出済みと言っているか、自分で手動チェックしたかのどちらかで完了扱いにする。
+      // 提出削除でMoodle側がfalseに戻れば、手動チェックしていない限り自動でチェックも外れる。
+      const isDone = manualDone || event.submissionStatus === 'submitted';
       return {
         id: event.uid,
         name: event.summary,
