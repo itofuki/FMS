@@ -548,8 +548,9 @@ const Assignments: React.FC<AssignmentsProps> = ({ subject }) => {
     const enrolledSubjectIds = subject.map(s => s.id);
 
     // 1. DB課題
+    // 🚧 動作確認のため一時的に絞り込みを無効化（元は履修科目のみ表示）
+    // .filter(a => !a.subject_name || enrolledSubjectNames.includes(a.subject_name))
     const dbUnified: UnifiedAssignment[] = assignments
-      .filter(a => !a.subject_name || enrolledSubjectNames.includes(a.subject_name))
       .map(a => {
         const matchedSubjectProp = subject.find(s => s.name === a.subject_name);
         const dbSub = matchedSubjectProp ? dbSubjects.find(s => s.id === matchedSubjectProp.id) : undefined;
@@ -560,20 +561,13 @@ const Assignments: React.FC<AssignmentsProps> = ({ subject }) => {
     const excludedKeywords = ['出欠', '出席', 'attendance', 'アンケート開始'];
     const now = new Date();
 
-    const filteredLms = lmsEvents.filter(e => {
-      const eventTime = e.end ? new Date(e.end) : new Date(e.start);
-      const summaryLower = e.summary.toLowerCase();
-      const hasExcludedKeyword = excludedKeywords.some(k => summaryLower.includes(k));
-      const matched = dbSubjects.find(
-        s => s.category_code && e.categoryCode && s.category_code === e.categoryCode
-      );
-      return (
-        eventTime >= now &&
-        eventTime <= twoWeeksLater &&
-        !hasExcludedKeyword &&
-        (matched ? enrolledSubjectIds.includes(matched.id) : false)
-      );
-    });
+    // 🚧 動作確認のため一時的に絞り込みを無効化（元は「2週間以内・除外キーワード対象外・履修科目一致」のみ表示）
+    const filteredLms = lmsEvents;
+    void now;
+    void twoWeeksLater;
+    void excludedKeywords;
+    void enrolledSubjectIds;
+    void enrolledSubjectNames;
 
     const lmsUnified: UnifiedAssignment[] = filteredLms.map(event => {
       const matched = dbSubjects.find(
