@@ -12,6 +12,8 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { Link } from 'react-router-dom';
 import 'dayjs/locale/ja';
 import type { User } from '@supabase/supabase-js';
+import { toast } from 'sonner';
+import DOMPurify from 'dompurify';
 
 // --- 型定義 ---
 type Assignment = {
@@ -154,8 +156,8 @@ const Assignments: React.FC<AssignmentsProps> = ({ subject }) => {
 
   // 添付の音声ファイル再生用（tokenクエリ付きURLはRangeリクエストに対応していないため、Blobで一括取得して再生する）
   const [audioBlobUrls, setAudioBlobUrls] = useState<Record<string, string>>({});
-  const [loadingAudioKey, setLoadingAudioKey] = useState<string | null>(null);
-  const [audioErrorKey, setAudioErrorKey] = useState<string | null>(null);
+  const [loadingAudioKeys, setLoadingAudioKeys] = useState<Set<string>>(new Set());
+  const [audioErrorKeys, setAudioErrorKeys] = useState<Set<string>>(new Set());
 
   useEffect(() => {
     return () => {
@@ -243,7 +245,7 @@ const Assignments: React.FC<AssignmentsProps> = ({ subject }) => {
       const cachedToken = localStorage.getItem('fms_lms_token') ?? undefined;
       const cachedUserId = Number(localStorage.getItem('fms_lms_userid')) || undefined;
 
-      // 30分以上経過していたらフルリフレッシュ（差分スキップなし）
+      // FULL_REFRESH_INTERVAL以上経過していたらフルリフレッシュ（差分スキップなし）
       const lastFull = Number(localStorage.getItem(LMS_FULL_REFRESH_KEY) ?? 0);
       const isFullRefresh = Date.now() - lastFull > FULL_REFRESH_INTERVAL;
       const cachedStatuses = isFullRefresh ? {} : getCachedStatuses();
@@ -325,7 +327,7 @@ const Assignments: React.FC<AssignmentsProps> = ({ subject }) => {
     },
     onError: (error) => {
       console.error('Error saving assignment:', error);
-      alert('課題の保存に失敗しました。権限がありません。');
+      toast.error('課題の保存に失敗しました。権限がありません。');
     }
   });
 
@@ -344,7 +346,7 @@ const Assignments: React.FC<AssignmentsProps> = ({ subject }) => {
     },
     onError: (error) => {
       console.error('Error deleting assignment:', error);
-      alert('課題の削除に失敗しました。');
+      toast.error('課題の削除に失敗しました。');
     }
   });
 
@@ -395,7 +397,7 @@ const Assignments: React.FC<AssignmentsProps> = ({ subject }) => {
     },
     onError: (error, _variables, context) => {
       console.error('Error updating LMS status:', error);
-      alert('ステータスの更新に失敗しました。');
+      toast.error('ステータスの更新に失敗しました。');
       if (context?.previous) queryClient.setQueryData(['lmsStatuses', currentUser?.id], context.previous);
     },
     onSettled: () => {
@@ -496,9 +498,14 @@ const Assignments: React.FC<AssignmentsProps> = ({ subject }) => {
   const isAudioFile = (filename: string) => /\.(mp3|wav|m4a|aac|ogg|oga|flac|wma)$/i.test(filename);
 
   const handlePlayAudio = async (key: string, url: string) => {
-    if (audioBlobUrls[key] || loadingAudioKey === key) return;
-    setAudioErrorKey(prev => (prev === key ? null : prev));
-    setLoadingAudioKey(key);
+    if (audioBlobUrls[key] || loadingAudioKeys.has(key)) return;
+    setAudioErrorKeys(prev => {
+      if (!prev.has(key)) return prev;
+      const next = new Set(prev);
+      next.delete(key);
+      return next;
+    });
+    setLoadingAudioKeys(prev => new Set(prev).add(key));
     try {
       // token付きURLへの直接再生はMoodle側がRangeリクエストに対応しておらず途中で止まるため、
       // 一旦Blobとして丸ごと取得してからaudio要素に渡す
@@ -509,9 +516,13 @@ const Assignments: React.FC<AssignmentsProps> = ({ subject }) => {
       setAudioBlobUrls(prev => ({ ...prev, [key]: blobUrl }));
     } catch (err) {
       console.error('音声の読み込みに失敗しました:', err);
-      setAudioErrorKey(key);
+      setAudioErrorKeys(prev => new Set(prev).add(key));
     } finally {
-      setLoadingAudioKey(prev => (prev === key ? null : prev));
+      setLoadingAudioKeys(prev => {
+        const next = new Set(prev);
+        next.delete(key);
+        return next;
+      });
     }
   };
 
@@ -731,7 +742,7 @@ const Assignments: React.FC<AssignmentsProps> = ({ subject }) => {
                               className={`mt-1.5 text-xs line-clamp-2 prose prose-invert prose-sm whitespace-pre-wrap transition-colors duration-300 ${
                                 assignment.done ? 'text-slate-500 opacity-50' : 'text-slate-400'
                               }`}
-                              dangerouslySetInnerHTML={{ __html: assignment.description }}
+                              dangerouslySetInnerHTML={{ __html: DOMPurify.sanitize(assignment.description) }}
                             />
                           )}
 
@@ -753,8 +764,8 @@ const Assignments: React.FC<AssignmentsProps> = ({ subject }) => {
                                       />
                                     );
                                   }
-                                  const isLoading = loadingAudioKey === key;
-                                  const isError = audioErrorKey === key;
+                                  const isLoading = loadingAudioKeys.has(key);
+                                  const isError = audioErrorKeys.has(key);
                                   return (
                                     <button
                                       key={key}
