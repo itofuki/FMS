@@ -710,6 +710,9 @@ const Assignments: React.FC<AssignmentsProps> = ({ subject }) => {
                                 }`}
                               >
                                 <span className="truncate min-w-0">{cleanTitle(assignment.name)}</span>
+                                {assignment.isLms && <span className="text-[10px] bg-yellow-500/20 text-yellow-300 px-1 py-0.5 rounded border border-yellow-500/30 flex-shrink-0">LMS</span>}
+                                {assignment.submissionStatus === 'submitted' && <span className="text-[10px] bg-emerald-500/20 text-emerald-300 px-1 py-0.5 rounded border border-emerald-500/30 flex-shrink-0">提出済</span>}
+                                {assignment.submissionStatus === 'draft' && <span className="text-[10px] bg-blue-500/20 text-blue-300 px-1 py-0.5 rounded border border-blue-500/30 flex-shrink-0">下書き</span>}
                               </a>
                             ) : (
                               <p
