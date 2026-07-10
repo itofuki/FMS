@@ -700,26 +700,28 @@ const Assignments: React.FC<AssignmentsProps> = ({ subject }) => {
                           {/* 左側2段目: 課題タイトル */}
                           <div className="flex items-center gap-2 flex-wrap min-w-0">
                             {assignment.url ? (
-                              <a 
-                                href={assignment.url} 
-                                target="_blank" 
-                                rel="noopener noreferrer" 
-                                className={`font-bold text-base sm:text-[17px] hover:underline transition-colors flex items-center gap-2 line-clamp-2 leading-snug ${
+                              <a
+                                href={assignment.url}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                title={cleanTitle(assignment.name)}
+                                className={`font-bold text-base sm:text-[17px] hover:underline transition-colors flex items-center gap-2 min-w-0 ${
                                   assignment.done ? 'text-slate-500 line-through' : 'text-slate-100'
                                 }`}
                               >
-                                {cleanTitle(assignment.name)}
+                                <span className="truncate min-w-0">{cleanTitle(assignment.name)}</span>
                               </a>
                             ) : (
-                              <p 
-                                className={`font-bold text-base sm:text-[17px] transition-colors flex items-center gap-2 line-clamp-2 leading-snug ${
+                              <p
+                                title={cleanTitle(assignment.name)}
+                                className={`font-bold text-base sm:text-[17px] transition-colors flex items-center gap-2 min-w-0 ${
                                   assignment.done ? 'text-slate-500 line-through' : 'text-slate-100'
                                 }`}
                               >
-                                {cleanTitle(assignment.name)}
-                                {assignment.isLms && <span className="text-[10px] bg-yellow-500/20 text-yellow-300 px-1 py-0.5 rounded border border-yellow-500/30 flex-shrink-0 ml-1 mt-0.5">LMS</span>}
-                                {assignment.submissionStatus === 'submitted' && <span className="text-[10px] bg-emerald-500/20 text-emerald-300 px-1 py-0.5 rounded border border-emerald-500/30 flex-shrink-0 ml-1 mt-0.5">提出済</span>}
-                                {assignment.submissionStatus === 'draft' && <span className="text-[10px] bg-blue-500/20 text-blue-300 px-1 py-0.5 rounded border border-blue-500/30 flex-shrink-0 ml-1 mt-0.5">下書き</span>}
+                                <span className="truncate min-w-0">{cleanTitle(assignment.name)}</span>
+                                {assignment.isLms && <span className="text-[10px] bg-yellow-500/20 text-yellow-300 px-1 py-0.5 rounded border border-yellow-500/30 flex-shrink-0">LMS</span>}
+                                {assignment.submissionStatus === 'submitted' && <span className="text-[10px] bg-emerald-500/20 text-emerald-300 px-1 py-0.5 rounded border border-emerald-500/30 flex-shrink-0">提出済</span>}
+                                {assignment.submissionStatus === 'draft' && <span className="text-[10px] bg-blue-500/20 text-blue-300 px-1 py-0.5 rounded border border-blue-500/30 flex-shrink-0">下書き</span>}
                               </p>
                             )}
                           </div>
