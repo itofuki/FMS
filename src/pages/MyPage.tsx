@@ -11,6 +11,7 @@ import { FiCpu, FiWifi, FiGitPullRequest, FiPlay, FiFilm, FiHelpCircle } from "r
 import { TimetableContainer, type Day, type Subject } from '../components/Timetable';
 import StudyRoom from '../components/StudyRoom';
 import Assignments from '../components/Assignments';
+import TestPrep from '../components/TestPrep';
 import Setting from '../components/Setting';
 import Feedback from '../components/Feedback';
 import Tips from '../components/Tips';
@@ -78,6 +79,7 @@ const getCourseStyle = (courseName: string): CourseStyle | null => {
 const myPageChapters: ChapterLink[] = [
   { id: 'timetable', label: '時間割' },
   { id: 'assignments', label: '課題' },
+  { id: 'test-prep', label: 'テスト対策' },
   { id: 'study-room', label: '自習室' },
   { id: 'tips', label: 'Tips' },
   { id: 'feedback', label: 'ご意見' },
@@ -334,6 +336,8 @@ export default function MyPage() {
         );
       case 'assignments':
         return <Assignments subject={uniqueSubjects as any} />;
+      case 'test-prep':
+        return <TestPrep subject={uniqueSubjects as any} />;
       case 'study-room':
         return <StudyRoom />;
       case 'tips':

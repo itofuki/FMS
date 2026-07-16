@@ -3,12 +3,13 @@ import { useRef, useEffect } from 'react';
 import { Outlet, Link } from "react-router-dom";
 import { Toaster } from 'sonner';
 import { useSidebar, type ChapterLink } from "../contexts/SidebarContext"; 
-import { FiMenu, FiSettings, FiCalendar, FiFileText, FiBookOpen, FiFolder, FiMessageSquare, FiExternalLink } from "react-icons/fi";
+import { FiMenu, FiSettings, FiCalendar, FiFileText, FiBookOpen, FiFolder, FiMessageSquare, FiExternalLink, FiCheckSquare } from "react-icons/fi";
 
 const getChapterIcon = (id: string, size: number = 20) => {
   switch (id) {
     case 'timetable': return <FiCalendar size={size} />;
     case 'assignments': return <FiFileText size={size} />;
+    case 'test-prep': return <FiCheckSquare size={size} />;
     case 'study-room': return <FiBookOpen size={size} />;
     case 'tips': return <FiFolder size={size} />;
     case 'setting': return <FiSettings size={size} />;
