@@ -34,6 +34,7 @@ type QuizQuestion = {
   question_type: QuestionType;
   choices: string[] | null;
   question_set: QuestionSet;
+  explanation: string | null;
 };
 
 type Deck = {
@@ -57,8 +58,6 @@ const shuffle = <T,>(items: T[]): T[] => {
 
 type View = 'subjects' | 'session' | 'result';
 
-const ANSWER_DISPLAY_MS = 1800;
-
 const ResultBanner: React.FC<{ correct: boolean }> = ({ correct }) => (
   <div
     className={`flex items-center justify-center gap-2 rounded-xl border px-3 py-2 sm:px-4 sm:py-3 font-bold text-base sm:text-lg animate-in fade-in zoom-in-95 duration-300 ${
@@ -69,6 +68,13 @@ const ResultBanner: React.FC<{ correct: boolean }> = ({ correct }) => (
   >
     {correct ? <FiCheckCircle size={22} /> : <FiXCircle size={22} />}
     {correct ? '正解！' : '不正解...'}
+  </div>
+);
+
+const ExplanationBox: React.FC<{ explanation: string }> = ({ explanation }) => (
+  <div className="rounded-xl border border-slate-700 bg-slate-800/60 p-3 sm:p-4 animate-in fade-in duration-300">
+    <p className="text-xs font-bold text-cyan-300 mb-1">解説</p>
+    <p className="text-sm text-slate-200 whitespace-pre-wrap">{explanation}</p>
   </div>
 );
 
@@ -85,6 +91,7 @@ const TestPrep: React.FC<TestPrepProps> = ({ subject }) => {
   const [formAnswer, setFormAnswer] = useState('');
   const [formChoices, setFormChoices] = useState<string[]>(['', '', '', '']);
   const [correctChoiceIndex, setCorrectChoiceIndex] = useState<number | null>(null);
+  const [formExplanation, setFormExplanation] = useState('');
 
   // --- 出題セッション ---
   const [view, setView] = useState<View>('subjects');
@@ -131,7 +138,7 @@ const TestPrep: React.FC<TestPrepProps> = ({ subject }) => {
     queryFn: async () => {
       const { data, error } = await supabase
         .from('quiz_questions')
-        .select('id, subject_id, question, answer, question_type, choices, question_set')
+        .select('id, subject_id, question, answer, question_type, choices, question_set, explanation')
         .order('id');
       if (error) {
         console.error('Error fetching quiz questions:', error);
@@ -217,6 +224,7 @@ const TestPrep: React.FC<TestPrepProps> = ({ subject }) => {
     setFormAnswer('');
     setFormChoices(['', '', '', '']);
     setCorrectChoiceIndex(null);
+    setFormExplanation('');
   };
 
   const handleEditClick = (q: QuizQuestion) => {
@@ -225,6 +233,7 @@ const TestPrep: React.FC<TestPrepProps> = ({ subject }) => {
     setFormQuestionSet(q.question_set);
     setFormQuestion(q.question);
     setFormType(q.question_type);
+    setFormExplanation(q.explanation ?? '');
     if (q.question_type === 'multiple_choice' && q.choices) {
       setFormChoices(q.choices);
       const idx = q.choices.findIndex(c => c === q.answer);
@@ -263,6 +272,7 @@ const TestPrep: React.FC<TestPrepProps> = ({ subject }) => {
         question_type: 'multiple_choice',
         choices: formChoices,
         answer: formChoices[correctChoiceIndex],
+        explanation: formExplanation || null,
       };
     } else {
       if (!formAnswer) return;
@@ -273,6 +283,7 @@ const TestPrep: React.FC<TestPrepProps> = ({ subject }) => {
         question_type: 'free_response',
         choices: null,
         answer: formAnswer,
+        explanation: formExplanation || null,
       };
     }
 
@@ -328,14 +339,18 @@ const TestPrep: React.FC<TestPrepProps> = ({ subject }) => {
   const handleChoiceClick = (index: number) => {
     if (selectedChoiceIndex !== null) return;
     setSelectedChoiceIndex(index);
-    const question = sessionQuestions[currentIndex];
-    const correct = question?.choices?.[index] === question?.answer;
-    setTimeout(() => markAnswer(correct), ANSWER_DISPLAY_MS);
   };
 
   const handleFreeResponseAnswer = (correct: boolean) => {
     setFrAnswered(correct);
-    setTimeout(() => markAnswer(correct), ANSWER_DISPLAY_MS);
+  };
+
+  const handleNextQuestion = () => {
+    const question = sessionQuestions[currentIndex];
+    const correct = question.question_type === 'multiple_choice'
+      ? question.choices?.[selectedChoiceIndex ?? -1] === question.answer
+      : !!frAnswered;
+    markAnswer(correct);
   };
 
   if (loading) return <Loading />;
@@ -464,6 +479,15 @@ const TestPrep: React.FC<TestPrepProps> = ({ subject }) => {
                       </div>
                     </Radio.Group>
                   )}
+
+                  <Textarea
+                    label="解説（任意）"
+                    placeholder="例）光合成はチラコイド膜で行われ、葉緑体がその場となる。"
+                    value={formExplanation}
+                    onChange={(e) => setFormExplanation(e.currentTarget.value)}
+                    autosize
+                    minRows={2}
+                  />
 
                   <Group grow className="mt-2 max-w-md mx-auto">
                     <Button type="submit" color={editingId ? 'cyan' : 'blue'} leftSection={editingId ? <FiEdit2 size={16} /> : <FiPlus size={16} />}>
@@ -598,7 +622,13 @@ const TestPrep: React.FC<TestPrepProps> = ({ subject }) => {
                         })}
                       </div>
                       {selectedChoiceIndex !== null && (
-                        <ResultBanner correct={currentQuestion.choices?.[selectedChoiceIndex] === currentQuestion.answer} />
+                        <>
+                          <ResultBanner correct={currentQuestion.choices?.[selectedChoiceIndex] === currentQuestion.answer} />
+                          {currentQuestion.explanation && <ExplanationBox explanation={currentQuestion.explanation} />}
+                          <Button onClick={handleNextQuestion} size="md" color="blue" rightSection={<FiChevronRight size={16} />}>
+                            {currentIndex + 1 >= sessionQuestions.length ? '結果を見る' : '次の問題へ'}
+                          </Button>
+                        </>
                       )}
                     </div>
                   ) : !isAnswerRevealed ? (
@@ -609,7 +639,13 @@ const TestPrep: React.FC<TestPrepProps> = ({ subject }) => {
                       <Button onClick={() => handleFreeResponseAnswer(true)} color="teal" leftSection={<FiCheck size={16} />}>正解</Button>
                     </Group>
                   ) : (
-                    <ResultBanner correct={frAnswered} />
+                    <div className="flex flex-col gap-2 sm:gap-4">
+                      <ResultBanner correct={frAnswered} />
+                      {currentQuestion.explanation && <ExplanationBox explanation={currentQuestion.explanation} />}
+                      <Button onClick={handleNextQuestion} size="md" color="blue" rightSection={<FiChevronRight size={16} />}>
+                        {currentIndex + 1 >= sessionQuestions.length ? '結果を見る' : '次の問題へ'}
+                      </Button>
+                    </div>
                   )}
                 </div>
               )}

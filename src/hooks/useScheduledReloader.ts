@@ -1,4 +1,4 @@
-import { useEffect, useMemo } from 'react';
+import { useEffect, useMemo, useRef } from 'react';
 
 // 時刻の型定義
 type ReloadTime = {
@@ -6,13 +6,20 @@ type ReloadTime = {
   minute: number;
 };
 
+const DEFER_RETRY_MS = 30_000;
+
 /**
  * 指定した時刻の配列の中から、最も近い未来の時刻にページをリロードするカスタムフック
  * @param times - リロードしたい時刻の配列 (例: [{ hour: 5, minute: 0 }, { hour: 12, minute: 30 }])
+ * @param shouldDefer - trueを返す間はリロードを先送りし、一定間隔で再チェックする（例: クイズ回答中など）
  */
-export function useScheduledReloader(times: ReloadTime[]) {
+export function useScheduledReloader(times: ReloadTime[], shouldDefer?: () => boolean) {
   // times配列が変更されたときだけ再計算するようにメモ化
   const serializedTimes = useMemo(() => JSON.stringify(times), [times]);
+
+  // 最新のshouldDeferを常に参照できるようにrefで保持（effectの再実行は不要）
+  const shouldDeferRef = useRef(shouldDefer);
+  shouldDeferRef.current = shouldDefer;
 
   useEffect(() => {
     // 1. スケジュールする時刻がなければ何もしない
@@ -59,10 +66,15 @@ export function useScheduledReloader(times: ReloadTime[]) {
 
       console.log(`次のリロードは ${nextReload.toLocaleString()} です。`);
 
-      // 7. タイマーをセット
-      timeoutId = window.setTimeout(() => {
+      // 7. タイマーをセット（先送り中は一定間隔でリトライする）
+      const attemptReload = () => {
+        if (shouldDeferRef.current?.()) {
+          timeoutId = window.setTimeout(attemptReload, DEFER_RETRY_MS);
+          return;
+        }
         window.location.reload();
-      }, delay);
+      };
+      timeoutId = window.setTimeout(attemptReload, delay);
     };
 
     scheduleReload();

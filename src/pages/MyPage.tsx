@@ -149,7 +149,7 @@ export default function MyPage() {
     { hour: 14, minute: 55 }, { hour: 16, minute: 35 }, { hour: 18, minute: 15 },
     { hour: 19, minute: 55 },
   ];
-  useScheduledReloader(reloadTimes);
+  useScheduledReloader(reloadTimes, () => activeChapter === 'test-prep');
 
   useEffect(() => {
     const fetchUserTimetable = async () => {
