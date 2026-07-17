@@ -74,7 +74,7 @@ const ResultBanner: React.FC<{ correct: boolean }> = ({ correct }) => (
 const ExplanationBox: React.FC<{ explanation: string }> = ({ explanation }) => (
   <div className="rounded-xl border border-slate-700 bg-slate-800/60 p-3 sm:p-4 animate-in fade-in duration-300">
     <p className="text-xs font-bold text-cyan-300 mb-1">解説</p>
-    <p className="text-sm text-slate-200 whitespace-pre-wrap">{explanation}</p>
+    <p className="text-sm text-slate-200 whitespace-pre-wrap break-words">{explanation}</p>
   </div>
 );
 
@@ -587,9 +587,9 @@ const TestPrep: React.FC<TestPrepProps> = ({ subject }) => {
                   </div>
 
                   <div className="bg-slate-800/60 border border-slate-700 rounded-xl p-4 sm:p-6 min-h-[100px] sm:min-h-[160px] flex flex-col items-center justify-center gap-2 sm:gap-4">
-                    <p className="text-base sm:text-lg font-bold text-slate-100 text-center whitespace-pre-wrap">{currentQuestion.question}</p>
+                    <p className="w-full text-base sm:text-lg font-bold text-slate-100 text-center whitespace-pre-wrap break-words">{currentQuestion.question}</p>
                     {currentQuestion.question_type === 'free_response' && isAnswerRevealed && (
-                      <p className="text-cyan-300 text-center whitespace-pre-wrap animate-in fade-in duration-300">{currentQuestion.answer}</p>
+                      <p className="w-full text-cyan-300 text-center whitespace-pre-wrap break-words animate-in fade-in duration-300">{currentQuestion.answer}</p>
                     )}
                   </div>
 
@@ -610,7 +610,7 @@ const TestPrep: React.FC<TestPrepProps> = ({ subject }) => {
                               disabled={showResult}
                               className={`p-4 sm:p-5 text-[13px]! sm:text-base! rounded-xl border font-medium transition-colors disabled:cursor-default flex items-center justify-between gap-2 ${stateClasses}`}
                             >
-                              <span className="text-left">{choice}</span>
+                              <span className="text-left min-w-0 break-words">{choice}</span>
                               {showResult && isCorrectChoice && (
                                 <FiCheckCircle className="flex-shrink-0 animate-in zoom-in duration-300" size={18} />
                               )}
