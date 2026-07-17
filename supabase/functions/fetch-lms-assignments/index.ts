@@ -104,6 +104,53 @@ serve(async (req) => {
       }))
     ).filter((a: RawAssign) => a.duedate > 0 && a.duedate > oneMonthAgo);
 
+    // ── Step 3b: カレンダーの「アクションイベント」を取得
+    // mod_assign_get_assignments は「課題」モジュールしか返さないため、
+    // アンケート（mod_questionnaire 等、モジュール種別不明のもの含む）を含む
+    // 他モジュールの締切イベントは、Moodleカレンダー自体が使う汎用APIで拾う。
+    const calTimesortFrom = oneMonthAgo;
+    const calTimesortTo = now + 60 * 24 * 60 * 60;
+
+    const calData = await moodleAPI(token.value, "core_calendar_get_action_events_by_timesort", {
+      timesortfrom: String(calTimesortFrom),
+      timesortto: String(calTimesortTo),
+      limitnum: "50",
+    });
+
+    // 課題(assign)由来のイベントは Step 3 側で既に扱っているため重複除外。
+    // "open" は活動の受付開始通知であり締切ではないため除外。
+    const excludedEventTypes = new Set(["due", "gradingduedate", "open"]);
+
+    type RawCalEvent = {
+      id: number; name: string; description: string;
+      timesort: number; courseShortname: string; url: string;
+    };
+
+    const calTargets: RawCalEvent[] = !calData?.exception
+      ? (calData.events ?? [])
+          .filter((e: any) => !excludedEventTypes.has(e.eventtype) && e.timesort)
+          .map((e: any) => ({
+            id: e.id,
+            name: e.name,
+            description: e.description ?? "",
+            timesort: e.timesort,
+            courseShortname: e.course?.shortname ?? "",
+            url: e.url || e.action?.url || `${LMS_BASE}/calendar/view.php?view=day&time=${e.timesort}`,
+          }))
+      : [];
+
+    const calendarEvents = calTargets.map((e) => ({
+      uid: `cal_${e.id}`,
+      summary: e.name,
+      description: e.description,
+      start: new Date(e.timesort * 1000),
+      end: new Date(e.timesort * 1000),
+      categoryCode: e.courseShortname,
+      submissionStatus: null as string | null,
+      url: e.url,
+      attachments: [] as { filename: string; url: string }[],
+    }));
+
     // ── Step 4: 差分取得 — 提出済みキャッシュがある課題はスキップ
     const toFetch = targets.filter(a => cachedStatuses[`assign_${a.id}`] !== "submitted");
     const useCache = targets.filter(a => cachedStatuses[`assign_${a.id}`] === "submitted");
@@ -132,7 +179,7 @@ serve(async (req) => {
       buildEvent(assignment, "submitted", token.value)
     );
 
-    const events = [...freshEvents, ...cachedEvents]
+    const events = [...freshEvents, ...cachedEvents, ...calendarEvents]
       .sort((a, b) => new Date(a.end).getTime() - new Date(b.end).getTime());
 
     return jsonRes({
