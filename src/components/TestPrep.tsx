@@ -4,8 +4,8 @@ import React, { useState, useMemo } from 'react';
 import { supabase } from '../lib/supabaseClient';
 import ChapterFrame from './ChapterFrame';
 import Loading from './Loading';
-import { FiCheckSquare, FiCheck, FiX, FiPlus, FiEdit2, FiTrash2, FiTool, FiArrowLeft, FiRefreshCw, FiHelpCircle, FiInbox, FiChevronRight, FiCheckCircle, FiXCircle } from 'react-icons/fi';
-import { Textarea, TextInput, Select, SegmentedControl, Radio, Button, Group } from '@mantine/core';
+import { FiCheckSquare, FiCheck, FiX, FiPlus, FiEdit2, FiTrash2, FiTool, FiArrowLeft, FiRefreshCw, FiHelpCircle, FiInbox, FiChevronRight, FiCheckCircle, FiXCircle, FiImage } from 'react-icons/fi';
+import { Textarea, TextInput, Select, SegmentedControl, Radio, Button, Group, FileInput } from '@mantine/core';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import type { User } from '@supabase/supabase-js';
 import { toast } from 'sonner';
@@ -35,6 +35,7 @@ type QuizQuestion = {
   choices: string[] | null;
   question_set: QuestionSet;
   explanation: string | null;
+  image_url: string | null;
 };
 
 type Deck = {
@@ -92,6 +93,9 @@ const TestPrep: React.FC<TestPrepProps> = ({ subject }) => {
   const [formChoices, setFormChoices] = useState<string[]>(['', '', '', '']);
   const [correctChoiceIndex, setCorrectChoiceIndex] = useState<number | null>(null);
   const [formExplanation, setFormExplanation] = useState('');
+  const [formImageUrl, setFormImageUrl] = useState<string | null>(null);
+  const [formImageFile, setFormImageFile] = useState<File | null>(null);
+  const [isUploadingImage, setIsUploadingImage] = useState(false);
 
   // --- 出題セッション ---
   const [view, setView] = useState<View>('subjects');
@@ -138,7 +142,7 @@ const TestPrep: React.FC<TestPrepProps> = ({ subject }) => {
     queryFn: async () => {
       const { data, error } = await supabase
         .from('quiz_questions')
-        .select('id, subject_id, question, answer, question_type, choices, question_set, explanation')
+        .select('id, subject_id, question, answer, question_type, choices, question_set, explanation, image_url')
         .order('id');
       if (error) {
         console.error('Error fetching quiz questions:', error);
@@ -225,6 +229,8 @@ const TestPrep: React.FC<TestPrepProps> = ({ subject }) => {
     setFormChoices(['', '', '', '']);
     setCorrectChoiceIndex(null);
     setFormExplanation('');
+    setFormImageUrl(null);
+    setFormImageFile(null);
   };
 
   const handleEditClick = (q: QuizQuestion) => {
@@ -234,6 +240,8 @@ const TestPrep: React.FC<TestPrepProps> = ({ subject }) => {
     setFormQuestion(q.question);
     setFormType(q.question_type);
     setFormExplanation(q.explanation ?? '');
+    setFormImageUrl(q.image_url ?? null);
+    setFormImageFile(null);
     if (q.question_type === 'multiple_choice' && q.choices) {
       setFormChoices(q.choices);
       const idx = q.choices.findIndex(c => c === q.answer);
@@ -255,27 +263,44 @@ const TestPrep: React.FC<TestPrepProps> = ({ subject }) => {
     setFormChoices(prev => prev.map((c, i) => (i === index ? value : c)));
   };
 
-  const handleSubmitQuestion = (e: React.FormEvent) => {
+  const handleSubmitQuestion = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!formSubjectId || !formQuestion) return;
 
-    let data: Record<string, unknown>;
-    if (formType === 'multiple_choice') {
-      if (formChoices.some(c => !c.trim()) || correctChoiceIndex === null) {
-        toast.error('選択肢を4つとも入力し、正解を選んでください。');
+    if (formType === 'multiple_choice' && (formChoices.some(c => !c.trim()) || correctChoiceIndex === null)) {
+      toast.error('選択肢を4つとも入力し、正解を選んでください。');
+      return;
+    }
+    if (formType === 'free_response' && !formAnswer) return;
+
+    let imageUrl = formImageUrl;
+    if (formImageFile) {
+      setIsUploadingImage(true);
+      const ext = formImageFile.name.split('.').pop();
+      const path = `quiz/${crypto.randomUUID()}.${ext}`;
+      const { error: uploadError } = await supabase.storage.from('images').upload(path, formImageFile);
+      setIsUploadingImage(false);
+      if (uploadError) {
+        console.error('Error uploading image:', uploadError);
+        toast.error('画像のアップロードに失敗しました。');
         return;
       }
+      imageUrl = supabase.storage.from('images').getPublicUrl(path).data.publicUrl;
+    }
+
+    let data: Record<string, unknown>;
+    if (formType === 'multiple_choice') {
       data = {
         subject_id: parseInt(formSubjectId, 10),
         question_set: formQuestionSet,
         question: formQuestion,
         question_type: 'multiple_choice',
         choices: formChoices,
-        answer: formChoices[correctChoiceIndex],
+        answer: formChoices[correctChoiceIndex as number],
         explanation: formExplanation || null,
+        image_url: imageUrl,
       };
     } else {
-      if (!formAnswer) return;
       data = {
         subject_id: parseInt(formSubjectId, 10),
         question_set: formQuestionSet,
@@ -284,6 +309,7 @@ const TestPrep: React.FC<TestPrepProps> = ({ subject }) => {
         choices: null,
         answer: formAnswer,
         explanation: formExplanation || null,
+        image_url: imageUrl,
       };
     }
 
@@ -441,6 +467,35 @@ const TestPrep: React.FC<TestPrepProps> = ({ subject }) => {
                   <Textarea label="問題文" placeholder="例）光合成が行われる細胞小器官は？" value={formQuestion} onChange={(e) => setFormQuestion(e.currentTarget.value)} autosize minRows={2} required />
 
                   <div>
+                    <FileInput
+                      label="画像（任意）"
+                      placeholder="画像を選択"
+                      accept="image/*"
+                      value={formImageFile}
+                      onChange={setFormImageFile}
+                      clearable
+                      leftSection={<FiImage size={16} />}
+                    />
+                    {(formImageFile || formImageUrl) && (
+                      <div className="relative inline-block mt-2">
+                        <img
+                          src={formImageFile ? URL.createObjectURL(formImageFile) : formImageUrl ?? ''}
+                          alt="プレビュー"
+                          className="max-h-32 rounded-lg border border-slate-700 object-contain"
+                        />
+                        <button
+                          type="button"
+                          onClick={() => { setFormImageFile(null); setFormImageUrl(null); }}
+                          className="absolute -top-2 -right-2 bg-slate-800 border border-slate-600 rounded-full p-1 text-slate-300 hover:text-red-400 hover:border-red-400 transition-colors"
+                          aria-label="画像を削除"
+                        >
+                          <FiX size={14} />
+                        </button>
+                      </div>
+                    )}
+                  </div>
+
+                  <div>
                     <label className="block text-sm font-medium text-slate-300 mb-1">出題形式</label>
                     <SegmentedControl
                       fullWidth
@@ -490,7 +545,7 @@ const TestPrep: React.FC<TestPrepProps> = ({ subject }) => {
                   />
 
                   <Group grow className="mt-2 max-w-md mx-auto">
-                    <Button type="submit" color={editingId ? 'cyan' : 'blue'} leftSection={editingId ? <FiEdit2 size={16} /> : <FiPlus size={16} />}>
+                    <Button type="submit" color={editingId ? 'cyan' : 'blue'} loading={isUploadingImage || upsertMutation.isPending} leftSection={editingId ? <FiEdit2 size={16} /> : <FiPlus size={16} />}>
                       {editingId ? '更新を保存する' : '問題を追加'}
                     </Button>
                   </Group>
@@ -518,6 +573,11 @@ const TestPrep: React.FC<TestPrepProps> = ({ subject }) => {
                                 <span className={`text-[10px] px-1.5 py-0.5 rounded border flex-shrink-0 ${q.question_type === 'multiple_choice' ? 'bg-purple-900/30 text-purple-300 border-purple-800/50' : 'bg-cyan-900/30 text-cyan-300 border-cyan-800/50'}`}>
                                   {q.question_type === 'multiple_choice' ? '4択' : '自由記述'}
                                 </span>
+                                {q.image_url && (
+                                  <span className="flex items-center gap-0.5 text-[10px] px-1.5 py-0.5 rounded border flex-shrink-0 bg-slate-700/40 text-slate-300 border-slate-600/50">
+                                    <FiImage size={10} /> 画像
+                                  </span>
+                                )}
                               </div>
                               <p className="text-sm text-slate-200 truncate">{q.question}</p>
                               {q.question_type === 'multiple_choice' && q.choices ? (
@@ -587,6 +647,13 @@ const TestPrep: React.FC<TestPrepProps> = ({ subject }) => {
                   </div>
 
                   <div className="bg-slate-800/60 border border-slate-700 rounded-xl p-4 sm:p-6 min-h-[100px] sm:min-h-[160px] flex flex-col items-center justify-center gap-2 sm:gap-4">
+                    {currentQuestion.image_url && (
+                      <img
+                        src={currentQuestion.image_url}
+                        alt="問題画像"
+                        className="max-h-48 sm:max-h-64 w-auto max-w-full rounded-lg object-contain"
+                      />
+                    )}
                     <p className="w-full text-base sm:text-lg font-bold text-slate-100 text-center whitespace-pre-wrap break-words">{currentQuestion.question}</p>
                     {currentQuestion.question_type === 'free_response' && isAnswerRevealed && (
                       <p className="w-full text-cyan-300 text-center whitespace-pre-wrap break-words animate-in fade-in duration-300">{currentQuestion.answer}</p>
