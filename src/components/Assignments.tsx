@@ -4,7 +4,7 @@ import React, { useState, useMemo, useRef, useEffect } from 'react';
 import { supabase } from '../lib/supabaseClient';
 import ChapterFrame from './ChapterFrame';
 import Loading from './Loading';
-import { FiPlus, FiTrash2, FiInbox, FiFileText, FiTool, FiLink, FiEdit2, FiX, FiInfo, FiRefreshCw, FiPaperclip, FiPlay, FiCheck, FiExternalLink, FiMoreVertical, FiAlertTriangle } from 'react-icons/fi';
+import { FiPlus, FiTrash2, FiInbox, FiFileText, FiTool, FiLink, FiEdit2, FiX, FiInfo, FiRefreshCw, FiPaperclip, FiPlay, FiExternalLink, FiMoreVertical, FiAlertTriangle } from 'react-icons/fi';
 import { format, formatDistanceToNowStrict } from 'date-fns';
 import { ja } from 'date-fns/locale';
 import { TextInput, Select, Button, Group, SimpleGrid, Menu, ActionIcon } from '@mantine/core';
@@ -14,6 +14,7 @@ import { Link } from 'react-router-dom';
 import 'dayjs/locale/ja';
 import { toast } from 'sonner';
 import DOMPurify from 'dompurify';
+import { motion, AnimatePresence, MotionConfig } from 'framer-motion';
 import { useUserProfile } from '../hooks/useUserProfile';
 import { useLmsEvents } from '../hooks/useLmsEvents';
 import { useDbAssignments, useDbSubjects, useLmsStatuses } from '../hooks/useAssignmentSources';
@@ -117,6 +118,14 @@ const Assignments: React.FC<AssignmentsProps> = ({ subject }) => {
   const [newUrl, setNewUrl] = useState('');
   // 追加フォームは「追加」ボタンを押したときだけ開く（掲示板の「投稿する」と同じく一覧の上）
   const [isFormOpen, setIsFormOpen] = useState(false);
+  // 完了にした直後の課題を、元のグループにしばらく残す（押した結果を目で確かめられるように）
+  const LINGER_MS = 1200;
+  const [lingering, setLingering] = useState<Set<string>>(() => new Set());
+  const lingerTimers = useRef(new Map<string, number>());
+  useEffect(() => {
+    const timers = lingerTimers.current;
+    return () => timers.forEach(t => window.clearTimeout(t));
+  }, []);
   // 「LMS 同期：〇分前」の表示を30秒ごとに更新するための時計
   const [nowTick, setNowTick] = useState(() => Date.now());
   useEffect(() => {
@@ -334,6 +343,40 @@ const Assignments: React.FC<AssignmentsProps> = ({ subject }) => {
     }
   };
 
+  const stopLingering = (key: string) => {
+    const t = lingerTimers.current.get(key);
+    if (t) window.clearTimeout(t);
+    lingerTimers.current.delete(key);
+    setLingering(prev => {
+      if (!prev.has(key)) return prev;
+      const next = new Set(prev);
+      next.delete(key);
+      return next;
+    });
+  };
+
+  const handleCheck = (assignment: UnifiedAssignment) => {
+    const key = String(assignment.id);
+    const title = assignment.name.replace(/[「」]|の提出期限/g, '');
+    const isDone = assignment.done || lingering.has(key);
+    if (!isDone) {
+      handleToggleDone(assignment.id, false, assignment.isLms);
+      setLingering(prev => new Set(prev).add(key));
+      lingerTimers.current.set(key, window.setTimeout(() => stopLingering(key), LINGER_MS));
+      toast.success(`「${title}」を完了にしました`, {
+        duration: 5000,
+        action: {
+          label: '元に戻す',
+          onClick: () => { stopLingering(key); handleToggleDone(assignment.id, true, assignment.isLms); },
+        },
+      });
+    } else {
+      stopLingering(key);
+      handleToggleDone(assignment.id, true, assignment.isLms);
+      toast(`「${title}」を未完了に戻しました`);
+    }
+  };
+
   const handleForceRefreshLms = forceFullRefresh;
 
   // 添付ファイルのURLにはトークンを保存していないため、開く直前に付与する
@@ -391,6 +434,13 @@ const Assignments: React.FC<AssignmentsProps> = ({ subject }) => {
   const cleanTitle = (title: string) => title.replace(/[「」]|の提出期限/g, '');
   const pendingCount = unifiedAssignments.filter(a => !a.done).length;
   const groups = groupAssignments(unifiedAssignments);
+  // 一覧の表示用: 完了にした直後の課題は、しばらく元のグループに残す
+  // （未完了として並べ直すので、残している間は元の位置のまま動かない）
+  const displayGroups = lingering.size === 0 ? groups : groupAssignments(
+    unifiedAssignments
+      .map(a => (lingering.has(String(a.id)) ? { ...a, done: false } : a))
+      .sort((a, b) => (a.done !== b.done ? (a.done ? 1 : -1) : new Date(a.deadline).getTime() - new Date(b.deadline).getTime())),
+  );
   const groupCounts = Object.fromEntries(
     (['overdue', 'today', 'week', 'later', 'done'] as AssignmentGroupKey[]).map(k => [k, groups.find(g => g.key === k)?.items.length ?? 0]),
   ) as Record<AssignmentGroupKey, number>;
@@ -410,32 +460,45 @@ const Assignments: React.FC<AssignmentsProps> = ({ subject }) => {
    *   右端: 「⋯」メニュー（編集・削除）。チェックと「⋯」はどちらもカードの上下中央
    */
   const renderRow = (assignment: UnifiedAssignment) => {
+    const key = String(assignment.id);
+    const isLingering = lingering.has(key);
+    // 表示上の完了状態（残している間も完了として見せる）
+    const isDone = assignment.done || isLingering;
     const canDelete = !assignment.isLms && (isOfficialMode || (assignment.classification === 'private' && assignment.user_id === currentUser?.id));
     const subjectName = assignment.subject_name || '未分類';
     const title = cleanTitle(assignment.name);
     const hasAttachments = assignment.isLms && !!assignment.attachments?.length;
-    const tag = assignment.done ? null : deadlineTag(assignment.deadline);
-    const titleClass = `text-[17px] sm:text-lg font-bold leading-snug break-words ${assignment.done ? 'text-fg-subtle line-through' : 'text-fg'}`;
+    const tag = isDone ? null : deadlineTag(assignment.deadline);
+    const titleClass = `text-[17px] sm:text-lg font-bold leading-snug break-words ${isDone ? 'text-fg-subtle line-through' : 'text-fg'}`;
 
     // 左の丸いチェック（ToDo の定番の形）。見た目は 24px、押せる範囲は 44px 四方
     const doneCheck = (
       <button
         type="button"
-        onClick={() => handleToggleDone(assignment.id, assignment.done, assignment.isLms)}
-        aria-pressed={assignment.done}
-        aria-label={assignment.done ? `${title} を未完了に戻す` : `${title} を完了にする`}
-        title={assignment.done ? '未完了に戻す' : '完了にする'}
+        onClick={() => handleCheck(assignment)}
+        aria-pressed={isDone}
+        aria-label={isDone ? `${title} を未完了に戻す` : `${title} を完了にする`}
+        title={isDone ? '未完了に戻す' : '完了にする'}
         className="group/check flex-shrink-0 -m-2.5 p-2.5 rounded-full"
       >
-        <span
+        {/* 押した瞬間: 緑に塗られて一度ふくらみ、チェックの線が描かれる */}
+        <motion.span
+          key={isDone ? 'on' : 'off'}
+          initial={isDone ? { scale: 0.6 } : false}
+          animate={{ scale: 1 }}
+          transition={{ type: 'spring', stiffness: 520, damping: 14 }}
           className={`flex items-center justify-center w-6 h-6 rounded-full border-2 transition-colors ${
-            assignment.done
+            isDone
               ? 'bg-up border-up text-white'
               : 'border-line-strong group-hover/check:border-up group-hover/check:bg-up-soft'
           }`}
         >
-          {assignment.done && <FiCheck size={14} strokeWidth={3} />}
-        </span>
+          {isDone && (
+            <svg viewBox="0 0 24 24" className="w-3.5 h-3.5" fill="none" stroke="currentColor" strokeWidth={3.5} strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+              <motion.path d="M5 12.5l4.5 4.5L19 7.5" initial={{ pathLength: 0 }} animate={{ pathLength: 1 }} transition={{ duration: 0.25, delay: 0.05 }} />
+            </svg>
+          )}
+        </motion.span>
       </button>
     );
 
@@ -454,9 +517,16 @@ const Assignments: React.FC<AssignmentsProps> = ({ subject }) => {
     ) : null;
 
     return (
-      <li
-        key={assignment.id}
-        className={`relative flex items-start gap-3.5 px-4 sm:px-5 py-4 rounded-xl shadow-sm transition-shadow ${editingId === assignment.id ? 'bg-accent-soft ring-2 ring-accent' : `bg-surface hover:shadow-md ${rowDarkBg(assignment)}`}`}
+      <motion.li
+        key={key}
+        layout="position"
+        exit={{ opacity: 0, scale: 0.96, transition: { duration: 0.25 } }}
+        transition={{ layout: { duration: 0.3, ease: 'easeOut' } }}
+        className={`relative flex items-start gap-3.5 px-4 sm:px-5 py-4 rounded-xl shadow-sm transition-[box-shadow,background-color] duration-300 ${
+          editingId === assignment.id ? 'bg-accent-soft ring-2 ring-accent'
+          : isLingering ? 'bg-up-soft ring-1 ring-up/30'
+          : `bg-surface hover:shadow-md ${rowDarkBg(assignment)}`
+        }`}
       >
         {/* 残り時間のバッジは、カードの右上の角に上の縁にまたがるように載せる。
             右端は「⋮」と同じ right-2 にそろえ、角の丸み（12px）の内側に収める */}
@@ -474,7 +544,7 @@ const Assignments: React.FC<AssignmentsProps> = ({ subject }) => {
         <div className="self-center">{doneCheck}</div>
 
         {/* 右端の「⋮」と重ならないよう、本文全体の右側を空ける */}
-        <div className={`flex-1 min-w-0 ${moreMenu ? 'pr-9' : ''} ${assignment.done ? 'opacity-70' : ''}`}>
+        <div className={`flex-1 min-w-0 transition-opacity duration-300 ${moreMenu ? 'pr-9' : ''} ${isDone ? 'opacity-70' : ''}`}>
           {/* 1行目: 科目・種別・締切・残り時間 */}
           <div className="flex flex-wrap items-center gap-x-2.5 gap-y-1 text-sm">
             <span className="font-semibold text-link truncate max-w-[60%]">{subjectName}</span>
@@ -553,7 +623,7 @@ const Assignments: React.FC<AssignmentsProps> = ({ subject }) => {
           )}
         </div>
 
-      </li>
+      </motion.li>
     );
   };
 
@@ -645,7 +715,7 @@ const Assignments: React.FC<AssignmentsProps> = ({ subject }) => {
                 <div className="flex h-3 w-full overflow-hidden rounded-full bg-surface-3" role="img" aria-label={`全${unifiedAssignments.length}件中${doneCount}件完了`}>
                   {SUMMARY_ORDER.map(key => {
                     const n = groupCounts[key];
-                    return n > 0 ? <div key={key} className={GROUP_STYLE[key].bar} style={{ width: `${(n / unifiedAssignments.length) * 100}%` }} /> : null;
+                    return n > 0 ? <div key={key} className={`${GROUP_STYLE[key].bar} transition-[width] duration-500 ease-out`} style={{ width: `${(n / unifiedAssignments.length) * 100}%` }} /> : null;
                   })}
                 </div>
                 <ul className="mt-3 flex flex-wrap xl:flex-col gap-x-5 gap-y-1.5 xl:gap-y-2 text-sm text-fg-muted">
@@ -734,7 +804,7 @@ const Assignments: React.FC<AssignmentsProps> = ({ subject }) => {
           <p className="text-fg-muted text-sm">{isAdminMode ? '表示できる公式課題はありません' : '直近2週間の課題はありません 🎉'}</p>
         </div>
       ) : (
-        groups.map(group => {
+        displayGroups.map(group => {
           const collapsed = group.key === 'done' && !showDone;
           return (
             <section key={group.key} className="mb-6 last:mb-0 px-3 sm:px-8 xl:px-0">
@@ -753,9 +823,13 @@ const Assignments: React.FC<AssignmentsProps> = ({ subject }) => {
                 )}
               </h3>
               {!collapsed && (
-                <ul className="flex flex-col gap-5">
-                  {group.items.map(renderRow)}
-                </ul>
+                <MotionConfig reducedMotion="user">
+                  <ul className="flex flex-col gap-5">
+                    <AnimatePresence initial={false}>
+                      {group.items.map(renderRow)}
+                    </AnimatePresence>
+                  </ul>
+                </MotionConfig>
               )}
             </section>
           );
