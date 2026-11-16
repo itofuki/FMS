@@ -1,6 +1,7 @@
 /* src/components/Layout.tsx */
 import { useRef, useEffect } from 'react';
 import { Outlet, Link } from "react-router-dom";
+import { ThemeToggleButton } from "./ThemeToggle";
 import { Toaster } from 'sonner';
 import { useSidebar, type ChapterLink } from "../contexts/SidebarContext"; 
 import { FiMenu, FiSettings, FiCalendar, FiFileText, FiBookOpen, FiFolder, FiMessageSquare, FiExternalLink, FiCheckSquare } from "react-icons/fi";
@@ -36,21 +37,22 @@ const SidebarContent: React.FC<{
 
   return (
     <div className="flex flex-col h-full pt-4 md:pt-6 overflow-y-auto">
-      <h2 className="text-lg font-bold text-white light:text-slate-800 mb-6 px-2 transition-colors duration-300">メニュー</h2>
+      <h2 className="text-xs font-semibold tracking-wider text-fg-subtle mb-3 px-4">メニュー</h2>
       
       {/* 通常のメニュー項目 */}
-      <ul className="space-y-2 px-2">
+      <ul className="space-y-1 px-2">
         {topLinks.map(link => (
           <li key={link.id}>
             <button
               onClick={() => handleNavigate(link.id)}
-              className={`w-full flex items-center text-left p-3 rounded-lg transition-colors duration-200 text-sm font-medium ${
+              aria-current={activeId === link.id ? 'page' : undefined}
+              className={`w-full flex items-center text-left px-3 py-2.5 rounded-md transition-colors duration-150 text-[15px] ${
                 activeId === link.id
-                  ? 'bg-cyan-500 text-white shadow-lg'
-                  : 'text-gray-300 light:text-slate-600 hover:bg-slate-700/80 light:hover:bg-slate-200'
+                  ? 'bg-accent-solid text-on-accent font-bold shadow-sm'
+                  : 'text-fg font-medium hover:bg-surface-3'
               }`}
             >
-              <span className={`${activeId === link.id ? 'text-white' : 'text-slate-400 light:text-slate-500'}`}>
+              <span className={`${activeId === link.id ? 'text-on-accent' : 'text-fg-muted'}`}>
                 {getChapterIcon(link.id, 20)}
               </span>
               <span className="ml-3">{link.label}</span>
@@ -62,23 +64,24 @@ const SidebarContent: React.FC<{
       {/* 設定やご意見のブロック */}
       {bottomLinks.length > 0 && (
         <div className="mt-4 px-2 pb-4">
-          <hr className="border-t border-white/10 light:border-slate-300 mb-4 transition-colors duration-300" />
+          <hr className="border-t border-line mb-4 transition-colors duration-300" />
           
-          <ul className="space-y-2">
+          <ul className="space-y-1">
             {bottomLinks.map(link => (
               <li key={link.id}>
                 <button 
                   onClick={() => handleNavigate(link.id)}
-                  className={`w-full flex items-center text-left p-2.5 rounded-lg transition-colors duration-200 ${
-                    activeId === link.id 
-                      ? 'bg-cyan-500 text-white shadow-lg' 
-                      : 'text-gray-400 light:text-slate-500 hover:bg-slate-700/80 light:hover:bg-slate-200'
+                  aria-current={activeId === link.id ? 'page' : undefined}
+                  className={`w-full flex items-center text-left px-3 py-2 rounded-md transition-colors duration-150 ${
+                    activeId === link.id
+                      ? 'bg-accent-solid text-on-accent font-bold shadow-sm'
+                      : 'text-fg-muted font-medium hover:bg-surface-3 hover:text-fg'
                   }`}
                 >
-                  <span className={`${activeId === link.id ? 'text-white' : 'text-slate-400 light:text-slate-500'}`}>
+                  <span className={`${activeId === link.id ? 'text-on-accent' : 'text-fg-muted'}`}>
                     {getChapterIcon(link.id, 18)}
                   </span>
-                  <span className="font-medium text-xs ml-3">{link.label}</span>
+                  <span className="text-sm ml-3">{link.label}</span>
                 </button>
               </li>
             ))}
@@ -141,11 +144,11 @@ export default function Layout() {
   return (
     <div 
       ref={containerRef}
-      className="fixed inset-0 w-full h-full bg-slate-900 light:bg-slate-50 text-slate-300 light:text-slate-800 overflow-hidden overscroll-none touch-pan-y transition-colors duration-300"
+      className="fixed inset-0 w-full h-full bg-bg text-fg overflow-hidden overscroll-none touch-pan-y transition-colors duration-300"
     >
       {/* ① スマホ用サイドメニュー */}
       {chapterLinks.length > 0 && (
-        <div className="md:hidden fixed inset-y-0 left-0 w-80 bg-slate-900 light:bg-white z-0 p-4 border-r border-white/10 light:border-slate-200">
+        <div className="md:hidden fixed inset-y-0 left-0 w-80 bg-surface z-0 p-4 border-r border-line">
           <SidebarContent links={chapterLinks} activeId={activeChapter} onNavigate={setActiveChapter} closeMenu={() => setIsMobileMenuOpen(false)} />
         </div>
       )}
@@ -161,8 +164,8 @@ export default function Layout() {
             aria-hidden="true" 
           />
           <div 
-            className={`hidden md:block lg:hidden fixed inset-y-0 left-0 w-80 bg-slate-900 light:bg-white z-50 p-4 border-r border-white/10 light:border-slate-200 transition-transform duration-300 ease-out ${
-              isMobileMenuOpen ? 'translate-x-0 shadow-[15px_0_30px_rgba(0,0,0,0.5)]' : '-translate-x-full'
+            className={`hidden md:block lg:hidden fixed inset-y-0 left-0 w-80 bg-surface z-50 p-4 border-r border-line transition-transform duration-300 ease-out ${
+              isMobileMenuOpen ? 'translate-x-0 shadow-xl' : '-translate-x-full'
             }`}
           >
             <SidebarContent links={chapterLinks} activeId={activeChapter} onNavigate={setActiveChapter} closeMenu={() => setIsMobileMenuOpen(false)} />
@@ -172,8 +175,8 @@ export default function Layout() {
 
       {/* ② メイン画面のラッパー */}
       <div 
-        className={`relative z-10 flex flex-col h-full bg-slate-900 light:bg-slate-50 transition-transform duration-300 ease-out ${
-          isMobileMenuOpen ? 'translate-x-80 md:translate-x-0 shadow-[-15px_0_30px_rgba(0,0,0,0.5)]' : 'translate-x-0'
+        className={`relative z-10 flex flex-col h-full bg-bg transition-transform duration-300 ease-out ${
+          isMobileMenuOpen ? 'translate-x-80 md:translate-x-0 shadow-xl' : 'translate-x-0'
         }`}
       >
         {isMobileMenuOpen && (
@@ -181,13 +184,13 @@ export default function Layout() {
         )}
 
         {/* ヘッダー */}
-        <nav className="absolute top-0 left-0 w-full z-20 bg-slate-800/70 light:bg-white/70 backdrop-blur-lg border-b border-white/10 light:border-slate-200">
+        <nav className="on-header absolute top-0 left-0 w-full z-20 bg-slate-800/95 backdrop-blur-lg border-b border-white/10">
           <div className="flex items-center justify-between h-15 md:h-16 px-4 sm:px-6 lg:px-8 max-w-[1500px] mx-auto w-full">
             
             {/* 左側：メニューボタンとFMSロゴ */}
             <div className="flex items-center gap-4">
               {chapterLinks.length > 0 && (
-                <button onClick={() => setIsMobileMenuOpen(true)} className="lg:hidden p-2 -ml-2 text-slate-300 light:text-slate-600">
+                <button onClick={() => setIsMobileMenuOpen(true)} className="lg:hidden p-2 -ml-2 text-slate-300">
                   <FiMenu size={24} />
                 </button>
               )}
@@ -204,27 +207,29 @@ export default function Layout() {
             {/* 右側のリンク群 */}
             <div className="flex items-center space-x-4 md:space-x-6">
               
-              {/* リンク1（エメラルド系に変更） */}
+              {/* リンク1 */}
               <a 
                 href="https://portal.nkz.ac.jp/campusweb/top.do" 
                 target="_blank" 
                 rel="noopener noreferrer"
-                className="flex items-center gap-1 text-sm md:text-base font-semibold text-emerald-400 light:text-emerald-600 hover:text-emerald-300 light:hover:text-emerald-500 underline decoration-emerald-400/50 hover:decoration-emerald-300 underline-offset-2 hover:underline-offset-4 transition-all duration-200"
+                className="flex items-center gap-1 text-sm md:text-base font-semibold text-emerald-400 hover:text-emerald-300 underline decoration-emerald-400/50 hover:decoration-emerald-300 underline-offset-2 hover:underline-offset-4 transition-all duration-200"
               >
                 <FiExternalLink size={16} className="flex-shrink-0" />
                 <span>Portal</span>
               </a>
 
-              {/* リンク2（アンバー系に変更） */}
+              {/* リンク2 */}
               <a 
                 href="https://st.uc.career-tasu.jp/top/" 
                 target="_blank" 
                 rel="noopener noreferrer"
-                className="flex items-center gap-1 text-sm md:text-base font-semibold text-amber-400 light:text-amber-600 hover:text-amber-300 light:hover:text-amber-500 underline decoration-amber-400/50 hover:decoration-amber-300 underline-offset-2 hover:underline-offset-4 transition-all duration-200"
+                className="flex items-center gap-1 text-sm md:text-base font-semibold text-amber-400 hover:text-amber-300 underline decoration-amber-400/50 hover:decoration-amber-300 underline-offset-2 hover:underline-offset-4 transition-all duration-200"
               >
                 <FiExternalLink size={16} className="flex-shrink-0" />
                 <span>Career</span>
               </a>
+
+              <ThemeToggleButton className="-mr-2" />
               
             </div>
 
@@ -235,7 +240,7 @@ export default function Layout() {
         <div className="flex-1 overflow-y-auto w-full pb-20 md:pb-0 [scrollbar-gutter:stable]">
           <div className="flex w-full max-w-[1500px] mx-auto px-2 sm:px-6 lg:px-8">
             {chapterLinks.length > 0 && (
-              <aside className="hidden lg:flex sticky top-0 self-start h-screen w-64 flex-shrink-0 bg-slate-900/60 light:bg-white/60 border-r border-white/10 light:border-slate-200 p-4 pt-16 flex-col justify-between z-10">
+              <aside className="hidden lg:flex sticky top-0 self-start h-screen w-64 flex-shrink-0 bg-surface border-r border-line p-4 pt-16 flex-col justify-between z-10">
                 <SidebarContent links={chapterLinks} activeId={activeChapter} onNavigate={setActiveChapter} closeMenu={() => {}} />
               </aside>
             )}
@@ -245,15 +250,16 @@ export default function Layout() {
           </div>
         </div>
 
-        {/* ③ ボトムナビゲーション (スマホのみ表示) */}
-        <nav className="md:hidden absolute bottom-0 left-0 w-full z-30 bg-slate-900/95 light:bg-white/95 backdrop-blur-md border-t border-slate-700/50 light:border-slate-200 pt-2 pb-[calc(0.5rem+env(safe-area-inset-bottom))]">
+        {/* ③ ボトムナビゲーション (スマホのみ・メニューがあるページだけ表示) */}
+        {chapterLinks.length > 0 && (
+        <nav className="md:hidden absolute bottom-0 left-0 w-full z-30 bg-surface/95 backdrop-blur-md border-t border-line pt-2 pb-[calc(0.5rem+env(safe-area-inset-bottom))]">
           <ul className="flex justify-around items-center h-14 px-1">
             {chapterLinks.filter(link => !bottomLinkIds.includes(link.id)).map(link => (
               <li key={link.id} className="flex-1">
                 <button
                   onClick={() => setActiveChapter(link.id)}
                   className={`w-full flex flex-col items-center justify-center space-y-1 transition-colors duration-200 ${
-                    activeChapter === link.id ? 'text-cyan-400 light:text-cyan-600' : 'text-slate-500'
+                    activeChapter === link.id ? 'text-accent' : 'text-fg-muted'
                   }`}
                 >
                   {getChapterIcon(link.id, 24)}
@@ -263,6 +269,7 @@ export default function Layout() {
             ))}
           </ul>
         </nav>
+        )}
       </div>
       <Toaster position="top-right" />
     </div>

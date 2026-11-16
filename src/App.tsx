@@ -7,6 +7,7 @@ import HomePage from "./pages/HomePage";
 import LoginForm from './pages/LoginForm';
 import RegisterForm from './pages/RegisterForm';
 import MyPage from "./pages/MyPage";
+import { ThemeColorSync } from "./components/ThemeToggle";
 
 // 🌟 1. QueryClient のインスタンスを作成
 // ここでアプリ全体のキャッシュの挙動（有効期限など）を一括設定できます
@@ -52,6 +53,7 @@ export default function App() {
   return (
     // 🌟 2. QueryClientProvider でアプリ全体をラップ
     <QueryClientProvider client={queryClient}>
+      <ThemeColorSync />
       <SidebarProvider>
         <RouterProvider router={router} />
       </SidebarProvider>

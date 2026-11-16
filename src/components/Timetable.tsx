@@ -59,7 +59,7 @@ const PeriodAxis = ({ maxPeriods }: { maxPeriods: number }) => (
       {Array.from({ length: maxPeriods }, (_, i) => i + 1).map(period => (
         <div
           key={`period-axis-${period}`}
-          className="w-full h-14 flex items-center justify-center text-cyan-400 font-bold text-lg md:text-2xl"
+          className="w-full h-14 flex items-center justify-center text-accent font-bold text-lg md:text-2xl"
         >
           {period}
         </div>
@@ -85,36 +85,36 @@ const DailySchedule = ({ subjects, currentTime }: { subjects: Subject[], current
             href={url}
             target="_blank"
             rel="noopener noreferrer"
-            className="block rounded-lg focus:outline-none focus:ring-2 focus:ring-cyan-400"
+            className="block rounded-lg focus:outline-none focus:ring-2 focus:ring-accent"
           >
             <motion.div
               layoutId={`card-container-${subject.id}`}
               transition={layoutTransition}
               animate={{ scale: isCurrent ? 1.10 : 1 }}
-              className={`w-full bg-slate-800/80 border border-white/20 rounded-lg p-2 md:p-3 text-left flex items-center space-x-4 hover:bg-slate-700/60 transition-colors duration-200 ${isCurrent ? 'is-current-class' : ''}`}
+              className={`w-full bg-surface-2/80 border border-line rounded-lg p-2 md:p-3 text-left flex items-center space-x-4 hover:bg-surface-3/60 transition-colors duration-200 ${isCurrent ? 'is-current-class' : ''}`}
             >
-              <div className="flex flex-col items-center justify-center text-center basis-1/5 flex-shrink-0 pr-3 border-r border-slate-600">
-                <p className="flex items-baseline text-cyan-400 font-bold text-xl md:text-2xl">
+              <div className="flex flex-col items-center justify-center text-center basis-1/5 flex-shrink-0 pr-3 border-r border-line">
+                <p className="flex items-baseline text-accent font-bold text-xl md:text-2xl">
                   <span className="text-md ">{subject.period}</span>
-                  <span className="text-base font-medium text-cyan-500 ml-[1px] md:ml-[3px]">限</span>
+                  <span className="text-base font-medium text-accent ml-[1px] md:ml-[3px]">限</span>
                 </p>
                 {timeInfo && (
-                  <p className="text-gray-400 text-[9px] md:text-xs font-mono">
+                  <p className="text-fg-muted text-[9px] md:text-xs font-mono">
                     {formatTime(timeInfo.start.h, timeInfo.start.m)}-{formatTime(timeInfo.end.h, timeInfo.end.m)}
                   </p>
                 )}
               </div>
 
               <div className="flex-grow basis-4/5 min-w-0 space-y-[2px]">
-                <p className="font-semibold text-sm md:text-lg text-white truncate">{subject.name}</p>
-                <p className="text-xs md:text-sm text-gray-400">{subject.classroom} / {subject.teacher}</p>
+                <p className="font-semibold text-sm md:text-lg text-fg truncate">{subject.name}</p>
+                <p className="text-xs md:text-sm text-fg-muted">{subject.classroom} / {subject.teacher}</p>
               </div>
             </motion.div>
           </a>
         );
       })
     ) : (
-      <div className="text-gray-400 text-center py-10">今日の授業はありません</div>
+      <div className="text-fg-muted text-center py-10">今日の授業はありません</div>
     )}
   </motion.div>
 );
@@ -135,7 +135,7 @@ const WeeklySchedule = ({ weeklySubjects, currentTime, today }: { weeklySubjects
           key={day}
           className="flex flex-col items-center space-y-2 min-w-0"
         >
-          <p className={`font-bold ${day === today ? 'text-cyan-300' : 'text-gray-500'}`}>{day}</p>
+          <p className={`font-bold ${day === today ? 'text-accent' : 'text-fg-subtle'}`}>{day}</p>
           <div className="w-full space-y-2">
             {Array.from({ length: MAX_PERIODS }, (_, i) => i + 1).map(period => {
               const subject = weeklySubjects[day]?.find(s => s.period === period);
@@ -153,15 +153,15 @@ const WeeklySchedule = ({ weeklySubjects, currentTime, today }: { weeklySubjects
                     href={url}
                     target="_blank"
                     rel="noopener noreferrer"
-                    className="block h-13 md:h-14 rounded-lg focus:outline-none focus:ring-2 focus:ring-cyan-400"
+                    className="block h-13 md:h-14 rounded-lg focus:outline-none focus:ring-2 focus:ring-accent"
                   >
                     <motion.div
                       layoutId={`card-container-${subject.id}`}
                       transition={layoutTransition}
                       animate={{ scale: isCurrent ? 1.03 : 1 }}
-                      className={`w-full h-full bg-slate-800/80 rounded p-1 md:p-2 flex flex-col justify-center items-center space-y-1 text-center hover:bg-slate-700/60 transition-colors duration-200 ${isCurrent ? 'is-current-class' : ''}`}
+                      className={`w-full h-full bg-surface-2/80 rounded p-1 md:p-2 flex flex-col justify-center items-center space-y-1 text-center hover:bg-surface-3/60 transition-colors duration-200 ${isCurrent ? 'is-current-class' : ''}`}
                     >
-                      <p className="font-semibold text-white line-clamp-2 md:w-full text-[10px] md:text-xs">{subject.name}</p>
+                      <p className="font-semibold text-fg line-clamp-2 md:w-full text-[10px] md:text-xs">{subject.name}</p>
                     </motion.div>
                   </a>
                 );
@@ -169,7 +169,7 @@ const WeeklySchedule = ({ weeklySubjects, currentTime, today }: { weeklySubjects
                 return (
                   <div
                     key={`${day}-${period}`}
-                    className="w-full h-13 md:h-14 bg-slate-900/50 border-2 border-dashed border-slate-700 rounded-lg"
+                    className="w-full h-13 md:h-14 bg-surface/50 border-2 border-dashed border-line rounded-lg"
                   />
                 );
               }
@@ -250,8 +250,8 @@ export const TimetableContainer: React.FC<TimetableContainerProps> = ({
   weeklySubjects,
 }) => {
   return (
-    <div className="flex flex-col bg-slate-900/70 backdrop-blur-lg border border-white/10 shadow-xl rounded-lg">
-      <div className="relative w-full flex justify-center items-center h-15 md:h-18 px-2 sm:px-6 border-b border-slate-700">
+    <div className="flex flex-col bg-surface border border-line rounded-lg">
+      <div className="relative w-full flex justify-center items-center h-15 md:h-18 px-2 sm:px-6 border-b border-line">
         {courseStyle && (
           <div className={`absolute left-4 sm:left-6 flex items-center gap-1 md:gap-2 ${courseStyle.color}`}>
             <span className="md:pt-1 text-lg md:text-2xl hidden sm:block">
@@ -266,13 +266,13 @@ export const TimetableContainer: React.FC<TimetableContainerProps> = ({
           </div>
         )}
         <div className="flex justify-center items-baseline space-x-4 text-center">
-          <h1 className="font-orbitron font-bold text-cyan-300 text-glow text-xl sm:text-3xl">
+          <h1 className="font-bold text-accent text-xl sm:text-3xl">
             {dynamicTitle}
           </h1>
         </div>
         <button 
           onClick={toggleTimetableView} 
-          className="absolute right-4 sm:right-6 text-gray-400 hover:text-cyan-400 transition-colors duration-300" 
+          className="absolute right-4 sm:right-6 text-fg-muted hover:text-accent transition-colors duration-300" 
           aria-label="表示切替"
         >
           {isWeeklyView ? <FiMinimize size={24} /> : <FiMaximize size={24} />}
@@ -280,15 +280,15 @@ export const TimetableContainer: React.FC<TimetableContainerProps> = ({
       </div>
 
       {isProfileSet ? (
-        <div className="flex justify-center items-center min-h-[350px] bg-slate-950 rounded-lg px-2 pt-4 pb-7">
+        <div className="flex justify-center items-center min-h-[350px] bg-surface rounded-lg px-2 pt-4 pb-7">
           <TimetableDisplay isWeeklyView={isWeeklyView} weeklyData={weeklySubjects} />
         </div>
       ) : (
-        <div className="flex flex-col items-center justify-center min-h-[350px] bg-slate-950 rounded-lg">
+        <div className="flex flex-col items-center justify-center min-h-[350px] bg-surface rounded-lg">
           <div className="text-center py-10 px-4">
-            <h2 className="text-xl font-semibold text-white mb-2">時間割を表示するには設定が必要です</h2>
-            <p className="text-gray-400 mb-6">所属コースと英語クラスを選択してください。</p>
-            <Link to="/setting" className="inline-flex items-center gap-2 bg-gradient-to-r from-cyan-500 to-blue-600 hover:from-cyan-600 hover:to-blue-700 text-white font-bold py-3 px-6 rounded-lg transition-all duration-300 transform hover:scale-105">
+            <h2 className="text-xl font-semibold text-fg mb-2">時間割を表示するには設定が必要です</h2>
+            <p className="text-fg-muted mb-6">所属コースと英語クラスを選択してください。</p>
+            <Link to="/setting" className="inline-flex items-center gap-2 bg-accent-solid hover:bg-accent-solid-hover text-on-accent font-bold py-3 px-6 rounded-lg transition-all duration-300 transform hover:scale-105">
               <span>設定ページへ</span>
               <FiArrowRight />
             </Link>

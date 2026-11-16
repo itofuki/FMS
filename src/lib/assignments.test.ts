@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { mergeAssignments, getDeadlineStatus, getSubjectCategoryType, toDeadlineSyncItems, type Assignment, type LmsEvent, type DbSubject } from './assignments';
+import { mergeAssignments, getDeadlineStatus, getSubjectCategoryType, toDeadlineSyncItems, groupAssignments, type Assignment, type LmsEvent, type DbSubject } from './assignments';
 
 const NOW = new Date('2026-11-16T12:00:00+09:00');
 const hoursFromNow = (h: number) => new Date(NOW.getTime() + h * 3600_000).toISOString();
@@ -63,6 +63,12 @@ describe('mergeAssignments', () => {
     expect(a.url).toBe('https://lms-tokyo.iput.ac.jp/course/view.php?id=10');
   });
 
+  it('科目が見つからないLMS課題は「未分類」（「LMS」は画面のラベルで示すので重ねない）', () => {
+    const [a] = mergeAssignments({ ...base, lmsEvents: [lmsEvent({ categoryCode: 'UNKNOWN' })] });
+    expect(a.subject_name).toBe('未分類');
+    expect(a.isLms).toBe(true);
+  });
+
   it('officialOnly のときは個人課題を除外する', () => {
     const result = mergeAssignments({
       ...base,
@@ -112,5 +118,33 @@ describe('toDeadlineSyncItems', () => {
       { uid: 'assign_9', title: '課題9', deadline: new Date(hoursFromNow(3)).toISOString(), url: null },
       { uid: 'db_1', title: 'レポート', deadline: new Date(hoursFromNow(48)).toISOString(), url: 'https://example.com' },
     ]);
+  });
+});
+
+describe('groupAssignments', () => {
+  it('期限の近さでグループ分けし、空のグループは返さない', () => {
+    const merged = mergeAssignments({
+      ...base,
+      assignments: [
+        dbAssign({ id: 1, deadline: hoursFromNow(-2) }),
+        dbAssign({ id: 2, deadline: hoursFromNow(3) }),
+        dbAssign({ id: 3, deadline: hoursFromNow(24) }),
+        dbAssign({ id: 4, deadline: hoursFromNow(100) }),
+        dbAssign({ id: 5, deadline: hoursFromNow(5), done: true }),
+      ],
+    });
+    const groups = groupAssignments(merged, NOW);
+    expect(groups.map((g) => [g.key, g.items.map((a) => a.id)])).toEqual([
+      ['overdue', [1]],
+      ['today', [2, 3]],
+      ['week', [4]],
+      ['done', [5]],
+    ]);
+    expect(groups[0].label).toBe('期限切れ');
+  });
+
+  it('8日以上先は「それ以降」', () => {
+    const merged = mergeAssignments({ ...base, assignments: [dbAssign({ id: 1, deadline: hoursFromNow(24 * 8) })] });
+    expect(groupAssignments(merged, NOW).map((g) => g.key)).toEqual(['later']);
   });
 });

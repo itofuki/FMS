@@ -66,21 +66,21 @@ export type LmsStatus = { lms_uid: string; done: boolean };
 const DAY_MS = 24 * 60 * 60 * 1000;
 
 export const getDeadlineStatus = (deadlineDate: string, isDone: boolean, now: Date = new Date()) => {
-  if (isDone) return { color: 'text-slate-600', label: '' };
+  if (isDone) return { color: 'text-fg-subtle', label: '' };
 
   const diffTime = new Date(deadlineDate).getTime() - now.getTime();
   const diffHours = Math.floor(diffTime / (1000 * 60 * 60));
   const diffDays = Math.ceil(diffTime / DAY_MS);
 
-  if (diffTime < 0) return { color: 'text-red-600 font-bold', label: '(期限切れ)' };
+  if (diffTime < 0) return { color: 'text-down font-bold', label: '(期限切れ)' };
 
   if (diffHours < 24) {
     const hours = diffHours === 0 ? '1' : diffHours;
-    return { color: 'text-red-400 font-bold', label: `(あと ${hours} 時間)` };
+    return { color: 'text-down font-bold', label: `(あと ${hours} 時間)` };
   }
 
   return {
-    color: diffDays <= 3 ? 'text-orange-400 font-bold' : 'text-slate-400',
+    color: diffDays <= 3 ? 'text-warn font-bold' : 'text-fg-muted',
     label: `(あと ${diffDays} 日)`,
   };
 };
@@ -137,7 +137,8 @@ export function mergeAssignments({
       done: manualDone ?? event.submissionStatus === 'submitted',
       classification: 'official' as const,
       user_id: null,
-      subject_name: subjects.find((s) => s.id === matched?.id)?.name || '未分類(LMS)',
+      // LMS由来であることは画面の「LMS」ラベルで示すので、ここでは「未分類」だけにする（二重表記を避ける）
+      subject_name: subjects.find((s) => s.id === matched?.id)?.name || '未分類',
       url: eventUrl,
       isLms: true,
       description: event.description,
@@ -176,4 +177,35 @@ export function toDeadlineSyncItems(items: UnifiedAssignment[], now: Date = new 
       url: a.url || null,
     }))
     .sort((a, b) => a.deadline.localeCompare(b.deadline) || a.uid.localeCompare(b.uid));
+}
+
+export type AssignmentGroupKey = 'overdue' | 'today' | 'week' | 'later' | 'done';
+
+export const ASSIGNMENT_GROUP_LABELS: Record<AssignmentGroupKey, string> = {
+  overdue: '期限切れ',
+  today: '24時間以内',
+  week: '1週間以内',
+  later: 'それ以降',
+  done: '完了',
+};
+
+/**
+ * 一覧を期限の近さで区切る（掲示板の小見出しのように、まとまりごとに見せるため）。
+ * 並び順は overdue → today → week → later → done。空のグループは返さない。
+ * 各グループ内の順序は入力（mergeAssignments の並び）を保つ。
+ */
+export function groupAssignments(items: UnifiedAssignment[], now: Date = new Date()) {
+  const order: AssignmentGroupKey[] = ['overdue', 'today', 'week', 'later', 'done'];
+  const buckets: Record<AssignmentGroupKey, UnifiedAssignment[]> = { overdue: [], today: [], week: [], later: [], done: [] };
+  for (const a of items) {
+    if (a.done) { buckets.done.push(a); continue; }
+    const remaining = new Date(a.deadline).getTime() - now.getTime();
+    if (remaining < 0) buckets.overdue.push(a);
+    else if (remaining <= DAY_MS) buckets.today.push(a);
+    else if (remaining <= 7 * DAY_MS) buckets.week.push(a);
+    else buckets.later.push(a);
+  }
+  return order
+    .filter((key) => buckets[key].length > 0)
+    .map((key) => ({ key, label: ASSIGNMENT_GROUP_LABELS[key], items: buckets[key] }));
 }

@@ -51,12 +51,12 @@ type CourseStyle = {
 };
 
 const courseStyles: Record<string, CourseStyle> = {
-  'IA': { icon: FiCpu, label: 'AI', color: 'text-purple-400' },
-  'IS': { icon: FiWifi, label: 'IoT', color: 'text-sky-400' },
-  'IR': { icon: FiGitPullRequest, label: 'Robot', color: 'text-orange-400' },
-  'DL': { icon: FiHelpCircle, label: 'Planner', color: 'text-pink-400' },
-  'DG': { icon: FiPlay, label: 'Programmer', color: 'text-emerald-400' },
-  'DC': { icon: FiFilm, label: 'CG', color: 'text-amber-400' },
+  'IA': { icon: FiCpu, label: 'AI', color: 'text-purple-600 dark:text-purple-400' },
+  'IS': { icon: FiWifi, label: 'IoT', color: 'text-sky-600 dark:text-sky-400' },
+  'IR': { icon: FiGitPullRequest, label: 'Robot', color: 'text-orange-600 dark:text-orange-400' },
+  'DL': { icon: FiHelpCircle, label: 'Planner', color: 'text-pink-600 dark:text-pink-400' },
+  'DG': { icon: FiPlay, label: 'Programmer', color: 'text-emerald-600 dark:text-emerald-400' },
+  'DC': { icon: FiFilm, label: 'CG', color: 'text-amber-600 dark:text-amber-400' },
 };
 
 const getCourseStyle = (courseName: string): CourseStyle | null => {
@@ -74,15 +74,15 @@ const getCourseStyle = (courseName: string): CourseStyle | null => {
   return {
     icon: FiHelpCircle,
     label: '未選択',
-    color: 'text-slate-400',
+    color: 'text-fg-muted',
   };
 };
 
 const myPageChapters: ChapterLink[] = [
   { id: 'timetable', label: '時間割' },
   { id: 'assignments', label: '課題' },
-  { id: 'test-prep', label: 'テスト対策' },
   { id: 'study-room', label: '自習室' },
+  { id: 'test-prep', label: 'テスト対策' },
   { id: 'tips', label: 'Tips' },
   { id: 'feedback', label: 'ご意見' },
   { id: 'setting', label: '設定' },
@@ -362,11 +362,14 @@ export default function MyPage() {
     <div className="px-1 py-4 md:p-6 lg:p-8">
       <DeadlineReminderSync subjects={uniqueSubjects} />
       <div className="w-full max-w-5xl mx-auto pt-16">
-        <div className="flex justify-between items-center mb-5">
-            <div className="flex flex-row items-baseline space-x-2 md:space-x-4">
-                <h1 className="text-[1.3rem] md:text-3xl font-bold text-white font-display pl-2">マイページ</h1>
-                {user && <span className="text-sm md:text-lg font-medium text-gray-300">{user.email}</span>}
-            </div>
+        {/* パンくずリスト: 現在地を小さく示し、大きな見出しで場所を取らない */}
+        <div className="flex items-center justify-between gap-3 mb-3 px-1 text-xs sm:text-sm">
+          <nav aria-label="現在地" className="flex items-center gap-1.5 text-fg-muted min-w-0">
+            <span>マイページ</span>
+            <span aria-hidden="true" className="text-fg-subtle">›</span>
+            <span className="font-semibold text-fg truncate">{myPageChapters.find(c => c.id === activeChapter)?.label ?? ''}</span>
+          </nav>
+          {user && <span className="hidden sm:inline text-fg-muted truncate">{user.email}</span>}
         </div>
         {renderMainContent()}
       </div>

@@ -39,6 +39,11 @@ FMSは、学内の施設開放スケジュール（自習室・談話室）、�
 * **Styling**: Tailwind CSS
 * **Hosting**: Vercel
 
+### テーマ（ライト / ダーク）
+* 設定画面とヘッダーのボタンで「端末に合わせる / ライト / ダーク」を切り替えられます（端末ごとに保存）。
+* 色は `src/index.css` のトークン（`--bg` / `--surface` / `--fg` / `--accent` / `--up` / `--down` など）で定義し、Tailwind からは `bg-surface` `text-fg` `border-line` `text-accent` `bg-accent-solid` `text-on-accent` `text-up` `text-down` `text-warn` のように使います。
+* **コンポーネントに `slate-900` や `cyan-400` などの生の色を直接書かないでください。** トークンを使えばライト・ダーク両方に自動で対応します。
+
 ### Backend & Infrastructure (BaaS)
 * **Database & Auth**: Supabase (PostgreSQL / Row Level Security)
 * **Storage**: Supabase Storage (PDF原本のバックアップ保存)

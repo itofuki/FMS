@@ -4,9 +4,10 @@ import React, { useState, useMemo, useRef, useEffect } from 'react';
 import { supabase } from '../lib/supabaseClient';
 import ChapterFrame from './ChapterFrame';
 import Loading from './Loading';
-import { FiPlus, FiTrash2, FiCalendar, FiInbox, FiFileText, FiTool, FiLink, FiEdit2, FiX, FiInfo, FiRefreshCw, FiPaperclip, FiPlay } from 'react-icons/fi';
-import { format } from 'date-fns';
-import { TextInput, Select, Button, Group, Checkbox, useMantineTheme, SimpleGrid } from '@mantine/core';
+import { FiPlus, FiTrash2, FiInbox, FiFileText, FiTool, FiLink, FiEdit2, FiX, FiInfo, FiRefreshCw, FiPaperclip, FiPlay, FiCheck, FiExternalLink, FiMoreVertical, FiAlertTriangle } from 'react-icons/fi';
+import { format, formatDistanceToNowStrict } from 'date-fns';
+import { ja } from 'date-fns/locale';
+import { TextInput, Select, Button, Group, SimpleGrid, Menu, ActionIcon } from '@mantine/core';
 import { DatePickerInput, type DayProps } from '@mantine/dates';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { Link } from 'react-router-dom';
@@ -18,7 +19,7 @@ import { useLmsEvents } from '../hooks/useLmsEvents';
 import { useDbAssignments, useDbSubjects, useLmsStatuses } from '../hooks/useAssignmentSources';
 import { withLmsToken } from '../lib/lms';
 import {
-  getDeadlineStatus, mergeAssignments,
+  getDeadlineStatus, mergeAssignments, groupAssignments, ASSIGNMENT_GROUP_LABELS, type AssignmentGroupKey,
   type Assignment, type Subject, type LmsStatus, type UnifiedAssignment,
 } from '../lib/assignments';
 
@@ -41,19 +42,65 @@ const formatDateTime = (isoString: string) => {
 const today = new Date();
 today.setHours(0, 0, 0, 0);
 
-const getBadgeStyle = (type: string, isDone: boolean) => {
-  if (isDone) return 'bg-slate-700/50 text-slate-500 border-slate-600/50'; 
 
-  switch (type) {
-    case 'class': return 'bg-emerald-900/30 text-emerald-300 border-emerald-800/50';
-    case 'department': return 'bg-indigo-900/30 text-indigo-300 border-indigo-800/50';
-    case 'course': return 'bg-purple-900/30 text-purple-300 border-purple-800/50';
-    default: return 'bg-cyan-900/30 text-cyan-300 border-cyan-800/50';
-  }
+// 残り時間のタグ（掲示板の「強く買いたい」タグの位置）
+const deadlineTag = (deadline: string) => {
+  const remaining = new Date(deadline).getTime() - Date.now();
+  const { label } = getDeadlineStatus(deadline, false);
+  const text = label.replace(/[()]/g, '');
+  if (remaining < 0) return { label: text, className: 'border-down/50 text-down bg-down-soft', dot: 'bg-down' };
+  if (remaining <= 24 * 60 * 60 * 1000) return { label: text, className: 'border-down/50 text-down', dot: 'bg-down' };
+  if (remaining <= 3 * 24 * 60 * 60 * 1000) return { label: text, className: 'border-warn/50 text-warn', dot: 'bg-warn' };
+  return { label: text, className: 'border-line-strong text-fg-muted', dot: 'bg-fg-subtle' };
 };
 
+// ダークモードの課題カードの色（配色変更前の元の課題カードの色: 通常 slate-700/80・公式 slate-800・完了 slate-800/60）
+const rowDarkBg = (a: UnifiedAssignment) =>
+  a.done ? 'dark:bg-slate-800/60'
+  : a.classification === 'official' && !a.isLms ? 'dark:bg-slate-800'
+  : 'dark:bg-slate-700/80';
+
+// お知らせの帯（左に色の線とアイコン、要点と補足、右端に操作）
+const NOTICE_STYLE = {
+  info: { box: 'bg-accent-soft border-accent/30', bar: 'bg-accent', icon: 'text-accent' },
+  danger: { box: 'bg-down-soft border-down/30', bar: 'bg-down', icon: 'text-down' },
+} as const;
+const NOTICE_ACTION_CLASS = {
+  info: 'inline-flex items-center justify-center h-9 px-4 rounded-md bg-accent-solid hover:bg-accent-solid-hover text-on-accent text-sm font-bold whitespace-nowrap transition-colors',
+  // 赤の塗りボタンはライト・ダークどちらでも白文字が読める red-600 で固定（ダークの --down は明るすぎるため）
+  danger: 'inline-flex items-center justify-center h-9 px-4 rounded-md bg-red-600 hover:bg-red-700 text-white text-sm font-bold whitespace-nowrap transition-colors disabled:opacity-60',
+} as const;
+
+function NoticeBar({ tone, title, description, action }: { tone: keyof typeof NOTICE_STYLE; title: string; description: string; action: React.ReactNode }) {
+  const st = NOTICE_STYLE[tone];
+  return (
+    <div role={tone === 'danger' ? 'alert' : 'status'} className={`relative flex flex-col sm:flex-row sm:items-center gap-3 pl-5 pr-4 py-3 rounded-lg border overflow-hidden ${st.box}`}>
+      <span className={`absolute left-0 inset-y-0 w-1 ${st.bar}`} aria-hidden="true" />
+      <div className="flex items-start gap-2.5 flex-1 min-w-0">
+        {tone === 'danger' ? <FiAlertTriangle className={`mt-0.5 flex-shrink-0 ${st.icon}`} size={18} /> : <FiInfo className={`mt-0.5 flex-shrink-0 ${st.icon}`} size={18} />}
+        <div className="min-w-0">
+          <p className="text-[15px] font-bold text-fg">{title}</p>
+          <p className="text-sm text-fg-muted">{description}</p>
+        </div>
+      </div>
+      <div className="flex-shrink-0 self-end sm:self-auto">{action}</div>
+    </div>
+  );
+}
+
+// グループの色（期限が近いほど強い色）。進み具合バーと小見出しの印で共通
+const GROUP_STYLE: Record<AssignmentGroupKey, { bar: string }> = {
+  done: { bar: 'bg-up' },
+  overdue: { bar: 'bg-down' },
+  today: { bar: 'bg-down/60' },
+  week: { bar: 'bg-warn' },
+  later: { bar: 'bg-line-strong' },
+};
+// 進み具合バーの並び（完了を左端に）
+const SUMMARY_ORDER: AssignmentGroupKey[] = ['done', 'overdue', 'today', 'week', 'later'];
+
+
 const Assignments: React.FC<AssignmentsProps> = ({ subject }) => {
-  const theme = useMantineTheme();
   const queryClient = useQueryClient();
 
   // --- ローカルステート ---
@@ -66,6 +113,16 @@ const Assignments: React.FC<AssignmentsProps> = ({ subject }) => {
   const [newTime, setNewTime] = useState('');
   const [newSubjectId, setNewSubjectId] = useState<string | null>(null);
   const [newUrl, setNewUrl] = useState('');
+  // 追加フォームは「追加」ボタンを押したときだけ開く（掲示板の「投稿する」と同じく一覧の上）
+  const [isFormOpen, setIsFormOpen] = useState(false);
+  // 「LMS 同期：〇分前」の表示を30秒ごとに更新するための時計
+  const [nowTick, setNowTick] = useState(() => Date.now());
+  useEffect(() => {
+    const id = window.setInterval(() => setNowTick(Date.now()), 30_000);
+    return () => window.clearInterval(id);
+  }, []);
+  // 完了した課題は普段は畳んでおく
+  const [showDone, setShowDone] = useState(false);
 
   // 添付の音声ファイル再生用（tokenクエリ付きURLはRangeリクエストに対応していないため、Blobで一括取得して再生する）
   const [audioBlobUrls, setAudioBlobUrls] = useState<Record<string, string>>({});
@@ -87,6 +144,7 @@ const Assignments: React.FC<AssignmentsProps> = ({ subject }) => {
   const {
     data: lmsEvents = [], isLoading: isLoadingLmsEvents, isFetching: isFetchingLmsEvents,
     isError: isLmsApiError, isTokenExpired, hasLmsSession, session: lmsSession, forceFullRefresh,
+    dataUpdatedAt: lmsDataUpdatedAt, isPlaceholderData: isLmsPlaceholder,
   } = useLmsEvents();
 
   const { data: dbSubjects = [], isLoading: isLoadingDbSubjects } = useDbSubjects();
@@ -194,9 +252,9 @@ const Assignments: React.FC<AssignmentsProps> = ({ subject }) => {
     const [year, month, day] = dateString.split('-').map(Number);
     const date = new Date(year, month - 1, day);
     const styles: React.CSSProperties = {};
-    if (date.getDay() === 6) { styles.color = theme.colors.blue[6]; }
+    if (date.getDay() === 6) { styles.color = 'var(--link)'; }
     if (date.getTime() === today.getTime()) {
-      styles.outline = `2px solid ${theme.colors.teal[6]}`;
+      styles.outline = '2px solid var(--accent)';
       styles.outlineOffset = '-2px';
     }
     return { style: styles };
@@ -211,6 +269,7 @@ const Assignments: React.FC<AssignmentsProps> = ({ subject }) => {
   };
 
   const resetForm = () => {
+    setIsFormOpen(false);
     setEditingId(null);
     setNewName('');
     setNewDate(null);
@@ -315,14 +374,6 @@ const Assignments: React.FC<AssignmentsProps> = ({ subject }) => {
     deleteMutation.mutate(id as number);
   };
 
-  const getAssignmentStyles = (assignment: UnifiedAssignment): string => {
-    if (assignment.classification === 'official') {
-      return `bg-slate-800 border-l-4 ${assignment.done ? 'border-amber-700' : 'border-amber-400'}`;
-    }
-    if (assignment.done) { return 'bg-slate-800/60 border-l-4 border-slate-600'; }
-    return 'bg-slate-700/80 border-l-4 border-cyan-500';
-  };
-
   const unifiedAssignments = useMemo(() => mergeAssignments({
     assignments,
     lmsEvents,
@@ -334,274 +385,383 @@ const Assignments: React.FC<AssignmentsProps> = ({ subject }) => {
 
   if (loading) return <Loading />;
 
+  const isOfficialMode = isAdminMode && userRole === 'admin';
+  const cleanTitle = (title: string) => title.replace(/[「」]|の提出期限/g, '');
+  const pendingCount = unifiedAssignments.filter(a => !a.done).length;
+  const groups = groupAssignments(unifiedAssignments);
+  const groupCounts = Object.fromEntries(
+    (['overdue', 'today', 'week', 'later', 'done'] as AssignmentGroupKey[]).map(k => [k, groups.find(g => g.key === k)?.items.length ?? 0]),
+  ) as Record<AssignmentGroupKey, number>;
+  const doneCount = groupCounts.done;
+  const showForm = isFormOpen || editingId !== null;
+  // LMS を最後に取得できた時刻（「2分前」のように表示。キャッシュ表示中はまだ取得していない）
+  const lmsSyncedLabel = !lmsDataUpdatedAt || isLmsPlaceholder
+    ? (isFetchingLmsEvents ? '取得中…' : '未取得')
+    : nowTick - lmsDataUpdatedAt < 60_000
+      ? 'たった今'
+      : formatDistanceToNowStrict(lmsDataUpdatedAt, { locale: ja, addSuffix: true });
+
+  /**
+   * 課題1件（掲示板のコメントの構成をコンパクトにしたもの。アイコンは置かない）
+   *   左: 丸い完了チェック（ToDo の定番の形）
+   *   中央 1行目: 科目名・種別・締切・残り時間 ／ 2行目: 課題名（リンクなら押すと開く） ／ 3行目: 説明・添付
+   *   右端: 「⋯」メニュー（編集・削除）。チェックと「⋯」はどちらもカードの上下中央
+   */
+  const renderRow = (assignment: UnifiedAssignment) => {
+    const canDelete = !assignment.isLms && (isOfficialMode || (assignment.classification === 'private' && assignment.user_id === currentUser?.id));
+    const subjectName = assignment.subject_name || '未分類';
+    const title = cleanTitle(assignment.name);
+    const hasAttachments = assignment.isLms && !!assignment.attachments?.length;
+    const tag = assignment.done ? null : deadlineTag(assignment.deadline);
+    const titleClass = `text-[17px] sm:text-lg font-bold leading-snug break-words ${assignment.done ? 'text-fg-subtle line-through' : 'text-fg'}`;
+
+    // 左の丸いチェック（ToDo の定番の形）。見た目は 24px、押せる範囲は 44px 四方
+    const doneCheck = (
+      <button
+        type="button"
+        onClick={() => handleToggleDone(assignment.id, assignment.done, assignment.isLms)}
+        aria-pressed={assignment.done}
+        aria-label={assignment.done ? `${title} を未完了に戻す` : `${title} を完了にする`}
+        title={assignment.done ? '未完了に戻す' : '完了にする'}
+        className="group/check flex-shrink-0 -m-2.5 p-2.5 rounded-full"
+      >
+        <span
+          className={`flex items-center justify-center w-6 h-6 rounded-full border-2 transition-colors ${
+            assignment.done
+              ? 'bg-up border-up text-white'
+              : 'border-line-strong group-hover/check:border-up group-hover/check:bg-up-soft'
+          }`}
+        >
+          {assignment.done && <FiCheck size={14} strokeWidth={3} />}
+        </span>
+      </button>
+    );
+
+    const moreMenu = canDelete ? (
+      <Menu position="bottom-end" withinPortal shadow="md" width={140}>
+        <Menu.Target>
+          <ActionIcon variant="subtle" color="gray" size="lg" radius="xl" aria-label="その他の操作">
+            <FiMoreVertical size={16} />
+          </ActionIcon>
+        </Menu.Target>
+        <Menu.Dropdown>
+          <Menu.Item leftSection={<FiEdit2 size={14} />} onClick={() => handleEditClick(assignment)}>編集</Menu.Item>
+          <Menu.Item color="red" leftSection={<FiTrash2 size={14} />} onClick={() => handleDeleteAssignment(assignment.id, assignment.isLms)}>削除</Menu.Item>
+        </Menu.Dropdown>
+      </Menu>
+    ) : null;
+
+    return (
+      <li
+        key={assignment.id}
+        className={`relative flex items-start gap-3.5 px-4 sm:px-5 py-4 rounded-xl shadow-sm transition-shadow ${editingId === assignment.id ? 'bg-accent-soft ring-2 ring-accent' : `bg-surface hover:shadow-md ${rowDarkBg(assignment)}`}`}
+      >
+        {/* 「⋮」はカードの右端・上下中央に */}
+        {moreMenu && <div className="absolute right-2 top-1/2 -translate-y-1/2">{moreMenu}</div>}
+
+        {/* 左: 完了チェック（カードの上下中央） */}
+        <div className="self-center">{doneCheck}</div>
+
+        {/* 右端の「⋮」と重ならないよう、本文全体の右側を空ける */}
+        <div className={`flex-1 min-w-0 ${moreMenu ? 'pr-9' : ''} ${assignment.done ? 'opacity-70' : ''}`}>
+          {/* 1行目: 科目・種別・締切・残り時間 */}
+          <div className="flex flex-wrap items-center gap-x-2.5 gap-y-1 text-sm">
+            <span className="font-semibold text-link truncate max-w-[60%]">{subjectName}</span>
+            {assignment.isLms && <span className="text-xs text-fg-subtle">LMS</span>}
+            {!assignment.isLms && assignment.classification === 'official' && (
+              <span className="text-xs px-1.5 rounded bg-warn-soft text-warn font-semibold">公式</span>
+            )}
+            {assignment.submissionStatus === 'draft' && (
+              <span className="text-xs px-1.5 rounded bg-accent-soft text-accent font-semibold">下書き</span>
+            )}
+            {/* 締切と残り時間のバッジは、間で改行されないようひとかたまりにする */}
+            <span className="inline-flex items-center gap-2 whitespace-nowrap">
+              <span className="text-fg-muted">締切 {formatDateTime(assignment.deadline)}</span>
+              {tag && (
+                <span className={`inline-flex items-center gap-1 px-1.5 py-px rounded border text-xs font-bold ${tag.className}`}>
+                  <span className={`w-1.5 h-1.5 rounded-sm ${tag.dot}`} aria-hidden="true" />
+                  {tag.label}
+                </span>
+              )}
+            </span>
+          </div>
+
+          {/* 2行目: 課題名（リンクがあれば押すと開く） */}
+          {assignment.url ? (
+            <a
+              href={assignment.url}
+              target="_blank"
+              rel="noopener noreferrer"
+              className={`mt-2 inline-flex items-start gap-1.5 hover:text-link hover:underline ${titleClass}`}
+            >
+              <span className="line-clamp-2">{title}</span>
+              <FiExternalLink size={14} className="mt-1.5 flex-shrink-0 text-fg-subtle" aria-label="新しいタブで開く" />
+            </a>
+          ) : (
+            <p className={`mt-2 line-clamp-2 ${titleClass}`}>{title}</p>
+          )}
+
+          {/* 3行目: 説明（1行）と添付 */}
+          {((assignment.isLms && assignment.description) || hasAttachments) && (
+            <div className="mt-2 flex flex-wrap items-center gap-x-3 gap-y-2">
+              {assignment.isLms && assignment.description && (
+                <div
+                  className="min-w-0 flex-1 basis-60 text-sm leading-relaxed line-clamp-2 text-fg-muted"
+                  dangerouslySetInnerHTML={{ __html: DOMPurify.sanitize(assignment.description) }}
+                />
+              )}
+              {hasAttachments && assignment.attachments!.map((file, i) => {
+                const key = `${assignment.id}_${i}`;
+                const chip = 'inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md border max-w-[240px] transition-colors';
+                if (isAudioFile(file.filename)) {
+                  if (audioBlobUrls[key]) {
+                    return <audio key={key} controls autoPlay src={audioBlobUrls[key]} className="h-8 w-full max-w-[260px]" />;
+                  }
+                  const isLoading = loadingAudioKeys.has(key);
+                  const isError = audioErrorKeys.has(key);
+                  return (
+                    <button
+                      key={key}
+                      type="button"
+                      onClick={() => handlePlayAudio(key, attachmentUrl(file.url))}
+                      disabled={isLoading}
+                      title={file.filename}
+                      className={`${chip} disabled:opacity-60 ${isError ? 'border-down/40 bg-down-soft text-down' : 'border-line text-fg-muted hover:text-accent hover:border-accent/50'}`}
+                    >
+                      <FiPlay size={11} className={`flex-shrink-0 ${isLoading ? 'animate-pulse' : ''}`} />
+                      <span className="text-xs truncate">{isError ? '再生に失敗（再試行）' : isLoading ? '読み込み中...' : file.filename}</span>
+                    </button>
+                  );
+                }
+                return (
+                  <a
+                    key={key}
+                    href={attachmentUrl(file.url)}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    title={file.filename}
+                    className={`${chip} border-line text-fg-muted hover:text-accent hover:border-accent/50`}
+                  >
+                    <FiPaperclip size={11} className="flex-shrink-0" />
+                    <span className="text-xs truncate">{file.filename}</span>
+                  </a>
+                );
+              })}
+            </div>
+          )}
+        </div>
+
+      </li>
+    );
+  };
+
+  // LMS の状態のお知らせ（カードの外、操作行のすぐ下に1行で出す）
+  const lmsNotice = isAdminMode ? null : !hasLmsSession ? (
+    <NoticeBar
+      tone="info"
+      title="LMSの課題はまだ表示されていません"
+      description="設定画面からLMSにログインすると、課題を自動で取得します。"
+      action={<Link to="?tab=setting&focus=advanced" className={NOTICE_ACTION_CLASS.info}>LMSにログイン</Link>}
+    />
+  ) : isLmsApiError ? (
+    isTokenExpired ? (
+      <NoticeBar
+        tone="danger"
+        title="LMSのログイン有効期限が切れました"
+        description="表示中のLMSの課題は最新ではない可能性があります。"
+        action={<Link to="?tab=setting&focus=advanced" className={NOTICE_ACTION_CLASS.danger}>再ログイン</Link>}
+      />
+    ) : (
+      <NoticeBar
+        tone="danger"
+        title="LMSの課題を取得できませんでした"
+        description="通信状況を確認して、もう一度お試しください。"
+        action={
+          <button type="button" onClick={handleForceRefreshLms} disabled={isFetchingLmsEvents} className={NOTICE_ACTION_CLASS.danger}>
+            {isFetchingLmsEvents ? '再試行中...' : '再試行'}
+          </button>
+        }
+      />
+    )
+  ) : null;
+
+  const openNewForm = () => {
+    resetForm();
+    setIsFormOpen(true);
+    setTimeout(() => formRef.current?.scrollIntoView({ behavior: 'smooth', block: 'nearest' }), 50);
+  };
+
   return (
-    <div className={`transition-all duration-300 ${isAdminMode ? 'bg-yellow-900/30' : ''}`}>
-      <ChapterFrame
-        title={
-          <>
-            <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 flex items-center gap-3">
-              <FiFileText className={`text-2xl sm:text-3xl transition-colors ${isAdminMode ? 'text-yellow-400' : 'text-cyan-400'}`} />
-              <span className={`font-orbitron font-bold text-glow text-xl sm:text-3xl transition-colors ${isAdminMode ? 'text-yellow-400' : 'text-cyan-300'}`}>
-                課題
-              </span>
-              {hasLmsSession && (
-                <button
-                  type="button"
-                  onClick={handleForceRefreshLms}
-                  disabled={isFetchingLmsEvents}
-                  title={isFetchingLmsEvents ? "LMS同期中..." : "LMSの提出状況を今すぐ更新"}
-                  className="text-cyan-500 opacity-70 hover:opacity-100 disabled:cursor-not-allowed transition-opacity"
-                >
-                  <FiRefreshCw size={14} className={isFetchingLmsEvents ? 'animate-spin' : ''} />
-                </button>
+    <ChapterFrame
+      icon={FiFileText}
+      title="課題"
+      bare
+      notice={lmsNotice}
+    >
+      {/* 画面が広い（xl 以上）ときは、ヤフーファイナンスの掲示板のように「左に一覧・右に補足」の2列にする。
+          課題カードが横に間延びしないようにし、進み具合はスクロールしても右に残す */}
+      <div className="xl:grid xl:grid-cols-[minmax(0,1fr)_300px] xl:gap-6 xl:items-start">
+        <aside className="mb-6 xl:mb-0 xl:order-2 xl:sticky xl:top-4">
+          <div className="bg-surface border border-line">
+            {/* 上段: LMS の同期状態と更新 */}
+            <div className="px-4 sm:px-6 xl:px-5 py-3 flex flex-col gap-2 text-sm border-b border-line">
+              {hasLmsSession ? (
+                <div className="flex items-center justify-between gap-2">
+                  <span className={isLmsApiError ? 'text-down font-semibold' : 'text-fg-muted'}>
+                    {isLmsApiError ? 'LMS 同期エラー' : `LMS 同期：${lmsSyncedLabel}`}
+                  </span>
+                  <button
+                    type="button"
+                    onClick={handleForceRefreshLms}
+                    disabled={isFetchingLmsEvents}
+                    title={isFetchingLmsEvents ? 'LMS同期中...' : 'LMSの提出状況を今すぐ更新'}
+                    aria-label="LMSの提出状況を今すぐ更新"
+                    className="relative inline-flex items-center gap-1.5 px-2 py-1 -mr-2 rounded-md text-fg-muted hover:text-accent hover:bg-surface-3 disabled:cursor-not-allowed transition-colors"
+                  >
+                    <FiRefreshCw size={14} className={isFetchingLmsEvents ? 'animate-spin' : ''} />
+                    <span className="text-xs font-semibold">{isFetchingLmsEvents ? '更新中' : '更新'}</span>
+                    {isLmsApiError && <span className="absolute -top-0.5 -right-0.5 w-2.5 h-2.5 rounded-full bg-down ring-2 ring-surface" aria-hidden="true" />}
+                  </button>
+                </div>
+              ) : (
+                <div className="flex items-center justify-between gap-2">
+                  <span className="text-fg-muted">LMS 未接続</span>
+                  <Link to="?tab=setting&focus=advanced" className="text-xs font-semibold text-link hover:underline">ログイン</Link>
+                </div>
               )}
             </div>
-            {userRole === 'admin' && (
-              <div className="absolute top-1/2 right-1 -translate-y-1/2">
-                <Button
+
+            {/* 下段: 進み具合（掲示板の「みんなの評価」の割合バーのように、全体の状況をひと目で） */}
+            {unifiedAssignments.length > 0 && (
+              <div className="px-4 sm:px-6 xl:px-5 py-5">
+                <div className="flex items-baseline justify-between gap-3 mb-3">
+                  <span className="text-base font-bold text-fg">進み具合</span>
+                  <span className="text-sm text-fg-muted">
+                    完了 <span className="text-2xl font-bold text-up">{doneCount}</span> / {unifiedAssignments.length}件
+                  </span>
+                </div>
+                <div className="flex h-3 w-full overflow-hidden rounded-full bg-surface-3" role="img" aria-label={`全${unifiedAssignments.length}件中${doneCount}件完了`}>
+                  {SUMMARY_ORDER.map(key => {
+                    const n = groupCounts[key];
+                    return n > 0 ? <div key={key} className={GROUP_STYLE[key].bar} style={{ width: `${(n / unifiedAssignments.length) * 100}%` }} /> : null;
+                  })}
+                </div>
+                <ul className="mt-3 flex flex-wrap xl:flex-col gap-x-5 gap-y-1.5 xl:gap-y-2 text-sm text-fg-muted">
+                  {SUMMARY_ORDER.map(key => (
+                    <li key={key} className="inline-flex items-center gap-1.5">
+                      <span className={`w-2.5 h-2.5 rounded-full ${GROUP_STYLE[key].bar}`} />
+                      {ASSIGNMENT_GROUP_LABELS[key]}
+                      <span className="font-semibold text-fg">{groupCounts[key]}</span>
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            )}
+          </div>
+        </aside>
+        <div className="xl:order-1 min-w-0">
+          {/* 一覧の見出し行: 左に件数、右に追加（どこに追加されるかが分かるよう一覧のすぐ上に置く） */}
+          <div className="flex items-center justify-between gap-3 mb-4 px-3 sm:px-8 xl:px-0">
+            <div className="flex items-center gap-2 min-w-0 text-sm text-fg-muted">
+              {isAdminMode ? (
+                <>
+                  <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded bg-amber-400 text-slate-900 text-xs font-bold whitespace-nowrap"><FiTool size={12} />管理者モード</span>
+                  <span className="hidden sm:inline">公式課題のみ表示中</span>
+                </>
+              ) : (
+                <span>未完了 <span className="text-base font-bold text-fg">{pendingCount}</span>件</span>
+              )}
+            </div>
+            <div className="flex items-center gap-2 flex-shrink-0">
+              {/* 管理者モード: 切り替えると一覧と「追加」の動きが変わるので、そのすぐ隣に置く（管理者にだけ表示） */}
+              {userRole === 'admin' && (
+                <button
+                  type="button"
                   onClick={() => { setIsAdminMode(prev => !prev); resetForm(); }}
-                  variant="outline"
-                  color={isAdminMode ? "cyan" : "yellow"}
-                  size="xs"
-                  className="sm:px-4 sm:text-sm"
+                  aria-pressed={isAdminMode}
+                  aria-label={isAdminMode ? '管理者モードを終了' : '管理者モード'}
+                  title={isAdminMode ? '管理者モードを終了' : '管理者モード'}
+                  className={`inline-flex items-center gap-1.5 h-9 px-2.5 sm:px-3 rounded-md border text-sm font-bold transition-colors ${
+                    isAdminMode
+                      ? 'bg-amber-400 border-amber-400 text-slate-900 hover:bg-amber-300'
+                      : 'bg-amber-50 border-amber-300 text-amber-800 hover:bg-amber-100 dark:bg-amber-400/10 dark:border-amber-400/40 dark:text-amber-300 dark:hover:bg-amber-400/20'
+                  }`}
                 >
-                  <div className="flex items-center justify-center">
-                    <FiTool size={16} />
-                    <span className="hidden sm:inline ml-2">{isAdminMode ? '通常モード' : '管理者モード'}</span>
-                  </div>
-                </Button>
-              </div>
-            )}
-          </>
-        }
-      >
-        <div className="w-full max-w-3xl mx-auto flex flex-col gap-8 p-1 sm:p-4 rounded-xl transition-all duration-300">
-          <div>
-
-            {unifiedAssignments.length === 0 ? (
-              <div className="text-center py-10 px-4 bg-slate-800/30 rounded-lg border border-slate-700/30">
-                <FiInbox size={32} className="mx-auto text-slate-500 mb-3" />
-                <p className="text-slate-400 text-sm">{isAdminMode ? '表示できる公式課題はありません' : '直近2週間の課題はありません 🎉'}</p>
-              </div>
-            ) : (
-              <div className="grid grid-cols-1 gap-4">
-                {unifiedAssignments.map(assignment => {
-                  const canDelete = !assignment.isLms && ((isAdminMode && userRole === 'admin') || (assignment.classification === 'private' && assignment.user_id === currentUser?.id));
-                  const cleanTitle = (title: string) => title.replace(/[「」]|の提出期限/g, '');
-                  const status = getDeadlineStatus(assignment.deadline, assignment.done);
-
-                  return (
-                    <div key={assignment.id} className={`p-4 rounded-lg flex transition-all duration-300 ${getAssignmentStyles(assignment)} ring-cyan-500 ${editingId === assignment.id ? 'ring-2' : ''} h-full`}>
-                      
-                      {/* 共通の左端: チェックボックス */}
-                      <div className="flex items-center justify-center pr-3 sm:pr-4">
-                        <Checkbox
-                          checked={assignment.done}
-                          onChange={() => handleToggleDone(assignment.id, assignment.done, assignment.isLms)}
-                          size="md"
-                          className="flex-shrink-0"
-                        />
-                      </div>
-
-                      {/* --- 左右に分割するラッパー --- */}
-                      <div className="flex flex-1 min-w-0 gap-3">
-                        
-                        {/* 🌟 左側カラム: 科目、操作ボタン、タイトル、詳細 (右側領域に干渉せず残りの幅をすべて使う) */}
-                        <div className="flex flex-col flex-1 min-w-0 justify-center py-0.5">
-                          
-                          {/* 左側1段目: 科目バッジ と 操作ボタン */}
-                          <div className="flex items-center gap-2 mb-1.5">
-                            <span className={`text-[10px] sm:text-xs px-2 py-0.5 rounded border inline-block truncate max-w-[150px] sm:max-w-[180px] transition-colors duration-300 ${getBadgeStyle(assignment.subjectCategoryType, assignment.done)}`}>
-                              {assignment.subject_name || '未分類'}
-                            </span>
-                            
-                            {canDelete && (
-                              <div className="flex items-center gap-1">
-                                <button onClick={() => handleEditClick(assignment)} className="p-1 text-slate-400 hover:text-cyan-400 hover:bg-slate-700/80 rounded transition-colors"><FiEdit2 size={13}/></button>
-                                <button onClick={() => handleDeleteAssignment(assignment.id, assignment.isLms)} className="p-1 text-slate-400 hover:text-red-500 hover:bg-slate-700/80 rounded transition-colors"><FiTrash2 size={13}/></button>
-                              </div>
-                            )}
-                          </div>
-
-                          {/* 左側2段目: 課題タイトル */}
-                          <div className="flex items-center gap-2 flex-wrap min-w-0">
-                            {assignment.url ? (
-                              <a
-                                href={assignment.url}
-                                target="_blank"
-                                rel="noopener noreferrer"
-                                title={cleanTitle(assignment.name)}
-                                className={`font-bold text-base sm:text-[17px] hover:underline transition-colors flex items-center gap-2 min-w-0 ${
-                                  assignment.done ? 'text-slate-500 line-through' : 'text-slate-100'
-                                }`}
-                              >
-                                <span className="truncate min-w-0">{cleanTitle(assignment.name)}</span>
-                                {assignment.submissionStatus === 'draft' && <span className="text-[10px] bg-blue-500/20 text-blue-300 px-1 py-0.5 rounded border border-blue-500/30 flex-shrink-0">下書き</span>}
-                              </a>
-                            ) : (
-                              <p
-                                title={cleanTitle(assignment.name)}
-                                className={`font-bold text-base sm:text-[17px] transition-colors flex items-center gap-2 min-w-0 ${
-                                  assignment.done ? 'text-slate-500 line-through' : 'text-slate-100'
-                                }`}
-                              >
-                                <span className="truncate min-w-0">{cleanTitle(assignment.name)}</span>
-                                {assignment.submissionStatus === 'draft' && <span className="text-[10px] bg-blue-500/20 text-blue-300 px-1 py-0.5 rounded border border-blue-500/30 flex-shrink-0">下書き</span>}
-                              </p>
-                            )}
-                          </div>
-
-                          {/* 左側3段目: 詳細説明 (LMSのみ) */}
-                          {assignment.isLms && assignment.description && (
-                            <div 
-                              className={`mt-1.5 text-xs line-clamp-2 prose prose-invert prose-sm whitespace-pre-wrap transition-colors duration-300 ${
-                                assignment.done ? 'text-slate-500 opacity-50' : 'text-slate-400'
-                              }`}
-                              dangerouslySetInnerHTML={{ __html: DOMPurify.sanitize(assignment.description) }}
-                            />
-                          )}
-
-                          {/* 左側4段目: 添付資料 (LMSのみ) */}
-                          {assignment.isLms && assignment.attachments && assignment.attachments.length > 0 && (
-                            <div className="mt-1.5 flex flex-wrap gap-1.5">
-                              {assignment.attachments.map((file, i) => {
-                                const key = `${assignment.id}_${i}`;
-                                if (isAudioFile(file.filename)) {
-                                  if (audioBlobUrls[key]) {
-                                    return (
-                                      <audio
-                                        key={key}
-                                        controls
-                                        autoPlay
-                                        src={audioBlobUrls[key]}
-                                        onClick={(e) => e.stopPropagation()}
-                                        className="h-7 w-full max-w-[240px]"
-                                      />
-                                    );
-                                  }
-                                  const isLoading = loadingAudioKeys.has(key);
-                                  const isError = audioErrorKeys.has(key);
-                                  return (
-                                    <button
-                                      key={key}
-                                      type="button"
-                                      onClick={(e) => { e.stopPropagation(); handlePlayAudio(key, attachmentUrl(file.url)); }}
-                                      disabled={isLoading}
-                                      title={file.filename}
-                                      className={`flex flex-shrink-0 items-center gap-1 text-[10px] sm:text-xs px-1.5 py-0.5 rounded border transition-colors max-w-[240px] truncate disabled:opacity-60 ${
-                                        isError
-                                          ? 'border-red-500/60 bg-red-900/20 text-red-300'
-                                          : 'border-slate-600 bg-slate-800/60 text-slate-300 hover:text-cyan-300 hover:border-cyan-500/60'
-                                      }`}
-                                    >
-                                      <FiPlay size={11} className={`flex-shrink-0 ${isLoading ? 'animate-pulse' : ''}`} />
-                                      <span className="truncate">{isError ? '再生に失敗（再試行）' : isLoading ? '読み込み中...' : file.filename}</span>
-                                    </button>
-                                  );
-                                }
-                                return (
-                                  <a
-                                    key={key}
-                                    href={attachmentUrl(file.url)}
-                                    target="_blank"
-                                    rel="noopener noreferrer"
-                                    onClick={(e) => e.stopPropagation()}
-                                    className="flex flex-shrink-0 items-center gap-1 text-[10px] sm:text-xs px-1.5 py-0.5 rounded border border-slate-600 bg-slate-800/60 text-slate-300 hover:text-cyan-300 hover:border-cyan-500/60 transition-colors max-w-[240px] truncate"
-                                    title={file.filename}
-                                  >
-                                    <FiPaperclip size={11} className="flex-shrink-0" />
-                                    <span className="truncate">{file.filename}</span>
-                                  </a>
-                                );
-                              })}
-                            </div>
-                          )}
-                        </div>
-
-                        {/* 🌟 右側カラム: 提出期限 (右上固定・幅はテキスト分のみ確保) */}
-                        <div className="flex-shrink-0 pt-0.5 text-right">
-                          <div className={`flex flex-col items-end text-xs sm:text-sm font-medium ${status.color}`}>
-                            <div className="flex items-center gap-1">
-                              <FiCalendar size={13} className="mb-[1px]" />
-                              <span>{formatDateTime(assignment.deadline)}</span>
-                            </div>
-                            {/* 「あと何日」などのラベル部分 */}
-                            {status.label && <span className="text-[10px] sm:text-xs opacity-90 mt-0.5">{status.label}</span>}
-                          </div>
-                        </div>
-
-                      </div>
-                    </div>
-                  );
-                })}
-              </div>
-            )}
+                  <FiTool size={15} />
+                  {/* Mantine の CSS が button の文字指定を上書きするため、文字は span 側で指定する */}
+                  <span className="hidden sm:inline text-sm font-bold">{isAdminMode ? '終了' : '管理者モード'}</span>
+                </button>
+              )}
+              <Button onClick={openNewForm} leftSection={<FiPlus size={16} />}>
+                {isOfficialMode ? '公式課題を追加' : '課題を追加'}
+              </Button>
+            </div>
           </div>
-
-          {/* LMS未設定・エラー時のバナー */}
-          {!isAdminMode && !hasLmsSession && (
-            <div className="mb-6 p-4 bg-blue-900/40 border border-blue-500/50 rounded-lg flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
-              <div className="flex items-start gap-3 text-blue-200">
-                <FiInfo className="mt-0.5 flex-shrink-0 text-blue-400" size={18} />
-                <p className="text-sm">
-                  LMSの課題を自動で取得するには、設定画面からLMSにログインしてください。
-                </p>
-              </div>
-              <Link
-                to="?tab=setting&focus=advanced"
-                className="bg-blue-600 hover:bg-blue-500 text-white text-xs font-bold py-2 px-4 rounded transition-colors whitespace-nowrap self-end sm:self-auto"
-              >
-                設定を開く
-              </Link>
-            </div>
-          )}
-
-          {!isAdminMode && hasLmsSession && isLmsApiError && (
-            <div className="mb-6 p-4 bg-red-900/40 border border-red-500/50 rounded-lg flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
-              <div className="flex items-start gap-3 text-red-200">
-                <FiInfo className="mt-0.5 flex-shrink-0 text-red-400" size={18} />
-                <p className="text-sm">
-                  {isTokenExpired
-                    ? 'LMSのログイン有効期限が切れました。設定画面から再度ログインしてください。'
-                    : 'LMSからの課題取得に失敗しました。時間をおいて再度お試しください。'}
-                </p>
-              </div>
-              <Link
-                to="?tab=setting&focus=advanced"
-                className="bg-red-600 hover:bg-red-500 text-white text-xs font-bold py-2 px-4 rounded transition-colors whitespace-nowrap self-end sm:self-auto"
-              >
-                設定を確認
-              </Link>
-            </div>
-          )}
-
-          {/* 課題フォーム */}
-          <div ref={formRef} className={`bg-slate-800/50 p-5 rounded-xl transition-all duration-300 ring-cyan-500 border border-slate-700 max-w-2xl mx-auto w-full ${editingId ? 'ring-2 shadow-lg shadow-cyan-500/10' : ''}`}>
-            <div className="flex items-center justify-between mb-3">
-              <h3 className="font-bold text-md text-slate-200 flex items-center gap-2">
-                {editingId ? <><FiEdit2 className="text-cyan-400" /> 課題を編集</> : <><FiPlus className="text-slate-400" /> {isAdminMode && userRole === 'admin' ? '新しい[公式]課題を追加' : '新しい個人課題を追加'}</>}
-              </h3>
-              {editingId && <Button size="xs" variant="subtle" color="gray" onClick={resetForm} leftSection={<FiX />}>キャンセル</Button>}
-            </div>
-            <form onSubmit={handleAddOrUpdateAssignment} className="space-y-2">
-              <TextInput label="課題名" placeholder="例）中間レポート" value={newName} onChange={(e) => setNewName(e.currentTarget.value)} required />
-              <SimpleGrid cols={{ base: 1, sm: 2 }}>
-                <Select label="科目" placeholder="科目を選択" data={subject.map(s => ({ value: s.id.toString(), label: s.name }))} value={newSubjectId} onChange={(value) => setNewSubjectId(value)} searchable nothingFoundMessage="科目が見つかりません" />
-                <TextInput label="URL（任意）" placeholder="https://example.com" value={newUrl} onChange={(e) => setNewUrl(e.currentTarget.value)} leftSection={<FiLink size={16} />} />
-              </SimpleGrid>
-              <Group grow>
-                <DatePickerInput label="期限日" placeholder="日付を選択" value={newDate} onChange={handleDateChange} locale="ja" valueFormat="YYYY/MM/DD" required firstDayOfWeek={0} getDayProps={getDayProps} />
-                <TextInput label="時刻（任意）" type="time" value={newTime} onChange={(e) => setNewTime(e.currentTarget.value)} />
-              </Group>
-              <Group grow className="mt-6 max-w-md mx-auto">
-                <Button type="submit" color={editingId ? "cyan" : "blue"} leftSection={editingId ? <FiEdit2 size={16} /> : <FiPlus size={16} />}>{editingId ? '更新を保存する' : (isAdminMode && userRole === 'admin' ? '公式課題として追加' : '個人課題を追加')}</Button>
-              </Group>
-            </form>
+      {/* 追加・編集フォーム（一覧の上に開く） */}
+      {showForm && (
+        <div ref={formRef} className="mb-5 p-4 sm:p-5 bg-surface border border-line rounded-xl">
+          <div className="flex items-center justify-between mb-2">
+            <h3 className="font-bold text-sm text-fg flex items-center gap-2">
+              {editingId ? <><FiEdit2 className="text-accent" /> 課題を編集</> : <><FiPlus className="text-accent" /> {isOfficialMode ? '新しい[公式]課題' : '新しい個人課題'}</>}
+            </h3>
+            <Button size="xs" variant="subtle" color="gray" onClick={resetForm} leftSection={<FiX />}>閉じる</Button>
           </div>
-
+          <form onSubmit={handleAddOrUpdateAssignment} className="space-y-2">
+            <TextInput label="課題名" placeholder="例）中間レポート" value={newName} onChange={(e) => setNewName(e.currentTarget.value)} required />
+            <SimpleGrid cols={{ base: 1, sm: 2 }}>
+              <Select label="科目" placeholder="科目を選択" data={subject.map(s => ({ value: s.id.toString(), label: s.name }))} value={newSubjectId} onChange={(value) => setNewSubjectId(value)} searchable nothingFoundMessage="科目が見つかりません" />
+              <TextInput label="URL（任意）" placeholder="https://example.com" value={newUrl} onChange={(e) => setNewUrl(e.currentTarget.value)} leftSection={<FiLink size={16} />} />
+            </SimpleGrid>
+            <Group grow>
+              <DatePickerInput label="期限日" placeholder="日付を選択" value={newDate} onChange={handleDateChange} locale="ja" valueFormat="YYYY/MM/DD" required firstDayOfWeek={0} getDayProps={getDayProps} />
+              <TextInput label="時刻（任意）" type="time" value={newTime} onChange={(e) => setNewTime(e.currentTarget.value)} />
+            </Group>
+            <div className="flex justify-end pt-2">
+              <Button type="submit" color="brand" leftSection={editingId ? <FiEdit2 size={16} /> : <FiPlus size={16} />}>
+                {editingId ? '更新を保存する' : (isOfficialMode ? '公式課題として追加' : '個人課題を追加')}
+              </Button>
+            </div>
+          </form>
         </div>
-      </ChapterFrame>
-    </div>
+      )}
+
+      {/* 一覧: 期限の近さで小見出しを付けて区切る */}
+      {unifiedAssignments.length === 0 ? (
+        <div className="text-center py-12 px-4 bg-surface border border-line rounded-lg">
+          <FiInbox size={28} className="mx-auto text-fg-subtle mb-2" />
+          <p className="text-fg-muted text-sm">{isAdminMode ? '表示できる公式課題はありません' : '直近2週間の課題はありません 🎉'}</p>
+        </div>
+      ) : (
+        groups.map(group => {
+          const collapsed = group.key === 'done' && !showDone;
+          return (
+            <section key={group.key} className="mb-6 last:mb-0 px-3 sm:px-8 xl:px-0">
+              <h3 className="flex items-center gap-2 mb-3 px-1 text-base font-bold text-fg">
+                <span className={`w-1 h-4 rounded-full ${GROUP_STYLE[group.key].bar}`} aria-hidden="true" />
+                {group.label}
+                <span className="text-sm font-normal text-fg-muted">{group.items.length}件</span>
+                {group.key === 'done' && (
+                  <button
+                    type="button"
+                    onClick={() => setShowDone(v => !v)}
+                    className="ml-auto text-sm font-semibold text-link hover:underline"
+                  >
+                    {collapsed ? '表示する' : '隠す'}
+                  </button>
+                )}
+              </h3>
+              {!collapsed && (
+                <ul className="flex flex-col gap-3">
+                  {group.items.map(renderRow)}
+                </ul>
+              )}
+            </section>
+          );
+        })
+      )}
+        </div>
+      </div>
+    </ChapterFrame>
   );
 };
 

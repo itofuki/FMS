@@ -25,12 +25,10 @@ export default function RadioGroup({
 
   return (
     <fieldset className="w-full">
-      {/* 🌟 変更: スマホ時は文字サイズ text-base, 余白 mb-2 に縮小 */}
-      <legend className="block text-left text-gray-300 mb-2 sm:mb-3 text-base sm:text-lg">
+      <legend className="block text-left text-fg font-semibold mb-2 text-sm sm:text-[15px]">
         {legend}
       </legend>
-      {/* 🌟 変更: スマホ時は要素同士の隙間を gap-2 に縮小 */}
-      <div className="flex flex-row flex-wrap gap-3 sm:gap-4">
+      <div className="flex flex-row flex-wrap gap-2">
         {options.map((option) => {
           // 各オプションに一意なIDを割り当てる
           const uniqueId = `${baseId}-${option.value}`;
@@ -51,24 +49,23 @@ export default function RadioGroup({
               <label
                 htmlFor={uniqueId} // inputのidと対応させる
                 className={`
-                  flex items-center justify-center p-4 rounded-lg cursor-pointer
-                  border border-cyan-500/30 bg-black/30 text-gray-300
+                  flex items-center justify-center min-w-11 px-3 py-2 rounded-md cursor-pointer
+                  border border-line bg-surface-2 text-fg-muted
                   transition-all duration-300 ease-in-out
-                  hover:border-cyan-400 hover:bg-cyan-900/40
+                  hover:border-accent hover:bg-accent-soft
                   
-                  peer-checked:border-cyan-400
-                  peer-checked:bg-cyan-900/50
-                  peer-checked:text-white
-                  peer-checked:shadow-[0_0_15px_rgba(0,255,255,0.4)]
+                  peer-checked:border-accent
+                  peer-checked:bg-accent-soft
+                  peer-checked:text-accent
+                  peer-checked:font-semibold
 
                   peer-focus-visible:ring-2 
-                  peer-focus-visible:ring-cyan-400 
+                  peer-focus-visible:ring-accent 
                   peer-focus-visible:ring-offset-2 
-                  peer-focus-visible:ring-offset-gray-800
+                  peer-focus-visible:ring-offset-surface
                 `}
               >
-                {/* 🌟 変更: スマホ時は文字サイズ text-base, 余白 px-2 に縮小 */}
-                <span className="text-base sm:text-lg font-semibold px-2 sm:px-3">{option.label}</span>
+                <span className="text-sm sm:text-[15px] font-medium">{option.label}</span>
               </label>
             </div>
           );

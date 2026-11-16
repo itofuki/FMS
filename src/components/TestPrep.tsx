@@ -22,8 +22,8 @@ const QUESTION_SET_LABELS: Record<QuestionSet, string> = {
 };
 
 const QUESTION_SET_BADGE_CLASSES: Record<QuestionSet, string> = {
-  past_exam: 'bg-cyan-900/40 text-cyan-200 border-cyan-700/60',
-  predicted: 'bg-amber-900/40 text-amber-200 border-amber-700/60',
+  past_exam: 'bg-accent-soft text-accent border-accent/60',
+  predicted: 'bg-warn-soft text-warn border-warn/60',
 };
 
 type QuizQuestion = {
@@ -63,8 +63,8 @@ const ResultBanner: React.FC<{ correct: boolean }> = ({ correct }) => (
   <div
     className={`flex items-center justify-center gap-2 rounded-xl border px-3 py-2 sm:px-4 sm:py-3 font-bold text-base sm:text-lg animate-in fade-in zoom-in-95 duration-300 ${
       correct
-        ? 'border-teal-400 bg-teal-900/40 text-teal-100'
-        : 'border-red-400 bg-red-900/40 text-red-100'
+        ? 'border-accent bg-accent-soft text-accent'
+        : 'border-down bg-down-soft text-down'
     }`}
   >
     {correct ? <FiCheckCircle size={22} /> : <FiXCircle size={22} />}
@@ -73,9 +73,9 @@ const ResultBanner: React.FC<{ correct: boolean }> = ({ correct }) => (
 );
 
 const ExplanationBox: React.FC<{ explanation: string }> = ({ explanation }) => (
-  <div className="rounded-xl border border-slate-700 bg-slate-800/60 p-3 sm:p-4 animate-in fade-in duration-300">
-    <p className="text-xs font-bold text-cyan-300 mb-1">解説</p>
-    <p className="text-sm text-slate-200 whitespace-pre-wrap break-words">{explanation}</p>
+  <div className="rounded-xl border border-line bg-surface-2/60 p-3 sm:p-4 animate-in fade-in duration-300">
+    <p className="text-xs font-bold text-accent mb-1">解説</p>
+    <p className="text-sm text-fg whitespace-pre-wrap break-words">{explanation}</p>
   </div>
 );
 
@@ -368,54 +368,40 @@ const TestPrep: React.FC<TestPrepProps> = ({ subject }) => {
   const correctCount = results.filter(Boolean).length;
 
   return (
-    <div className={`transition-all duration-300 ${isAdminMode ? 'bg-yellow-900/30' : ''}`}>
+    <div>
       <ChapterFrame
-        title={
-          <div className="flex items-center w-full gap-2">
-            <div className="flex-1 flex justify-start invisible pointer-events-none" aria-hidden="true">
-              {userRole === 'admin' && (
-                <Button variant="outline" size="xs" className="sm:px-4 sm:text-sm">
-                  <div className="flex items-center justify-center">
-                    <FiTool size={16} />
-                    <span className="hidden sm:inline ml-2">{isAdminMode ? '通常モード' : '管理者モード'}</span>
-                  </div>
-                </Button>
-              )}
-            </div>
-            <div className="flex items-center gap-3 flex-shrink-0">
-              <FiCheckSquare className={`text-2xl sm:text-3xl transition-colors ${isAdminMode ? 'text-yellow-400' : 'text-cyan-400'}`} />
-              <span className={`font-orbitron font-bold text-glow text-xl sm:text-3xl whitespace-nowrap transition-colors ${isAdminMode ? 'text-yellow-400' : 'text-cyan-300'}`}>
-                テスト対策
-              </span>
-            </div>
-            <div className="flex-1 flex justify-end">
-              {userRole === 'admin' && (
-                <Button
-                  onClick={() => { setIsAdminMode(prev => !prev); resetForm(); }}
-                  variant="outline"
-                  color={isAdminMode ? 'cyan' : 'yellow'}
-                  size="xs"
-                  className="sm:px-4 sm:text-sm"
-                >
-                  <div className="flex items-center justify-center">
-                    <FiTool size={16} />
-                    <span className="hidden sm:inline ml-2">{isAdminMode ? '通常モード' : '管理者モード'}</span>
-                  </div>
-                </Button>
-              )}
-            </div>
-          </div>
-        }
+        icon={FiCheckSquare}
+        title="テスト対策"
+        meta={isAdminMode && <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded bg-amber-400 text-slate-900 text-xs font-bold"><FiTool size={12} />管理者モード</span>}
+        actions={userRole === 'admin' && (
+          // 課題ページと同じく、管理者モードはひと目で分かるよう黄色
+          <button
+            type="button"
+            onClick={() => { setIsAdminMode(prev => !prev); resetForm(); }}
+            aria-pressed={isAdminMode}
+            aria-label={isAdminMode ? '管理者モードを終了' : '管理者モード'}
+            title={isAdminMode ? '管理者モードを終了' : '管理者モード'}
+            className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md border text-xs font-bold transition-colors ${
+              isAdminMode
+                ? 'bg-amber-400 border-amber-400 text-slate-900 hover:bg-amber-300'
+                : 'bg-amber-50 border-amber-300 text-amber-800 hover:bg-amber-100 dark:bg-amber-400/10 dark:border-amber-400/40 dark:text-amber-300 dark:hover:bg-amber-400/20'
+            }`}
+          >
+            <FiTool size={13} />
+            {/* Mantine の CSS が button の文字指定を上書きするため、文字は span 側で指定する */}
+            <span className="text-xs font-bold">{isAdminMode ? '終了' : '管理者モード'}</span>
+          </button>
+        )}
       >
-        <div className="w-full max-w-3xl mx-auto flex flex-col gap-8 p-1 sm:p-4 rounded-xl transition-all duration-300">
+        <div className="w-full flex flex-col gap-6">
 
           {isAdminMode && userRole === 'admin' ? (
             <div className="flex flex-col gap-6">
               {/* 問題追加・編集フォーム */}
-              <div className={`bg-slate-800/50 p-5 rounded-xl transition-all duration-300 ring-cyan-500 border border-slate-700 ${editingId ? 'ring-2 shadow-lg shadow-cyan-500/10' : ''}`}>
+              <div className={`bg-surface-2/50 p-5 rounded-xl transition-all duration-300 ring-accent border border-line ${editingId ? 'ring-2 shadow-lg' : ''}`}>
                 <div className="flex items-center justify-between mb-3">
-                  <h3 className="font-bold text-md text-slate-200 flex items-center gap-2">
-                    {editingId ? <><FiEdit2 className="text-cyan-400" /> 問題を編集</> : <><FiPlus className="text-slate-400" /> 新しい問題を追加</>}
+                  <h3 className="font-bold text-md text-fg flex items-center gap-2">
+                    {editingId ? <><FiEdit2 className="text-accent" /> 問題を編集</> : <><FiPlus className="text-fg-muted" /> 新しい問題を追加</>}
                   </h3>
                   {editingId && <Button size="xs" variant="subtle" color="gray" onClick={resetForm} leftSection={<FiX />}>キャンセル</Button>}
                 </div>
@@ -431,10 +417,10 @@ const TestPrep: React.FC<TestPrepProps> = ({ subject }) => {
                     required
                   />
                   <div>
-                    <label className="block text-sm font-medium text-slate-300 mb-1">問題セット</label>
+                    <label className="block text-sm font-medium text-fg-muted mb-1">問題セット</label>
                     <SegmentedControl
                       fullWidth
-                      color="cyan"
+                      color="brand"
                       value={formQuestionSet}
                       onChange={(value) => setFormQuestionSet(value as QuestionSet)}
                       data={[
@@ -460,11 +446,11 @@ const TestPrep: React.FC<TestPrepProps> = ({ subject }) => {
                       <div className="flex flex-wrap gap-2 mt-2">
                         {formImageUrls.map((url, i) => (
                           <div key={`existing-${i}`} className="relative inline-block">
-                            <img src={url} alt="プレビュー" className="max-h-32 rounded-lg border border-slate-700 object-contain" />
+                            <img src={url} alt="プレビュー" className="max-h-32 rounded-lg border border-line object-contain" />
                             <button
                               type="button"
                               onClick={() => setFormImageUrls(prev => prev.filter((_, idx) => idx !== i))}
-                              className="absolute -top-2 -right-2 bg-slate-800 border border-slate-600 rounded-full p-1 text-slate-300 hover:text-red-400 hover:border-red-400 transition-colors"
+                              className="absolute -top-2 -right-2 bg-surface-2 border border-line rounded-full p-1 text-fg-muted hover:text-down hover:border-down transition-colors"
                               aria-label="画像を削除"
                             >
                               <FiX size={14} />
@@ -473,11 +459,11 @@ const TestPrep: React.FC<TestPrepProps> = ({ subject }) => {
                         ))}
                         {formImageFiles.map((file, i) => (
                           <div key={`new-${i}`} className="relative inline-block">
-                            <img src={URL.createObjectURL(file)} alt="プレビュー" className="max-h-32 rounded-lg border border-slate-700 object-contain" />
+                            <img src={URL.createObjectURL(file)} alt="プレビュー" className="max-h-32 rounded-lg border border-line object-contain" />
                             <button
                               type="button"
                               onClick={() => setFormImageFiles(prev => prev.filter((_, idx) => idx !== i))}
-                              className="absolute -top-2 -right-2 bg-slate-800 border border-slate-600 rounded-full p-1 text-slate-300 hover:text-red-400 hover:border-red-400 transition-colors"
+                              className="absolute -top-2 -right-2 bg-surface-2 border border-line rounded-full p-1 text-fg-muted hover:text-down hover:border-down transition-colors"
                               aria-label="画像を削除"
                             >
                               <FiX size={14} />
@@ -489,10 +475,10 @@ const TestPrep: React.FC<TestPrepProps> = ({ subject }) => {
                   </div>
 
                   <div>
-                    <label className="block text-sm font-medium text-slate-300 mb-1">出題形式</label>
+                    <label className="block text-sm font-medium text-fg-muted mb-1">出題形式</label>
                     <SegmentedControl
                       fullWidth
-                      color="cyan"
+                      color="brand"
                       value={formType}
                       onChange={(value) => setFormType(value as QuestionType)}
                       data={[
@@ -507,7 +493,7 @@ const TestPrep: React.FC<TestPrepProps> = ({ subject }) => {
                   ) : (
                     <Radio.Group
                       label="選択肢（正解を選択）"
-                      color="cyan"
+                      color="brand"
                       value={correctChoiceIndex !== null ? correctChoiceIndex.toString() : ''}
                       onChange={(value) => setCorrectChoiceIndex(parseInt(value, 10))}
                     >
@@ -538,7 +524,7 @@ const TestPrep: React.FC<TestPrepProps> = ({ subject }) => {
                   />
 
                   <Group grow className="mt-2 max-w-md mx-auto">
-                    <Button type="submit" color={editingId ? 'cyan' : 'blue'} loading={isUploadingImage || upsertMutation.isPending} leftSection={editingId ? <FiEdit2 size={16} /> : <FiPlus size={16} />}>
+                    <Button type="submit" color="brand" loading={isUploadingImage || upsertMutation.isPending} leftSection={editingId ? <FiEdit2 size={16} /> : <FiPlus size={16} />}>
                       {editingId ? '更新を保存する' : '問題を追加'}
                     </Button>
                   </Group>
@@ -550,38 +536,38 @@ const TestPrep: React.FC<TestPrepProps> = ({ subject }) => {
                 {decks.map(deck => {
                   const qs = deck.questions;
                   return (
-                    <div key={deck.key} className="bg-slate-800/40 border border-slate-700 rounded-lg p-4">
-                      <h4 className="text-sm font-bold text-cyan-300 mb-2">
+                    <div key={deck.key} className="bg-surface-2 border border-line rounded-lg p-4">
+                      <h4 className="text-sm font-bold text-accent mb-2">
                         {deck.subjectName}
                         <span className={`ml-2 text-[10px] px-1.5 py-0.5 rounded border align-middle ${QUESTION_SET_BADGE_CLASSES[deck.questionSet]}`}>
                           {QUESTION_SET_LABELS[deck.questionSet]}
                         </span>
-                        <span className="ml-2 text-slate-400 font-normal">（{qs.length}問）</span>
+                        <span className="ml-2 text-fg-muted font-normal">（{qs.length}問）</span>
                       </h4>
                       <div className="flex flex-col gap-2">
                         {qs.map(q => (
-                          <div key={q.id} className="flex items-start justify-between gap-3 bg-slate-900/40 rounded-lg p-3">
+                          <div key={q.id} className="flex items-start justify-between gap-3 bg-surface rounded-lg p-3">
                             <div className="min-w-0">
                               <div className="flex items-center gap-2 mb-0.5">
-                                <span className={`text-[10px] px-1.5 py-0.5 rounded border flex-shrink-0 ${q.question_type === 'multiple_choice' ? 'bg-purple-900/30 text-purple-300 border-purple-800/50' : 'bg-cyan-900/30 text-cyan-300 border-cyan-800/50'}`}>
+                                <span className={`text-[10px] px-1.5 py-0.5 rounded border flex-shrink-0 ${q.question_type === 'multiple_choice' ? 'bg-link/10 text-link border-link/30' : 'bg-accent-soft text-accent border-accent/30'}`}>
                                   {q.question_type === 'multiple_choice' ? '4択' : '自由記述'}
                                 </span>
                                 {q.image_urls && q.image_urls.length > 0 && (
-                                  <span className="flex items-center gap-0.5 text-[10px] px-1.5 py-0.5 rounded border flex-shrink-0 bg-slate-700/40 text-slate-300 border-slate-600/50">
+                                  <span className="flex items-center gap-0.5 text-[10px] px-1.5 py-0.5 rounded border flex-shrink-0 bg-surface-3 text-fg-muted border-line">
                                     <FiImage size={10} /> 画像{q.image_urls.length > 1 ? ` x${q.image_urls.length}` : ''}
                                   </span>
                                 )}
                               </div>
-                              <p className="text-sm text-slate-200 truncate">{q.question}</p>
+                              <p className="text-sm text-fg truncate">{q.question}</p>
                               {q.question_type === 'multiple_choice' && q.choices ? (
-                                <p className="text-xs text-slate-500 truncate">選択肢: {q.choices.join(' / ')}（正解: {q.answer}）</p>
+                                <p className="text-xs text-fg-subtle truncate">選択肢: {q.choices.join(' / ')}（正解: {q.answer}）</p>
                               ) : (
-                                <p className="text-xs text-slate-500 truncate">答え: {q.answer}</p>
+                                <p className="text-xs text-fg-subtle truncate">答え: {q.answer}</p>
                               )}
                             </div>
                             <div className="flex items-center gap-1 flex-shrink-0">
-                              <button onClick={() => handleEditClick(q)} className="p-1.5 text-slate-400 hover:text-cyan-400 hover:bg-slate-700/80 rounded transition-colors"><FiEdit2 size={14} /></button>
-                              <button onClick={() => handleDeleteQuestion(q.id)} className="p-1.5 text-slate-400 hover:text-red-500 hover:bg-slate-700/80 rounded transition-colors"><FiTrash2 size={14} /></button>
+                              <button onClick={() => handleEditClick(q)} className="p-1.5 text-fg-muted hover:text-accent hover:bg-surface-3/80 rounded transition-colors"><FiEdit2 size={14} /></button>
+                              <button onClick={() => handleDeleteQuestion(q.id)} className="p-1.5 text-fg-muted hover:text-down hover:bg-surface-3/80 rounded transition-colors"><FiTrash2 size={14} /></button>
                             </div>
                           </div>
                         ))}
@@ -590,9 +576,9 @@ const TestPrep: React.FC<TestPrepProps> = ({ subject }) => {
                   );
                 })}
                 {quizQuestions.length === 0 && (
-                  <div className="text-center py-10 px-4 bg-slate-800/30 rounded-lg border border-slate-700/30">
-                    <FiInbox size={32} className="mx-auto text-slate-500 mb-3" />
-                    <p className="text-slate-400 text-sm">まだ問題が登録されていません</p>
+                  <div className="text-center py-10 px-4 bg-surface-2 rounded-lg border border-line">
+                    <FiInbox size={32} className="mx-auto text-fg-subtle mb-3" />
+                    <p className="text-fg-muted text-sm">まだ問題が登録されていません</p>
                   </div>
                 )}
               </div>
@@ -601,29 +587,30 @@ const TestPrep: React.FC<TestPrepProps> = ({ subject }) => {
             <>
               {view === 'subjects' && (
                 decks.length === 0 ? (
-                  <div className="text-center py-10 px-4 bg-slate-800/30 rounded-lg border border-slate-700/30">
-                    <FiInbox size={32} className="mx-auto text-slate-500 mb-3" />
-                    <p className="text-slate-400 text-sm">まだ出題できる科目はありません</p>
+                  <div className="text-center py-10 px-4">
+                    <FiInbox size={28} className="mx-auto text-fg-subtle mb-2" />
+                    <p className="text-fg-muted text-sm">まだ出題できる科目はありません</p>
                   </div>
                 ) : (
-                  <div className="flex flex-col gap-2 w-full">
+                  // 掲示板の一覧と同じく、1つの枠の中に区切り線で並べる
+                  <div className="flex flex-col w-full rounded-md border border-line divide-y divide-line overflow-hidden">
                     {decks.map(deck => (
                       <button
                         key={deck.key}
                         onClick={() => startSession(deck.key)}
-                        className="group flex items-center gap-2 sm:gap-3 w-full p-3 sm:p-4 rounded-xl bg-slate-800/60 border border-slate-700 hover:border-cyan-500 hover:bg-slate-800 transition-all text-left"
+                        className="group flex items-center gap-3 w-full px-4 py-3 bg-surface hover:bg-surface-2 transition-colors text-left"
                       >
-                        <FiHelpCircle className="text-cyan-400 flex-shrink-0" size={20} />
-                        <span className="flex-1 min-w-0 min-w-0">
-                          <span className="block font-bold text-slate-100 group-hover:text-cyan-300 group-hover:underline underline-offset-4 transition-colors truncate">
-                            {deck.subjectName}
-                          </span>
-                          <span className={`inline-block mt-0.5 text-[10px] px-1.5 py-0.5 rounded border ${QUESTION_SET_BADGE_CLASSES[deck.questionSet]}`}>
+                        <FiHelpCircle className="text-accent flex-shrink-0" size={18} />
+                        <span className="flex-1 min-w-0">
+                          <span className={`inline-block text-[11px] px-1.5 py-0.5 rounded border ${QUESTION_SET_BADGE_CLASSES[deck.questionSet]}`}>
                             {QUESTION_SET_LABELS[deck.questionSet]}
                           </span>
+                          <span className="block mt-0.5 text-[15px] font-semibold text-fg group-hover:text-accent group-hover:underline underline-offset-4 transition-colors truncate">
+                            {deck.subjectName}
+                          </span>
                         </span>
-                        <span className="flex-shrink-0 text-xs text-slate-400">{deck.questions.length}問</span>
-                        <FiChevronRight className="flex-shrink-0 text-slate-500 group-hover:text-cyan-400 group-hover:translate-x-0.5 transition-all" size={18} />
+                        <span className="flex-shrink-0 text-xs text-fg-muted">{deck.questions.length}問</span>
+                        <FiChevronRight className="flex-shrink-0 text-fg-subtle group-hover:text-accent group-hover:translate-x-0.5 transition-all" size={18} />
                       </button>
                     ))}
                   </div>
@@ -633,13 +620,13 @@ const TestPrep: React.FC<TestPrepProps> = ({ subject }) => {
               {view === 'session' && currentQuestion && (
                 <div className="flex flex-col gap-3 sm:gap-6 w-full max-w-xl mx-auto">
                   <div className="flex flex-col gap-0.5 sm:flex-row sm:items-center sm:justify-between">
-                    <button onClick={backToSubjects} className="flex items-center gap-1 text-xs! sm:text-sm! text-slate-400 hover:text-cyan-300 transition-colors flex-shrink-0">
+                    <button onClick={backToSubjects} className="flex items-center gap-1 text-xs! sm:text-sm! text-fg-muted hover:text-accent transition-colors flex-shrink-0">
                       <FiArrowLeft size={12} /> 科目選択に戻る
                     </button>
-                    <span className="text-xs sm:text-sm font-medium text-slate-400 truncate">{selectedSubjectName} ({currentIndex + 1} / {sessionQuestions.length})</span>
+                    <span className="text-xs sm:text-sm font-medium text-fg-muted truncate">{selectedSubjectName} ({currentIndex + 1} / {sessionQuestions.length})</span>
                   </div>
 
-                  <div className="bg-slate-800/60 border border-slate-700 rounded-xl p-4 sm:p-6 min-h-[100px] sm:min-h-[160px] flex flex-col items-center justify-center gap-2 sm:gap-4">
+                  <div className="bg-surface-2/60 border border-line rounded-xl p-4 sm:p-6 min-h-[100px] sm:min-h-[160px] flex flex-col items-center justify-center gap-2 sm:gap-4">
                     {currentQuestion.image_urls && currentQuestion.image_urls.length > 0 && (
                       <div className={`grid gap-2 w-full ${currentQuestion.image_urls.length > 1 ? 'grid-cols-2' : 'grid-cols-1'}`}>
                         {currentQuestion.image_urls.map((url, i) => (
@@ -652,9 +639,9 @@ const TestPrep: React.FC<TestPrepProps> = ({ subject }) => {
                         ))}
                       </div>
                     )}
-                    <p className="w-full text-base sm:text-lg font-bold text-slate-100 text-center whitespace-pre-wrap break-words">{currentQuestion.question}</p>
+                    <p className="w-full text-base sm:text-lg font-bold text-fg text-center whitespace-pre-wrap break-words">{currentQuestion.question}</p>
                     {currentQuestion.question_type === 'free_response' && isAnswerRevealed && (
-                      <p className="w-full text-cyan-300 text-center whitespace-pre-wrap break-words animate-in fade-in duration-300">{currentQuestion.answer}</p>
+                      <p className="w-full text-accent text-center whitespace-pre-wrap break-words animate-in fade-in duration-300">{currentQuestion.answer}</p>
                     )}
                   </div>
 
@@ -665,9 +652,9 @@ const TestPrep: React.FC<TestPrepProps> = ({ subject }) => {
                           const isSelected = selectedChoiceIndex === i;
                           const isCorrectChoice = choice === currentQuestion.answer;
                           const showResult = selectedChoiceIndex !== null;
-                          let stateClasses = 'border-slate-700 bg-slate-800/60 text-slate-100 hover:border-cyan-500';
-                          if (showResult && isCorrectChoice) stateClasses = 'border-teal-400 bg-teal-900/50 text-teal-100 shadow-md shadow-teal-500/10';
-                          else if (showResult && isSelected) stateClasses = 'border-red-400 bg-red-900/50 text-red-100 shadow-md shadow-red-500/10';
+                          let stateClasses = 'border-line bg-surface-2/60 text-fg hover:border-accent';
+                          if (showResult && isCorrectChoice) stateClasses = 'border-accent bg-accent-soft text-accent shadow-md';
+                          else if (showResult && isSelected) stateClasses = 'border-down bg-down-soft text-down shadow-md';
                           return (
                             <button
                               key={i}
@@ -690,24 +677,24 @@ const TestPrep: React.FC<TestPrepProps> = ({ subject }) => {
                         <>
                           <ResultBanner correct={currentQuestion.choices?.[selectedChoiceIndex] === currentQuestion.answer} />
                           {currentQuestion.explanation && <ExplanationBox explanation={currentQuestion.explanation} />}
-                          <Button onClick={handleNextQuestion} size="md" color="blue" rightSection={<FiChevronRight size={16} />}>
+                          <Button onClick={handleNextQuestion} size="md" color="brand" rightSection={<FiChevronRight size={16} />}>
                             {currentIndex + 1 >= sessionQuestions.length ? '結果を見る' : '次の問題へ'}
                           </Button>
                         </>
                       )}
                     </div>
                   ) : !isAnswerRevealed ? (
-                    <Button onClick={() => setIsAnswerRevealed(true)} size="md" color="blue">答えを見る</Button>
+                    <Button onClick={() => setIsAnswerRevealed(true)} size="md" color="brand">答えを見る</Button>
                   ) : frAnswered === null ? (
                     <Group grow>
                       <Button onClick={() => handleFreeResponseAnswer(false)} color="red" variant="outline" leftSection={<FiX size={16} />}>不正解</Button>
-                      <Button onClick={() => handleFreeResponseAnswer(true)} color="teal" leftSection={<FiCheck size={16} />}>正解</Button>
+                      <Button onClick={() => handleFreeResponseAnswer(true)} color="green" leftSection={<FiCheck size={16} />}>正解</Button>
                     </Group>
                   ) : (
                     <div className="flex flex-col gap-2 sm:gap-4">
                       <ResultBanner correct={frAnswered} />
                       {currentQuestion.explanation && <ExplanationBox explanation={currentQuestion.explanation} />}
-                      <Button onClick={handleNextQuestion} size="md" color="blue" rightSection={<FiChevronRight size={16} />}>
+                      <Button onClick={handleNextQuestion} size="md" color="brand" rightSection={<FiChevronRight size={16} />}>
                         {currentIndex + 1 >= sessionQuestions.length ? '結果を見る' : '次の問題へ'}
                       </Button>
                     </div>
@@ -717,12 +704,12 @@ const TestPrep: React.FC<TestPrepProps> = ({ subject }) => {
 
               {view === 'result' && (
                 <div className="flex flex-col items-center gap-6 w-full max-w-xl mx-auto text-center">
-                  <FiCheckSquare className="text-cyan-400" size={40} />
-                  <h3 className="text-2xl font-bold text-slate-100">{selectedSubjectName} の結果</h3>
-                  <p className="text-3xl font-bold text-cyan-300">{correctCount} / {sessionQuestions.length} 問正解</p>
+                  <FiCheckSquare className="text-accent" size={40} />
+                  <h3 className="text-2xl font-bold text-fg">{selectedSubjectName} の結果</h3>
+                  <p className="text-3xl font-bold text-accent">{correctCount} / {sessionQuestions.length} 問正解</p>
                   <Group grow className="w-full">
                     <Button onClick={backToSubjects} variant="outline" color="gray" leftSection={<FiArrowLeft size={16} />}>科目選択に戻る</Button>
-                    <Button onClick={restartSession} color="blue" leftSection={<FiRefreshCw size={16} />}>もう一度</Button>
+                    <Button onClick={restartSession} color="brand" leftSection={<FiRefreshCw size={16} />}>もう一度</Button>
                   </Group>
                 </div>
               )}

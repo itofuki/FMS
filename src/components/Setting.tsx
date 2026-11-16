@@ -10,6 +10,7 @@ import RadioGroup from "./RadioGroup";
 import Collapsible from "./Collapsible";
 import ChapterFrame from "../components/ChapterFrame";
 import Loading from "./Loading";
+import { ThemeSelector } from "./ThemeToggle";
 import { useQueryClient } from "@tanstack/react-query";
 import { getPushState, enablePush, disablePush, sendTestPush, type PushState } from "../lib/push";
 import { getLmsSession, saveLmsSession, clearLmsSession, invokeFetchLms, LmsError, purgeLegacyLmsSecrets } from "../lib/lms";
@@ -67,7 +68,6 @@ export default function Setting({ onSettingsSaved }: SettingProps) {
   const [deadlineHours, setDeadlineHours] = useState<number | null>(24);
   const [pushState, setPushState] = useState<PushState | null>(null);
   const [isPushBusy, setIsPushBusy] = useState(false);
-  const [isLightMode, setIsLightMode] = useState<boolean>(false);
   const [loading, setLoading] = useState<boolean>(false);
 
   const [lmsUsername, setLmsUsername] = useState('');
@@ -97,7 +97,7 @@ export default function Setting({ onSettingsSaved }: SettingProps) {
         supabase.from('departments').select('*').order('id'),
         supabase.from('courses').select('*').order('id'),
         supabase.from('classes').select('*').order('id'),
-        supabase.from('profiles').select('class_id, english_id, auto_open, is_light_mode, class_start_action, deadline_reminder_hours').eq('user_id', user.id).single(),
+        supabase.from('profiles').select('class_id, english_id, auto_open, class_start_action, deadline_reminder_hours').eq('user_id', user.id).single(),
       ]);
 
       const depts = resDept.data || [];
@@ -123,7 +123,6 @@ export default function Setting({ onSettingsSaved }: SettingProps) {
         setEnglishID(profile.english_id || null);
         setClassStartAction((profile.class_start_action as ClassStartAction) ?? 'notify');
         setDeadlineHours(profile.deadline_reminder_hours ?? null);
-        setIsLightMode(profile.is_light_mode ?? false);
       } else if (depts.length > 0 && crses.length > 0 && clses.length > 0) {
         const firstDept = depts[0];
         const firstCourse = crses.find(c => c.department_id === firstDept.id);
@@ -142,15 +141,6 @@ export default function Setting({ onSettingsSaved }: SettingProps) {
     fetchAllData();
   }, [navigate]);
 
-  useEffect(() => {
-    if (isLightMode) {
-      document.documentElement.classList.add("light");
-      document.documentElement.classList.remove("dark");
-    } else {
-      document.documentElement.classList.remove("light");
-      document.documentElement.classList.add("dark");
-    }
-  }, [isLightMode]);
 
   useEffect(() => {
     if (department && coursesDB.length > 0) {
@@ -233,7 +223,6 @@ export default function Setting({ onSettingsSaved }: SettingProps) {
         deadline_reminder_hours: deadlineHours,
         // 旧バージョンのクライアント向けに auto_open も同期しておく
         auto_open: classStartAction === 'auto_open',
-        is_light_mode: isLightMode,
         updated_at: new Date().toISOString(),
       });
 
@@ -295,18 +284,11 @@ export default function Setting({ onSettingsSaved }: SettingProps) {
     navigate("/");
   };
 
-  const frameTitle = (
-    <div className="flex justify-center items-center gap-2 sm:gap-3 w-full">
-      <FiSettings className="text-cyan-400 text-xl sm:text-3xl" />
-      <span className="font-orbitron font-bold text-cyan-300 text-glow text-xl sm:text-3xl">
-        設定
-      </span>
-    </div>
-  );
+
 
   if (!user) {
     return (
-      <ChapterFrame title={frameTitle}>
+      <ChapterFrame icon={FiSettings} title="設定">
         <Loading />
       </ChapterFrame>
     );
@@ -321,15 +303,15 @@ export default function Setting({ onSettingsSaved }: SettingProps) {
     .map(c => ({ value: String(c.id), label: c.name }));
 
   return (
-    <ChapterFrame title={frameTitle}>
+    <ChapterFrame icon={FiSettings} title="設定">
       {/* w-full: 親(ChapterFrame)が items-center のため、指定しないと中身の幅に縮み、
           Advanced を開いて長い文が出たときにカードの幅が変わってしまう */}
-      <div className="w-full flex flex-col items-center justify-center p-1 sm:p-2 animate-in fade-in duration-300">
+      <div className="w-full flex flex-col items-center animate-in fade-in duration-300">
         
-        <div className="w-full max-w-3xl bg-slate-800/40 backdrop-blur-md border border-white/10 rounded-2xl p-4 sm:p-6 md:p-8 mb-6 shadow-xl">
+        <div className="w-full max-w-3xl">
 
           <form onSubmit={handleSubmit} className="space-y-4 sm:space-y-6 text-left">
-            <div className="text-slate-800 dark:text-slate-200 transition-colors duration-300">
+            <div className="text-fg transition-colors duration-300">
               <RadioGroup 
                 legend="所属する学科を選択してください" 
                 options={departmentOptions} 
@@ -360,7 +342,7 @@ export default function Setting({ onSettingsSaved }: SettingProps) {
               </div>
             )}
 
-            <hr className="border-t border-white/10 my-6" />
+            <hr className="border-t border-line my-6" />
             
             <RadioGroup 
               legend="英語のクラスを選択してください" 
@@ -369,19 +351,25 @@ export default function Setting({ onSettingsSaved }: SettingProps) {
               onChange={(val) => setEnglishID(Number(val))} 
             />
             
+            <div>
+              <p className="block text-left text-fg font-semibold mb-2 text-sm sm:text-[15px]">テーマ</p>
+              <ThemeSelector />
+              <p className="text-xs text-fg-subtle mt-2">選んだ時点で反映され、この端末にだけ保存されます。</p>
+            </div>
+
             <div ref={advancedRef}>
               <Collapsible title="Advanced" defaultOpen={isAdvancedFocused} open={isAdvancedFocused}>
                 
                 {/* LMS ログイン情報 */}
-                <div className={`space-y-3 mb-6 p-4 rounded-xl transition-all duration-700 ${isAdvancedFocused ? 'bg-cyan-900/40 border border-cyan-400/80 shadow-[0_0_15px_rgba(34,211,238,0.3)]' : 'bg-slate-900/20 border border-slate-700/50'}`}>
+                <div className={`space-y-3 mb-6 p-4 rounded-xl transition-all duration-700 ${isAdvancedFocused ? 'bg-accent-soft border border-accent/80' : 'bg-surface border border-line'}`}>
                   <div>
-                    <label className="block text-sm font-semibold text-cyan-100 mb-1">
+                    <label className="block text-sm font-semibold text-accent mb-1">
                       LMS ログイン情報
                       {lmsCredentialsSaved && (
-                        <span className="ml-2 text-xs text-emerald-400 font-normal">✓ 接続済み</span>
+                        <span className="ml-2 text-xs text-up font-normal">✓ 接続済み</span>
                       )}
                     </label>
-                    <p className="text-xs text-slate-400">
+                    <p className="text-xs text-fg-muted">
                       LMSのIDとパスワードでログインすると課題を自動取得できます。
                       パスワードは保存されず、ログイン後に発行されるLMSのアクセストークンのみをこのブラウザ内に保存します。
                       トークンの有効期限が切れた場合は、再度ログインしてください。
@@ -394,7 +382,7 @@ export default function Setting({ onSettingsSaved }: SettingProps) {
                       value={lmsUsername}
                       onChange={(e) => setLmsUsername(e.target.value)}
                       placeholder="LMSのユーザーID"
-                      className="w-full bg-slate-900 border border-slate-600 rounded-lg p-3 text-slate-200 outline-none text-sm placeholder:text-slate-600 focus:border-cyan-400 transition-colors"
+                      className="w-full bg-surface border border-line rounded-lg p-3 text-fg outline-none text-sm placeholder:text-fg-subtle focus:border-accent transition-colors"
                     />
                     <input
                       type="password"
@@ -402,11 +390,11 @@ export default function Setting({ onSettingsSaved }: SettingProps) {
                       value={lmsPassword}
                       onChange={(e) => setLmsPassword(e.target.value)}
                       placeholder={lmsCredentialsSaved ? "再ログインする場合のみ入力" : "LMSのパスワード"}
-                      className="w-full bg-slate-900 border border-slate-600 rounded-lg p-3 text-slate-200 outline-none text-sm placeholder:text-slate-600 focus:border-cyan-400 transition-colors"
+                      className="w-full bg-surface border border-line rounded-lg p-3 text-fg outline-none text-sm placeholder:text-fg-subtle focus:border-accent transition-colors"
                     />
                   </div>
                   {lmsStatus && (
-                    <p className={`text-xs ${lmsStatus.ok ? 'text-emerald-400' : 'text-red-400'}`}>
+                    <p className={`text-xs ${lmsStatus.ok ? 'text-up' : 'text-down'}`}>
                       {lmsStatus.ok ? '✓ ' : '✗ '}{lmsStatus.message}
                     </p>
                   )}
@@ -415,7 +403,7 @@ export default function Setting({ onSettingsSaved }: SettingProps) {
                       type="button"
                       onClick={handleSaveLmsCredentials}
                       disabled={isLmsLoading}
-                      className="flex-1 py-2 rounded-lg bg-cyan-700 hover:bg-cyan-600 text-white text-sm font-semibold transition-colors disabled:opacity-50"
+                      className="flex-1 py-2 rounded-lg bg-accent-solid hover:bg-accent-solid-hover text-on-accent text-sm font-semibold transition-colors disabled:opacity-50"
                     >
                       {isLmsLoading ? '接続確認中...' : (lmsCredentialsSaved ? '再ログイン' : 'ログインして接続')}
                     </button>
@@ -423,7 +411,7 @@ export default function Setting({ onSettingsSaved }: SettingProps) {
                       <button
                         type="button"
                         onClick={handleClearLmsCredentials}
-                        className="px-4 py-2 rounded-lg border border-red-500/50 text-red-400 hover:bg-red-500/10 text-sm transition-colors"
+                        className="px-4 py-2 rounded-lg border border-down/50 text-down hover:bg-down-soft text-sm transition-colors"
                       >
                         接続解除
                       </button>
@@ -432,14 +420,14 @@ export default function Setting({ onSettingsSaved }: SettingProps) {
                 </div>
 
                 {/* 通知設定 */}
-                <div className="space-y-5 p-4 rounded-xl bg-slate-900/20 border border-slate-700/50">
+                <div className="space-y-5 p-4 rounded-xl bg-surface border border-line">
                   <div>
-                    <label className="block text-sm font-semibold text-cyan-100 mb-1">
+                    <label className="block text-sm font-semibold text-accent mb-1">
                       通知
-                      {pushState === 'enabled' && <span className="ml-2 text-xs text-emerald-400 font-normal">✓ この端末はオン</span>}
+                      {pushState === 'enabled' && <span className="ml-2 text-xs text-up font-normal">✓ この端末はオン</span>}
                     </label>
                     {pushState && (
-                      <p className={`text-xs ${pushState === 'denied' || pushState === 'needs-install' ? 'text-amber-300' : 'text-slate-400'}`}>
+                      <p className={`text-xs ${pushState === 'denied' || pushState === 'needs-install' ? 'text-warn' : 'text-fg-muted'}`}>
                         {PUSH_STATE_MESSAGES[pushState]}
                       </p>
                     )}
@@ -451,8 +439,8 @@ export default function Setting({ onSettingsSaved }: SettingProps) {
                           disabled={isPushBusy}
                           className={`flex-1 py-2 rounded-lg text-sm font-semibold transition-colors disabled:opacity-50 ${
                             pushState === 'enabled'
-                              ? 'border border-slate-500 text-slate-300 hover:bg-slate-700/50'
-                              : 'bg-cyan-700 hover:bg-cyan-600 text-white'
+                              ? 'border border-line text-fg-muted hover:bg-surface-3/50'
+                              : 'bg-accent-solid hover:bg-accent-solid-hover text-on-accent'
                           }`}
                         >
                           {isPushBusy ? '処理中...' : pushState === 'enabled' ? 'この端末の通知をオフにする' : 'この端末で通知を受け取る'}
@@ -461,7 +449,7 @@ export default function Setting({ onSettingsSaved }: SettingProps) {
                           <button
                             type="button"
                             onClick={handleTestPush}
-                            className="px-4 py-2 rounded-lg border border-cyan-500/50 text-cyan-300 hover:bg-cyan-500/10 text-sm transition-colors"
+                            className="px-4 py-2 rounded-lg border border-accent/50 text-accent hover:bg-accent-soft text-sm transition-colors"
                           >
                             テスト
                           </button>
@@ -471,16 +459,16 @@ export default function Setting({ onSettingsSaved }: SettingProps) {
                   </div>
 
                   <div>
-                    <label htmlFor="deadline-reminder" className="block text-sm text-slate-200 mb-1">未完了の課題の締切通知</label>
+                    <label htmlFor="deadline-reminder" className="block text-sm text-fg mb-1">未完了の課題の締切通知</label>
                     <select
                       id="deadline-reminder"
                       value={deadlineHours === null ? 'off' : String(deadlineHours)}
                       onChange={(e) => setDeadlineHours(e.target.value === 'off' ? null : Number(e.target.value))}
-                      className="w-full bg-slate-900 border border-slate-600 rounded-lg p-2.5 text-slate-200 outline-none text-sm focus:border-cyan-400 transition-colors"
+                      className="w-full bg-surface border border-line rounded-lg p-2.5 text-fg outline-none text-sm focus:border-accent transition-colors"
                     >
                       {DEADLINE_HOUR_OPTIONS.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
                     </select>
-                    <p className="text-xs text-slate-400 mt-1">
+                    <p className="text-xs text-fg-muted mt-1">
                       課題一覧はFMSを開いたときに更新されます。LMSで直接提出した場合は、FMSを開くと通知対象から外れます。
                     </p>
                   </div>
@@ -492,7 +480,7 @@ export default function Setting({ onSettingsSaved }: SettingProps) {
                       selectedValue={classStartAction}
                       onChange={(val) => setClassStartAction(val as ClassStartAction)}
                     />
-                    <p className="text-xs text-slate-400 mt-2">
+                    <p className="text-xs text-fg-muted mt-2">
                       {classStartAction === 'notify' && '出席ページを開くか選べる通知を送ります（アプリを閉じていても届きます）。'}
                       {classStartAction === 'auto_open' && 'FMSを開いている場合のみ、出席ページを自動で開きます。ポップアップブロックを解除してください。'}
                       {classStartAction === 'none' && '何もしません。'}
@@ -504,17 +492,17 @@ export default function Setting({ onSettingsSaved }: SettingProps) {
             </div>
 
             <div className="text-center pt-4 sm:pt-6">
-              <button type="submit" disabled={loading} className="w-full max-w-xs py-2.5 sm:py-3 rounded-xl bg-gradient-to-r from-cyan-500 to-blue-600 font-semibold text-base sm:text-lg text-white shadow-lg hover:scale-105 transition-transform duration-300 disabled:opacity-50">
+              <button type="submit" disabled={loading} className="w-full max-w-xs py-2.5 sm:py-3 rounded-xl bg-accent-solid hover:bg-accent-solid-hover font-semibold text-base sm:text-lg text-on-accent shadow-lg hover:scale-105 transition-transform duration-300 disabled:opacity-50">
                 {loading ? "保存中..." : "保存"}
               </button>
             </div>
           </form>
 
-          <hr className="border-t border-white/10 my-6 sm:my-8" />
+          <hr className="border-t border-line my-6 sm:my-8" />
           
           <div className="text-center">
-            <h3 className="text-xs sm:text-sm md:text-base font-semibold text-slate-400 mb-3 sm:mb-4">アカウント操作</h3>
-            <button onClick={handleLogout} className="w-full max-w-xs py-2.5 sm:py-3 rounded-xl bg-slate-700/50 hover:bg-red-500/80 font-semibold text-sm sm:text-base text-white border border-white/10 hover:border-red-500 transition-all duration-300">
+            <h3 className="text-xs sm:text-sm md:text-base font-semibold text-fg-muted mb-3 sm:mb-4">アカウント操作</h3>
+            <button onClick={handleLogout} className="w-full max-w-xs py-2.5 sm:py-3 rounded-xl bg-surface-3/50 hover:bg-down/90 font-semibold text-sm sm:text-base text-fg hover:text-on-accent border border-line hover:border-down transition-all duration-300">
               ログアウト
             </button>
           </div>

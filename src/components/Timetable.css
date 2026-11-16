@@ -1,16 +1,6 @@
+/* 現在の授業のハイライト（フラット: 発光ではなくアクセント色の枠と薄い背景） */
 .is-current-class {
-  border-color: rgba(56, 189, 248, 0.8) !important;
-  box-shadow: 0 0 12px 2px rgba(56, 189, 248, 0.5);
-}
-
-@keyframes pulse-glow {
-  0% {
-    box-shadow: 0 0 15px rgba(34, 211, 238, 0.6);
-  }
-  50% {
-    box-shadow: 0 0 25px rgba(34, 211, 238, 0.9);
-  }
-  100% {
-    box-shadow: 0 0 15px rgba(34, 211, 238, 0.6);
-  }
+  border-color: var(--accent) !important;
+  background-color: var(--accent-soft) !important;
+  box-shadow: inset 0 0 0 1px var(--accent);
 }

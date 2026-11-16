@@ -41,19 +41,10 @@ const Feedback = () => {
   };
 
   return (
-    <ChapterFrame
-      title={
-        <div className="flex justify-center items-center gap-3 w-full">
-          <FiMessageSquare className="text-cyan-400 text-2xl sm:text-3xl" />
-          <span className="font-orbitron font-bold text-cyan-300 text-glow text-xl sm:text-3xl">
-            ご意見・ご要望
-          </span>
-        </div>
-      }
-    >
+    <ChapterFrame icon={FiMessageSquare} title="ご意見・ご要望">
       <div className="flex flex-col items-center justify-center p-2 sm:p-4">
-        <div className="w-full max-w-2xl bg-slate-800/80 border-2 border-cyan-400/50 rounded-xl p-4 md:p-8 shadow-[0_0_15px_rgba(34,211,238,0.2)]">
-          <p className="text-slate-300 text-sm md:text-base mb-6 text-center">
+        <div className="w-full max-w-2xl bg-surface border border-line rounded-xl shadow-sm p-4 md:p-8">
+          <p className="text-fg-muted text-sm md:text-base mb-6 text-center">
             MyFMSをより良くするためのアイデア、バグの報告、追加してほしい機能など、自由にお書きください。
           </p>
 
@@ -65,21 +56,11 @@ const Feedback = () => {
               value={content}
               onChange={(e) => setContent(e.currentTarget.value)}
               disabled={isSubmitting}
-              styles={(theme) => ({
-                input: {
-                  backgroundColor: 'rgba(15, 23, 42, 0.6)', // bg-slate-900/60
-                  color: theme.colors.gray[3],
-                  borderColor: theme.colors.cyan[9],
-                  '&:focus': {
-                    borderColor: theme.colors.cyan[5],
-                  },
-                },
-              })}
             />
 
             <Button
               type="submit"
-              color="cyan"
+              color="brand"
               size="md"
               loading={isSubmitting}
               disabled={!content.trim()}
@@ -94,8 +75,8 @@ const Feedback = () => {
             <div
               className={`mt-6 p-4 rounded-md text-sm text-center font-medium ${
                 message.type === 'success'
-                  ? 'bg-emerald-900/40 text-emerald-300 border border-emerald-800/50'
-                  : 'bg-red-900/40 text-red-300 border border-red-800/50'
+                  ? 'bg-up-soft text-up border border-up/50'
+                  : 'bg-down-soft text-down border border-down/50'
               }`}
             >
               {message.text}
