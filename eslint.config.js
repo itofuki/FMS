@@ -6,7 +6,8 @@ import tseslint from 'typescript-eslint'
 import { defineConfig, globalIgnores } from 'eslint/config'
 
 export default defineConfig([
-  globalIgnores(['dist']),
+  // supabase/functions は Deno ランタイム向けのため対象外（`deno lint` で検査する）
+  globalIgnores(['dist', 'dev-dist', 'supabase/functions']),
   {
     files: ['**/*.{ts,tsx}'],
     extends: [

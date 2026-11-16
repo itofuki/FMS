@@ -1,27 +1,18 @@
 /* src/pages/HomePage.tsx */
 
-import { useCallback, useEffect } from "react";
+import { useCallback } from "react";
 import { loadSlim } from "tsparticles-slim";
 import type { Container, Engine } from "tsparticles-engine";
 import Particles from "react-tsparticles";
 import { Link } from "react-router-dom";
-import { toast } from "sonner"; // Layout.tsxにToasterがあるので、toast関数のみインポート
 
 export default function HomePage() {
   const particlesInit = useCallback(async (engine: Engine) => {
     await loadSlim(engine);
   }, []);
 
-  const particlesLoaded = useCallback(async (_container: Container | undefined) => {
-    // 処理が必要な場合はここに記述
-  }, []);
-
-  // ページを開いた瞬間（マウント時）に1回だけトーストを表示
-  useEffect(() => {
-    toast.warning("ドメインが変更されました", {
-      description: "再度ログインをお願いします",
-      duration: 6000
-    });
+  const particlesLoaded = useCallback(async (container: Container | undefined) => {
+    void container; // 処理が必要な場合はここに記述
   }, []);
 
   return (

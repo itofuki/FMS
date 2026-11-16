@@ -18,8 +18,8 @@ import Tips from '../components/Tips';
 import Loading from '../components/Loading';
 
 const VALID_DAYS: Day[] = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri'];
-function isDay(key: any): key is Day {
-  return VALID_DAYS.includes(key);
+function isDay(key: unknown): key is Day {
+  return VALID_DAYS.includes(key as Day);
 }
 
 const periodTimes = [
@@ -186,7 +186,11 @@ export default function MyPage() {
         console.error("プロフィール情報の取得に失敗:", profileRes.error);
         setIsProfileSet(false);
       } else {
-        const profileData = profileRes.data as any;
+        type ProfileWithCourse = {
+          auto_open: boolean | null;
+          classes: { courses: { name: string } | { name: string }[] | null } | { courses: { name: string } | { name: string }[] | null }[] | null;
+        };
+        const profileData = profileRes.data as unknown as ProfileWithCourse | null;
         
         let courseNameValue = null;
         if (profileData && profileData.classes) {
@@ -335,9 +339,9 @@ export default function MyPage() {
           />
         );
       case 'assignments':
-        return <Assignments subject={uniqueSubjects as any} />;
+        return <Assignments subject={uniqueSubjects} />;
       case 'test-prep':
-        return <TestPrep subject={uniqueSubjects as any} />;
+        return <TestPrep subject={uniqueSubjects} />;
       case 'study-room':
         return <StudyRoom />;
       case 'tips':

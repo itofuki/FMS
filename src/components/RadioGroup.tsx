@@ -10,8 +10,7 @@ type Option = {
 type RadioGroupProps = {
   options: Option[];
   selectedValue: string | number | null;
-  // onChangeの型をより厳密に定義
-  onChange: (value: any) => void;
+  onChange: (value: string | number) => void;
   legend: string;
 };
 
