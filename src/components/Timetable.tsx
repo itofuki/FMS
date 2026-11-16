@@ -140,7 +140,10 @@ function TodayTimeline({ subjects, now, assignmentCount }: { subjects: Subject[]
               />
               {/* 右: カード */}
               <div className={`relative rounded-xl shadow-sm px-4 sm:px-5 py-4 transition-opacity ${
-                state === 'current' ? 'bg-surface ring-2 ring-accent' : 'bg-surface'
+                // 課題カードと同じ色（ライトは白、ダークは元の配色の slate-700/80、終わった授業は課題の完了と同じ slate-800/60）
+                state === 'current' ? 'bg-surface dark:bg-slate-700/80 ring-2 ring-accent'
+                : state === 'after' ? 'bg-surface dark:bg-slate-800/60'
+                : 'bg-surface dark:bg-slate-700/80'
               } ${state === 'after' ? 'opacity-60' : ''}`}>
                 <StateBadge state={badgeState} minutes={minutesLeft(s.period, now)} />
                 <p className="text-sm text-fg-muted">
@@ -150,26 +153,25 @@ function TodayTimeline({ subjects, now, assignmentCount }: { subjects: Subject[]
                   <span className="mx-1.5 text-fg-subtle">·</span>
                   {s.teacher}
                 </p>
-                <p className="mt-1.5 text-[17px] sm:text-lg font-bold text-fg leading-snug break-words">{s.name}</p>
-                <div className="mt-3 flex flex-wrap items-center gap-2">
-                  <a
-                    href={attendanceUrl(s)}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-md border transition-colors ${
-                      state === 'current' ? 'bg-accent-solid border-accent-solid text-on-accent hover:bg-accent-solid-hover' : 'border-line-strong text-fg hover:bg-surface-2'
-                    }`}
-                  >
-                    <FiExternalLink size={13} />
-                    <span className="text-xs font-bold">{s.attendanceId ? '出席ページ' : 'コースページ'}</span>
-                  </a>
-                  {count > 0 && (
+                {/* 授業名を押すと出席ページ（なければコースページ）が開く。課題カードと同じく右に ↗ だけ付ける */}
+                <a
+                  href={attendanceUrl(s)}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  title={s.attendanceId ? '出席ページを開く' : 'コースページを開く'}
+                  className="mt-1.5 inline-flex items-start gap-1.5 text-[17px] sm:text-lg font-bold text-fg leading-snug break-words hover:text-link hover:underline"
+                >
+                  <span>{s.name}</span>
+                  <FiExternalLink size={15} className="mt-1.5 flex-shrink-0 text-fg-subtle" aria-label={s.attendanceId ? '出席ページを開く' : 'コースページを開く'} />
+                </a>
+                {count > 0 && (
+                  <div className="mt-3 flex flex-wrap items-center gap-2">
                     <Link to="?tab=assignments" className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-md border border-line-strong text-fg hover:bg-surface-2 transition-colors">
                       <FiFileText size={13} className="text-warn" />
                       <span className="text-xs font-bold">課題 {count}件</span>
                     </Link>
-                  )}
-                </div>
+                  </div>
+                )}
               </div>
             </div>
           </li>
@@ -186,7 +188,8 @@ function TodayTimeline({ subjects, now, assignmentCount }: { subjects: Subject[]
 function WeekGrid({ weeklySubjects, now }: { weeklySubjects: Record<Day, Subject[]>; now: Date }) {
   const today = weekdayOf(now);
   return (
-    <div className="bg-surface border border-line rounded-lg p-2 sm:p-4">
+    <div className="bg-bg dark:bg-surface border border-line rounded-lg p-2 sm:p-4">
+      {/* ライトは灰色の地に白いマス（課題ページと同じ見え方）、ダークは元の地の色 */}
       {/* スマホでも5日分が1画面に収まるよう、最小幅は付けない */}
       <div className="grid gap-1 sm:gap-2" style={{ gridTemplateColumns: 'auto repeat(5, minmax(0, 1fr))' }}>
         <div />
@@ -215,7 +218,8 @@ function WeekGrid({ weeklySubjects, now }: { weeklySubjects: Record<Day, Subject
                   rel="noopener noreferrer"
                   title={`${s.name}（${s.classroom} / ${s.teacher}）`}
                   className={`h-16 rounded-md sm:rounded-lg px-1 sm:px-2 py-1 sm:py-1.5 flex flex-col justify-center gap-0.5 shadow-sm transition-colors ${
-                    isNow ? 'bg-accent-soft ring-2 ring-accent' : d === today ? 'bg-surface-2 hover:bg-surface-3' : 'bg-surface-2/70 hover:bg-surface-3'
+                    // 授業のマスも課題カードと同じ色
+                    isNow ? 'bg-accent-soft ring-2 ring-accent' : 'bg-surface dark:bg-slate-700/80 hover:bg-surface-2 dark:hover:bg-slate-700'
                   }`}
                 >
                   <span className="text-[11px] sm:text-[13px] font-bold text-fg leading-tight line-clamp-2 break-all sm:break-normal">{s.name}</span>
