@@ -418,7 +418,9 @@ entrypoint = "./functions/process-schedule-image/index.ts"
 
 [functions.slack-schedule-receiver]
 enabled = true
-verify_jwt = true
+# Slack からは Supabase の JWT を付けられないため JWT 検証は無効化し、
+# 代わりに関数内で Slack の署名（SLACK_SIGNING_SECRET）を検証する
+verify_jwt = false
 import_map = "./functions/slack-schedule-receiver/deno.json"
 # Uncomment to specify a custom file path to the entrypoint.
 # Supported file extensions are: .ts, .js, .mjs, .jsx, .tsx
