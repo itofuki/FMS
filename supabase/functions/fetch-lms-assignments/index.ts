@@ -9,9 +9,9 @@ const corsHeaders = {
 const LMS_BASE = "https://lms-tokyo.iput.ac.jp";
 const REST = `${LMS_BASE}/webservice/rest/server.php`;
 
-const jsonRes = (body: unknown) =>
+const jsonRes = (body: unknown, status = 200) =>
   new Response(JSON.stringify(body), {
-    status: 200,
+    status,
     headers: { ...corsHeaders, "Content-Type": "application/json" },
   });
 
@@ -24,6 +24,7 @@ const moodleAPI = async (token: string, wsfunction: string, params: Record<strin
   return res.json();
 };
 
+// deno-lint-ignore no-explicit-any
 const isTokenError = (data: any) =>
   data?.exception != null && (
     data.errorcode === "invalidtoken" ||
@@ -49,34 +50,40 @@ serve(async (req) => {
   if (req.method === "OPTIONS") return new Response("ok", { headers: corsHeaders });
 
   try {
+    // パスワードはブラウザに保存しない方針のため、通常の同期は cachedToken/cachedUserId のみで行う。
+    // username/password は初回接続時（またはトークン失効後の再ログイン時）にだけ送られてくる。
     const { username, password, cachedToken, cachedUserId, cachedStatuses = {} } = await req.json();
     // cachedStatuses: { [uid: string]: string } — フロントのキャッシュから渡される提出状況
     // 例: { "assign_123": "submitted", "assign_456": "draft" }
 
-    if (!username || !password) {
-      return jsonRes({ error: "username と password が必要です", code: "BAD_REQUEST" });
-    }
-
+    const hasPassword = !!(username && password);
     const token = { value: (cachedToken as string) ?? "" };
     const userId = { value: (cachedUserId as number) ?? 0 };
 
-    // ── Step 1 & 2: 認証（キャッシュがあればスキップ）
-    if (!token.value || !userId.value) {
+    if (!hasPassword && (!token.value || !userId.value)) {
+      return jsonRes({ error: "認証情報が不足しています", code: "BAD_REQUEST" }, 400);
+    }
+
+    const authFailed = () =>
+      jsonRes({ error: "IDまたはパスワードが正しくありません", code: "AUTH_FAILED" }, 401);
+    const tokenExpired = () =>
+      jsonRes({ error: "LMSのログイン有効期限が切れました。再度ログインしてください", code: "TOKEN_EXPIRED" }, 401);
+
+    // ── Step 1 & 2: 認証（パスワードが渡された場合は常に新しいトークンを取得）
+    if (hasPassword) {
       const ok = await reAuthenticate(username, password, token, userId);
-      if (!ok) return jsonRes({ error: "IDまたはパスワードが正しくありません", code: "AUTH_FAILED" });
+      if (!ok) return authFailed();
     }
 
     // ── Step 3: 課題一覧取得
-    let assignData = await moodleAPI(token.value, "mod_assign_get_assignments");
+    const assignData = await moodleAPI(token.value, "mod_assign_get_assignments");
 
     if (isTokenError(assignData)) {
-      const ok = await reAuthenticate(username, password, token, userId);
-      if (!ok) return jsonRes({ error: "IDまたはパスワードが正しくありません", code: "AUTH_FAILED" });
-      assignData = await moodleAPI(token.value, "mod_assign_get_assignments");
+      return hasPassword ? authFailed() : tokenExpired();
     }
 
     if (assignData.exception) {
-      return jsonRes({ error: "課題一覧の取得に失敗しました", code: "API_ERROR", detail: assignData.message });
+      return jsonRes({ error: "課題一覧の取得に失敗しました", code: "API_ERROR", detail: assignData.message }, 502);
     }
 
     const now = Math.floor(Date.now() / 1000);
@@ -172,11 +179,11 @@ serve(async (req) => {
         const attempt = result.value.lastattempt;
         submissionStatus = attempt?.submission?.status ?? attempt?.teamsubmission?.status ?? null;
       }
-      return buildEvent(assignment, submissionStatus, token.value);
+      return buildEvent(assignment, submissionStatus);
     });
 
     const cachedEvents = useCache.map(assignment =>
-      buildEvent(assignment, "submitted", token.value)
+      buildEvent(assignment, "submitted")
     );
 
     const events = [...freshEvents, ...cachedEvents, ...calendarEvents]
@@ -191,14 +198,13 @@ serve(async (req) => {
     });
   } catch (err: unknown) {
     const msg = err instanceof Error ? err.message : "Unknown error";
-    return jsonRes({ error: msg, code: "EXCEPTION" });
+    return jsonRes({ error: msg, code: "EXCEPTION" }, 500);
   }
 });
 
 function buildEvent(
   a: { id: number; cmid: number; name: string; intro: string; duedate: number; allowsubmissionsfromdate: number; courseShortname: string; attachments: { filename: string; fileurl: string }[] },
   submissionStatus: string | null,
-  token: string
 ) {
   return {
     uid: `assign_${a.id}`,
@@ -209,9 +215,11 @@ function buildEvent(
     categoryCode: a.courseShortname,
     submissionStatus,
     url: `${LMS_BASE}/mod/assign/view.php?id=${a.cmid}`,
+    // トークンはURLに埋め込まない（キャッシュ・共有・ログ経由の漏洩防止）。
+    // フロント側で開く直前に付与する。
     attachments: a.attachments.map((f) => ({
       filename: f.filename,
-      url: `${f.fileurl}${f.fileurl.includes("?") ? "&" : "?"}token=${token}`,
+      url: f.fileurl,
     })),
   };
 }

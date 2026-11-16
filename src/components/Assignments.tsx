@@ -11,115 +11,34 @@ import { DatePickerInput, type DayProps } from '@mantine/dates';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { Link } from 'react-router-dom';
 import 'dayjs/locale/ja';
-import type { User } from '@supabase/supabase-js';
 import { toast } from 'sonner';
 import DOMPurify from 'dompurify';
-
-// --- 型定義 ---
-type Assignment = {
-  id: number;
-  name: string;
-  deadline: string;
-  done: boolean;
-  classification: 'official' | 'private';
-  user_id: string | null;
-  subject_name: string | null;
-  url: string | null;
-};
-
-type Subject = { 
-  id: number; 
-  name: string; 
-};
-
-type DbSubject = {
-  id: number;
-  category_code: string; 
-  subject_classes: any[];
-  subject_departments: any[];
-  subject_courses: any[];
-};
+import { useUserProfile } from '../hooks/useUserProfile';
+import { useLmsEvents } from '../hooks/useLmsEvents';
+import { withLmsToken } from '../lib/lms';
+import {
+  getDeadlineStatus, mergeAssignments,
+  type Assignment, type Subject, type DbSubject, type LmsStatus, type UnifiedAssignment,
+} from '../lib/assignments';
 
 interface AssignmentsProps { subject: Subject[] }
 
-interface LmsAttachment {
-  filename: string;
-  url: string;
-}
-
-interface LmsEvent {
-  uid: string;
-  summary: string;
-  description: string;
-  start: string;
-  end: string;
-  categoryCode?: string;
-  url?: string;
-  submissionStatus?: 'submitted' | 'draft' | 'new' | null;
-  attachments?: LmsAttachment[];
-}
-
-
-type UnifiedAssignment = {
-  id: number | string;
+type AssignmentPayload = {
   name: string;
   deadline: string;
-  done: boolean;
-  classification: 'official' | 'private';
-  user_id: string | null;
-  subject_name: string | null;
+  subject_id: number | null;
   url: string | null;
-  isLms: boolean;
-  description?: string;
-  subjectCategoryType: 'class' | 'department' | 'course' | 'none';
-  submissionStatus?: 'submitted' | 'draft' | 'new' | null;
-  attachments?: LmsAttachment[];
-};
-
-type LmsStatus = {
-  lms_uid: string;
-  done: boolean;
+  classification?: 'official' | 'private';
+  user_id?: string;
 };
 
 // --- ヘルパー関数 ---
 const formatDateTime = (isoString: string) => {
   if (!isoString) return '';
-  const date = new Date(isoString);
-  return format(date, "MM/dd HH:mm");
+  return format(new Date(isoString), "MM/dd HH:mm");
 };
 const today = new Date();
 today.setHours(0, 0, 0, 0);
-
-const getDeadlineStatus = (deadlineDate: string, isDone: boolean) => {
-  if (isDone) return { color: 'text-slate-600', label: '' };
-  
-  const now = new Date();
-  const deadline = new Date(deadlineDate);
-  const diffTime = deadline.getTime() - now.getTime();
-  
-  const diffHours = Math.floor(diffTime / (1000 * 60 * 60));
-  const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
-
-  if (diffTime < 0) return { color: 'text-red-600 font-bold', label: '(期限切れ)' };
-  
-  if (diffHours < 24) {
-    const hours = diffHours === 0 ? '1' : diffHours;
-    return { color: 'text-red-400 font-bold', label: `(あと ${hours} 時間)` };
-  }
-  
-  return {
-    color: diffDays <= 3 ? 'text-orange-400 font-bold' : 'text-slate-400',
-    label: `(あと ${diffDays} 日)`
-  };
-};
-
-const getSubjectCategoryType = (dbSub?: DbSubject): 'class' | 'department' | 'course' | 'none' => {
-  if (!dbSub) return 'none';
-  if (dbSub.subject_classes && dbSub.subject_classes.length > 0) return 'class';
-  if (dbSub.subject_departments && dbSub.subject_departments.length > 0) return 'department';
-  if (dbSub.subject_courses && dbSub.subject_courses.length > 0) return 'course';
-  return 'none';
-};
 
 const getBadgeStyle = (type: string, isDone: boolean) => {
   if (isDone) return 'bg-slate-700/50 text-slate-500 border-slate-600/50'; 
@@ -135,13 +54,6 @@ const getBadgeStyle = (type: string, isDone: boolean) => {
 const Assignments: React.FC<AssignmentsProps> = ({ subject }) => {
   const theme = useMantineTheme();
   const queryClient = useQueryClient();
-
-  // LMS認証情報 (localStorage から読み取り)
-  const [lmsCredentials] = useState(() => ({
-    username: localStorage.getItem('fms_lms_username'),
-    password: localStorage.getItem('fms_lms_password'),
-  }));
-  const hasLmsCredentials = !!(lmsCredentials.username && lmsCredentials.password);
 
   // --- ローカルステート ---
   const [isAdminMode, setIsAdminMode] = useState(false);
@@ -167,36 +79,7 @@ const Assignments: React.FC<AssignmentsProps> = ({ subject }) => {
   }, []);
 
   // --- React Queryによるデータ取得 ---
-  const { data: currentUser, isLoading: isLoadingUser } = useQuery<User | null>({
-    queryKey: ['currentUser'],
-    queryFn: async () => {
-      const { data: { user } } = await supabase.auth.getUser();
-      return user;
-    },
-    staleTime: Infinity,
-  });
-
-  const { data: userProfile, isLoading: isLoadingProfile } = useQuery({
-    queryKey: ['userProfile', currentUser?.id],
-    queryFn: async () => {
-      if (!currentUser) return null;
-
-      const { data, error } = await supabase
-        .from('profiles')
-        .select('role')
-        .eq('user_id', currentUser.id)
-        .single();
-
-      if (error) {
-        console.error("Profile fetch error:", error);
-        return null;
-      }
-      return data;
-    },
-    enabled: !!currentUser?.id,
-  });
-
-  const userRole = userProfile?.role || 'user';
+  const { currentUser, userRole, isLoading: isLoadingProfile } = useUserProfile();
 
   const { data: assignments = [], isLoading: isLoadingAssignments } = useQuery<Assignment[]>({
     queryKey: ['assignments'],
@@ -210,72 +93,10 @@ const Assignments: React.FC<AssignmentsProps> = ({ subject }) => {
     }
   });
 
-  // credentials があれば自動ログイン取得、なければ既存のiCal URL取得
-  const LMS_EVENTS_CACHE_KEY = `fms_lms_events_${lmsCredentials.username}`;
-  const LMS_FULL_REFRESH_KEY = `fms_lms_full_refresh_${lmsCredentials.username}`;
-  const FULL_REFRESH_INTERVAL = 10 * 60 * 1000; // 10分に1回はフルリフレッシュ（提出削除を検知）
-
-  const getCachedLmsEvents = (): LmsEvent[] | undefined => {
-    try {
-      const raw = localStorage.getItem(LMS_EVENTS_CACHE_KEY);
-      if (!raw) return undefined;
-      const { events, ts } = JSON.parse(raw);
-      if (Date.now() - ts > 24 * 60 * 60 * 1000) return undefined;
-      return events.map((e: any) => ({ ...e, start: new Date(e.start), end: new Date(e.end) }));
-    } catch { return undefined; }
-  };
-
-  // キャッシュから uid→submissionStatus のマップを作る
-  const getCachedStatuses = (): Record<string, string> => {
-    try {
-      const raw = localStorage.getItem(LMS_EVENTS_CACHE_KEY);
-      if (!raw) return {};
-      const { events } = JSON.parse(raw);
-      const map: Record<string, string> = {};
-      for (const e of events ?? []) {
-        if (e.uid && e.submissionStatus) map[e.uid] = e.submissionStatus;
-      }
-      return map;
-    } catch { return {}; }
-  };
-
-  const { data: lmsEvents = [], isLoading: isLoadingLmsEvents, isFetching: isFetchingLmsEvents, isError: isLmsApiError, refetch: refetchLmsEvents } = useQuery<LmsEvent[]>({
-    queryKey: ['lmsEvents', 'api', lmsCredentials.username],
-    queryFn: async () => {
-      const cachedToken = localStorage.getItem('fms_lms_token') ?? undefined;
-      const cachedUserId = Number(localStorage.getItem('fms_lms_userid')) || undefined;
-
-      // FULL_REFRESH_INTERVAL以上経過していたらフルリフレッシュ（差分スキップなし）
-      const lastFull = Number(localStorage.getItem(LMS_FULL_REFRESH_KEY) ?? 0);
-      const isFullRefresh = Date.now() - lastFull > FULL_REFRESH_INTERVAL;
-      const cachedStatuses = isFullRefresh ? {} : getCachedStatuses();
-
-      const { data, error } = await supabase.functions.invoke('fetch-lms-assignments', {
-        body: {
-          username: lmsCredentials.username,
-          password: lmsCredentials.password,
-          cachedToken,
-          cachedUserId,
-          cachedStatuses,
-        },
-      });
-      if (error) throw new Error(error.message);
-      if (data?.code === 'AUTH_FAILED') throw new Error('AUTH_FAILED');
-      if (data?.token) localStorage.setItem('fms_lms_token', data.token);
-      if (data?.userId) localStorage.setItem('fms_lms_userid', String(data.userId));
-      if (isFullRefresh) localStorage.setItem(LMS_FULL_REFRESH_KEY, String(Date.now()));
-      const events: LmsEvent[] = data?.events ?? [];
-      localStorage.setItem(LMS_EVENTS_CACHE_KEY, JSON.stringify({ events, ts: Date.now() }));
-      return events;
-    },
-    placeholderData: getCachedLmsEvents,  // リロード時はキャッシュを即座に表示
-    enabled: hasLmsCredentials,
-    staleTime: 0,
-    refetchOnWindowFocus: true,
-    refetchInterval: 2 * 60 * 1000,
-    refetchIntervalInBackground: false,
-    retry: false,
-  });
+  const {
+    data: lmsEvents = [], isLoading: isLoadingLmsEvents, isFetching: isFetchingLmsEvents,
+    isError: isLmsApiError, isTokenExpired, hasLmsSession, session: lmsSession, forceFullRefresh,
+  } = useLmsEvents();
 
   const { data: dbSubjects = [], isLoading: isLoadingDbSubjects } = useQuery<DbSubject[]>({
     queryKey: ['dbSubjects'],
@@ -308,11 +129,11 @@ const Assignments: React.FC<AssignmentsProps> = ({ subject }) => {
     enabled: !!currentUser?.id,
   });
 
-  const loading = isLoadingUser || isLoadingProfile || isLoadingAssignments || isLoadingLmsEvents || isLoadingDbSubjects || isLoadingLmsStatuses;
+  const loading = isLoadingProfile || isLoadingAssignments || isLoadingLmsEvents || isLoadingDbSubjects || isLoadingLmsStatuses;
 
   // --- React Queryによるデータ更新 (Mutations) ---
   const upsertMutation = useMutation({
-    mutationFn: async (payload: { isEdit: boolean, data: any, id?: number }) => {
+    mutationFn: async (payload: { isEdit: boolean, data: AssignmentPayload, id?: number }) => {
       if (payload.isEdit) {
         const { error } = await supabase.from('assignment').update(payload.data).eq('id', payload.id);
         if (error) throw error;
@@ -418,7 +239,7 @@ const Assignments: React.FC<AssignmentsProps> = ({ subject }) => {
     return { style: styles };
   };
 
-  const handleDateChange = (value: Date | string | null | any) => {
+  const handleDateChange = (value: Date | string | null) => {
     if (!value) {
       setNewDate(null);
       return;
@@ -459,7 +280,7 @@ const Assignments: React.FC<AssignmentsProps> = ({ subject }) => {
     const isOfficial = isAdminMode && userRole === 'admin';
     
     if (editingId) {
-      const updatePayload = {
+      const updatePayload: AssignmentPayload = {
         name: newName,
         deadline: deadlineForSupabase,
         subject_id: newSubjectId ? parseInt(newSubjectId, 10) : null,
@@ -467,11 +288,11 @@ const Assignments: React.FC<AssignmentsProps> = ({ subject }) => {
       };
       upsertMutation.mutate({ isEdit: true, id: editingId, data: updatePayload });
     } else {
-      const newAssignment = {
+      const newAssignment: AssignmentPayload = {
         name: newName,
         deadline: deadlineForSupabase,
         subject_id: newSubjectId ? parseInt(newSubjectId, 10) : null,
-        classification: isOfficial ? 'official' : 'private' as const,
+        classification: isOfficial ? 'official' : 'private',
         user_id: currentUser.id,
         url: newUrl || null,
       };
@@ -489,11 +310,10 @@ const Assignments: React.FC<AssignmentsProps> = ({ subject }) => {
     }
   };
 
-  const handleForceRefreshLms = () => {
-    if (!hasLmsCredentials || isFetchingLmsEvents) return;
-    localStorage.setItem(LMS_FULL_REFRESH_KEY, '0');
-    refetchLmsEvents();
-  };
+  const handleForceRefreshLms = forceFullRefresh;
+
+  // 添付ファイルのURLにはトークンを保存していないため、開く直前に付与する
+  const attachmentUrl = (url: string) => (lmsSession ? withLmsToken(url, lmsSession.token) : url);
 
   const isAudioFile = (filename: string) => /\.(mp3|wav|m4a|aac|ogg|oga|flac|wma)$/i.test(filename);
 
@@ -540,75 +360,14 @@ const Assignments: React.FC<AssignmentsProps> = ({ subject }) => {
     return 'bg-slate-700/80 border-l-4 border-cyan-500';
   };
 
-  const unifiedAssignments = useMemo(() => {
-    const nowDate = new Date();
-    const twoWeeksLater = new Date(nowDate.getTime() + 14 * 24 * 60 * 60 * 1000);
-
-    const enrolledSubjectNames = subject.map(s => s.name);
-    const enrolledSubjectIds = subject.map(s => s.id);
-
-    // 1. DB課題
-    // 🚧 動作確認のため一時的に絞り込みを無効化（元は履修科目のみ表示）
-    // .filter(a => !a.subject_name || enrolledSubjectNames.includes(a.subject_name))
-    const dbUnified: UnifiedAssignment[] = assignments
-      .map(a => {
-        const matchedSubjectProp = subject.find(s => s.name === a.subject_name);
-        const dbSub = matchedSubjectProp ? dbSubjects.find(s => s.id === matchedSubjectProp.id) : undefined;
-        return { ...a, isLms: false, subjectCategoryType: getSubjectCategoryType(dbSub) };
-      });
-
-    // 2. LMS課題 (credentials 自動取得 or iCal URL、同じ形式で処理)
-    const excludedKeywords = ['出欠', '出席', 'attendance', 'アンケート開始'];
-
-    // 🚧 動作確認のため一時的に絞り込みを無効化（元は「2週間以内・除外キーワード対象外・履修科目一致」のみ表示）
-    const filteredLms = lmsEvents;
-    void twoWeeksLater;
-    void excludedKeywords;
-    void enrolledSubjectIds;
-    void enrolledSubjectNames;
-
-    const lmsUnified: UnifiedAssignment[] = filteredLms.map(event => {
-      const matched = dbSubjects.find(
-        s => s.category_code && event.categoryCode && s.category_code === event.categoryCode
-      );
-      let eventUrl = '';
-      if (event.url) eventUrl = event.url;
-      else if (matched) eventUrl = `https://lms-tokyo.iput.ac.jp/course/view.php?id=${matched.id}`;
-      else if (event.categoryCode) eventUrl = `https://lms-tokyo.iput.ac.jp/course/search.php?search=${event.categoryCode}`;
-      const displaySubjectName = subject.find(s => s.id === matched?.id)?.name || '未分類(LMS)';
-      const manualStatus = lmsStatuses.find(s => s.lms_uid === event.uid);
-      // 一度でも手動チェックしていれば、その値を最優先する（Moodleの提出状況より優先）。
-      // まだ手動操作していない課題だけ、Moodleの提出状況を初期値として使う。
-      const isDone = manualStatus ? manualStatus.done : event.submissionStatus === 'submitted';
-      return {
-        id: event.uid,
-        name: event.summary,
-        deadline: event.end || event.start,
-        done: isDone,
-        classification: 'official' as const,
-        user_id: null,
-        subject_name: displaySubjectName,
-        url: eventUrl,
-        isLms: true,
-        description: event.description,
-        subjectCategoryType: getSubjectCategoryType(matched),
-        submissionStatus: event.submissionStatus,
-        attachments: event.attachments,
-      };
-    });
-
-    let combined = [...dbUnified, ...lmsUnified];
-    if (isAdminMode && userRole === 'admin') combined = combined.filter(a => a.classification === 'official');
-    // 期限切れから1日以内までは表示し、それ以降は非表示にする
-    const oneDayAfterDeadlineCutoff = nowDate.getTime() - 24 * 60 * 60 * 1000;
-    combined = combined.filter(a => new Date(a.deadline).getTime() >= oneDayAfterDeadlineCutoff);
-    return combined.sort((a, b) => {
-      if (a.done !== b.done) return a.done ? 1 : -1;
-      return new Date(a.deadline).getTime() - new Date(b.deadline).getTime();
-    });
-  }, [assignments, lmsEvents, dbSubjects, subject, isAdminMode, userRole, lmsStatuses]);
-
-  // ... (上部のロジックはそのまま) ...
+  const unifiedAssignments = useMemo(() => mergeAssignments({
+    assignments,
+    lmsEvents,
+    dbSubjects,
+    subjects: subject,
+    lmsStatuses,
+    officialOnly: isAdminMode && userRole === 'admin',
+  }), [assignments, lmsEvents, dbSubjects, subject, isAdminMode, userRole, lmsStatuses]);
 
   if (loading) return <Loading />;
 
@@ -622,7 +381,7 @@ const Assignments: React.FC<AssignmentsProps> = ({ subject }) => {
               <span className={`font-orbitron font-bold text-glow text-xl sm:text-3xl transition-colors ${isAdminMode ? 'text-yellow-400' : 'text-cyan-300'}`}>
                 課題
               </span>
-              {hasLmsCredentials && (
+              {hasLmsSession && (
                 <button
                   type="button"
                   onClick={handleForceRefreshLms}
@@ -763,7 +522,7 @@ const Assignments: React.FC<AssignmentsProps> = ({ subject }) => {
                                     <button
                                       key={key}
                                       type="button"
-                                      onClick={(e) => { e.stopPropagation(); handlePlayAudio(key, file.url); }}
+                                      onClick={(e) => { e.stopPropagation(); handlePlayAudio(key, attachmentUrl(file.url)); }}
                                       disabled={isLoading}
                                       title={file.filename}
                                       className={`flex flex-shrink-0 items-center gap-1 text-[10px] sm:text-xs px-1.5 py-0.5 rounded border transition-colors max-w-[240px] truncate disabled:opacity-60 ${
@@ -780,7 +539,7 @@ const Assignments: React.FC<AssignmentsProps> = ({ subject }) => {
                                 return (
                                   <a
                                     key={key}
-                                    href={file.url}
+                                    href={attachmentUrl(file.url)}
                                     target="_blank"
                                     rel="noopener noreferrer"
                                     onClick={(e) => e.stopPropagation()}
@@ -817,12 +576,12 @@ const Assignments: React.FC<AssignmentsProps> = ({ subject }) => {
           </div>
 
           {/* LMS未設定・エラー時のバナー */}
-          {!isAdminMode && !hasLmsCredentials && (
+          {!isAdminMode && !hasLmsSession && (
             <div className="mb-6 p-4 bg-blue-900/40 border border-blue-500/50 rounded-lg flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
               <div className="flex items-start gap-3 text-blue-200">
                 <FiInfo className="mt-0.5 flex-shrink-0 text-blue-400" size={18} />
                 <p className="text-sm">
-                  LMSの課題を自動で取得するには、設定画面からLMSのIDとパスワードを登録してください。
+                  LMSの課題を自動で取得するには、設定画面からLMSにログインしてください。
                 </p>
               </div>
               <Link
@@ -834,12 +593,14 @@ const Assignments: React.FC<AssignmentsProps> = ({ subject }) => {
             </div>
           )}
 
-          {!isAdminMode && hasLmsCredentials && isLmsApiError && (
+          {!isAdminMode && hasLmsSession && isLmsApiError && (
             <div className="mb-6 p-4 bg-red-900/40 border border-red-500/50 rounded-lg flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
               <div className="flex items-start gap-3 text-red-200">
                 <FiInfo className="mt-0.5 flex-shrink-0 text-red-400" size={18} />
                 <p className="text-sm">
-                  LMSへのログインに失敗しました。IDとパスワードが正しいか確認してください。
+                  {isTokenExpired
+                    ? 'LMSのログイン有効期限が切れました。設定画面から再度ログインしてください。'
+                    : 'LMSからの課題取得に失敗しました。時間をおいて再度お試しください。'}
                 </p>
               </div>
               <Link
