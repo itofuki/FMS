@@ -18,6 +18,9 @@ FMSは、学内の施設開放スケジュール（自習室・談話室）、�
   * **⚡ 高いUXを実現するステータス管理**: 完了した課題のチェックボックスを操作した際、**楽観的アップデート（Optimistic Updates）**技術を導入しているため、サーバーの応答を待たずに画面上のチェック状態が瞬時に切り替わり、ストレスのない操作感を提供します。
 * **🧠 テスト対策クイズ**
   * 管理者が登録した「過去問題」「予想問題」を科目ごとに出題します（自由記述 / 多肢選択、解説・複数画像に対応）。
+* **🔔 プッシュ通知**
+  * 未完了の課題について、締切の指定時間前（設定で 1〜72 時間前から1つ選択）に通知します。
+  * 授業開始5分前に「出席ページを開く / 閉じる」を選べる通知を送ります（アプリを閉じていても届きます）。
 * **⚡ 授業時間連動型・自動出席オープン機能**
   * 時間割と連動し、該当する授業の開始時間になると、ワンタップ（または自動）で出席登録画面や関連ページをスマートに開きます。
 
@@ -59,7 +62,13 @@ FMSは、学内の施設開放スケジュール（自習室・談話室）、�
 4. **楽観的アップデート**: 課題のチェック（完了/未完了のトグル）時は、DB（`assignment_status` / `lms_assignment_status`）への非同期書き込みと同時に、画面上のキャッシュを即座に書き換えて先行反映します。
 
 ### 3. 時間割＆出席連動
-`時間割データを判定` -> `授業開始時にトリガー` -> `出席ページ自動オープン処理`
+設定の「授業開始5分前」で動作を選べます。
+* **通知する**: `pg_cron（毎分）` -> `notify-scheduler` -> `時間割から5分後に始まる授業を判定` -> `Web Push`
+* **自動で開く**: FMS を開いている場合のみ、ブラウザが出席ページを自動で開きます。
+
+### 4. 締切リマインダー
+LMS のトークンはサーバーに保存しない方針のため、FMS（マイページ）を開いて課題を取得するたびに「未完了かつ締切前の課題」を `user_deadlines` に同期し、`notify-scheduler` はこの表だけを見て通知します。重複送信は `notification_log` で防ぎます。
+> LMS で直接提出して FMS を開いていない場合は、提出済みでも通知されることがあります。
 
 ---
 
@@ -121,6 +130,7 @@ npm run build   # 型チェック + 本番ビルド
 |---|---|---|---|
 | `fetch-lms-assignments` | Moodle から課題を取得 | あり | なし |
 | `send-push` | Web Push 送信（service_role / 本人あて / admin のみ） | あり | `VAPID_SUBJECT`, `VAPID_PUBLIC_KEY`, `VAPID_PRIVATE_KEY` |
+| `notify-scheduler` | 締切リマインダー・授業前通知（pg_cron から毎分） | なし（`x-scheduler-secret` で検証） | `NOTIFY_SCHEDULER_SECRET`, VAPID 3種 |
 | `slack-schedule-receiver` | Slack から時間割PDFを取り込み | なし（Slack署名で検証） | `SLACK_USER_TOKEN`, `SLACK_SIGNING_SECRET`, `GEMINI_API_KEY`, `GEMINI_MODEL`(任意) |
 
 ```bash
@@ -128,6 +138,14 @@ supabase secrets set SLACK_SIGNING_SECRET=... GEMINI_API_KEY=...
 supabase functions deploy fetch-lms-assignments
 supabase functions deploy send-push
 supabase functions deploy slack-schedule-receiver --no-verify-jwt
+supabase functions deploy notify-scheduler --no-verify-jwt
+```
+
+#### 5. 通知の定期実行（pg_cron）
+`notify-scheduler` は migration で登録される cron ジョブから毎分呼ばれます。URL と共有シークレットは Vault に保存します（SQL Editor で実行）。
+```sql
+select vault.create_secret('https://<project-ref>.supabase.co/functions/v1/notify-scheduler', 'notify_scheduler_url');
+select vault.create_secret('<NOTIFY_SCHEDULER_SECRET と同じ値>', 'notify_scheduler_secret');
 ```
 
 ## 📁 主要なデータベーススキーマ (Database Schema)
@@ -145,6 +163,12 @@ supabase functions deploy slack-schedule-receiver --no-verify-jwt
 - assignment: 手動で登録された個人課題・公式課題を格納
 - assignment_status: 手動課題のユーザーごとの完了（done）ステータスを管理
 - lms_assignment_status: LMSから同期された課題のユーザーごとの完了（done）ステータスを管理
+
+### 通知
+- push_subscriptions: 端末ごとのプッシュ購読（`register_push_subscription` RPC で登録）
+- user_deadlines: 締切リマインダー対象の未完了課題（`sync_user_deadlines` RPC でクライアントが同期）
+- notification_log: 送信済み通知（重複防止）
+- profiles.deadline_reminder_hours / profiles.class_start_action: 通知設定
 
 ### テスト対策
 - quiz_questions: 一問一答の問題（`supabase/migrations` で管理）

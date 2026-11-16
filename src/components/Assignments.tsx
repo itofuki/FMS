@@ -8,17 +8,18 @@ import { FiPlus, FiTrash2, FiCalendar, FiInbox, FiFileText, FiTool, FiLink, FiEd
 import { format } from 'date-fns';
 import { TextInput, Select, Button, Group, Checkbox, useMantineTheme, SimpleGrid } from '@mantine/core';
 import { DatePickerInput, type DayProps } from '@mantine/dates';
-import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
+import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { Link } from 'react-router-dom';
 import 'dayjs/locale/ja';
 import { toast } from 'sonner';
 import DOMPurify from 'dompurify';
 import { useUserProfile } from '../hooks/useUserProfile';
 import { useLmsEvents } from '../hooks/useLmsEvents';
+import { useDbAssignments, useDbSubjects, useLmsStatuses } from '../hooks/useAssignmentSources';
 import { withLmsToken } from '../lib/lms';
 import {
   getDeadlineStatus, mergeAssignments,
-  type Assignment, type Subject, type DbSubject, type LmsStatus, type UnifiedAssignment,
+  type Assignment, type Subject, type LmsStatus, type UnifiedAssignment,
 } from '../lib/assignments';
 
 interface AssignmentsProps { subject: Subject[] }
@@ -81,53 +82,15 @@ const Assignments: React.FC<AssignmentsProps> = ({ subject }) => {
   // --- React Queryによるデータ取得 ---
   const { currentUser, userRole, isLoading: isLoadingProfile } = useUserProfile();
 
-  const { data: assignments = [], isLoading: isLoadingAssignments } = useQuery<Assignment[]>({
-    queryKey: ['assignments'],
-    queryFn: async () => {
-      const { data, error } = await supabase.rpc('get_user_assignments');
-      if (error) {
-        console.error('Error fetching assignments:', error);
-        return [];
-      }
-      return data as Assignment[];
-    }
-  });
+  const { data: assignments = [], isLoading: isLoadingAssignments } = useDbAssignments();
 
   const {
     data: lmsEvents = [], isLoading: isLoadingLmsEvents, isFetching: isFetchingLmsEvents,
     isError: isLmsApiError, isTokenExpired, hasLmsSession, session: lmsSession, forceFullRefresh,
   } = useLmsEvents();
 
-  const { data: dbSubjects = [], isLoading: isLoadingDbSubjects } = useQuery<DbSubject[]>({
-    queryKey: ['dbSubjects'],
-    queryFn: async () => {
-      const { data, error } = await supabase
-        .from('subjects')
-        .select(`
-          id, 
-          category_code,
-          subject_classes (subject_id),
-          subject_departments (subject_id),
-          subject_courses (subject_id)
-        `);
-      if (error) {
-        console.error("subjectsテーブルのJOIN取得エラー:", error);
-        return [];
-      }
-      return data as DbSubject[];
-    }
-  });
-
-  const { data: lmsStatuses = [], isLoading: isLoadingLmsStatuses } = useQuery<LmsStatus[]>({
-    queryKey: ['lmsStatuses', currentUser?.id],
-    queryFn: async () => {
-      if (!currentUser) return [];
-      const { data, error } = await supabase.from('lms_assignment_status').select('lms_uid, done').eq('user_id', currentUser.id);
-      if (error) return [];
-      return data as LmsStatus[];
-    },
-    enabled: !!currentUser?.id,
-  });
+  const { data: dbSubjects = [], isLoading: isLoadingDbSubjects } = useDbSubjects();
+  const { data: lmsStatuses = [], isLoading: isLoadingLmsStatuses } = useLmsStatuses(currentUser?.id);
 
   const loading = isLoadingProfile || isLoadingAssignments || isLoadingLmsEvents || isLoadingDbSubjects || isLoadingLmsStatuses;
 

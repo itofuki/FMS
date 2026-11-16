@@ -7,16 +7,43 @@ import type { User } from "@supabase/supabase-js";
 import { toast } from 'sonner';
 import { FiSettings } from "react-icons/fi";
 import RadioGroup from "./RadioGroup";
-import Switch from "./Switch";
 import Collapsible from "./Collapsible";
 import ChapterFrame from "../components/ChapterFrame";
 import Loading from "./Loading";
 import { useQueryClient } from "@tanstack/react-query";
+import { getPushState, enablePush, disablePush, sendTestPush, type PushState } from "../lib/push";
 import { getLmsSession, saveLmsSession, clearLmsSession, invokeFetchLms, LmsError, purgeLegacyLmsSecrets } from "../lib/lms";
 
 type DeptDB = { id: number; name: string; code: string };
 type CourseDB = { id: number; department_id: number; name: string; code: string };
 type ClassDB = { id: number; course_id: number; name: string };
+type ClassStartAction = 'auto_open' | 'notify' | 'none';
+
+const DEADLINE_HOUR_OPTIONS: { value: string; label: string }[] = [
+  { value: 'off', label: '通知しない' },
+  { value: '72', label: '3日前' },
+  { value: '48', label: '2日前' },
+  { value: '24', label: '24時間前' },
+  { value: '12', label: '12時間前' },
+  { value: '6', label: '6時間前' },
+  { value: '3', label: '3時間前' },
+  { value: '1', label: '1時間前' },
+];
+
+const CLASS_START_OPTIONS: { value: ClassStartAction; label: string }[] = [
+  { value: 'notify', label: '通知する' },
+  { value: 'auto_open', label: '自動で開く' },
+  { value: 'none', label: '何もしない' },
+];
+
+const PUSH_STATE_MESSAGES: Record<PushState, string> = {
+  unsupported: 'このブラウザはプッシュ通知に対応していません。',
+  'needs-install': 'iPhone / iPad では、Safari の共有ボタンから「ホーム画面に追加」したアプリでのみ通知を受け取れます。',
+  denied: '通知がブロックされています。ブラウザ（または端末）の設定でこのサイトの通知を許可してください。',
+  disabled: 'この端末では通知がオフです。',
+  enabled: 'この端末で通知を受け取ります。',
+};
+
 type SettingProps = {
   onSettingsSaved?: () => void;
 };
@@ -36,7 +63,10 @@ export default function Setting({ onSettingsSaved }: SettingProps) {
   const [courseClass, setCourseClass] = useState<number | null>(null);
   
   const [englishID, setEnglishID] = useState<number | null>(null);
-  const [autoOpen, setAutoOpen] = useState<boolean>(true);
+  const [classStartAction, setClassStartAction] = useState<ClassStartAction>('notify');
+  const [deadlineHours, setDeadlineHours] = useState<number | null>(24);
+  const [pushState, setPushState] = useState<PushState | null>(null);
+  const [isPushBusy, setIsPushBusy] = useState(false);
   const [isLightMode, setIsLightMode] = useState<boolean>(false);
   const [loading, setLoading] = useState<boolean>(false);
 
@@ -68,7 +98,7 @@ export default function Setting({ onSettingsSaved }: SettingProps) {
         supabase.from('departments').select('*').order('id'),
         supabase.from('courses').select('*').order('id'),
         supabase.from('classes').select('*').order('id'),
-        supabase.from('profiles').select('class_id, english_id, auto_open, is_light_mode').eq('user_id', user.id).single(),
+        supabase.from('profiles').select('class_id, english_id, auto_open, is_light_mode, class_start_action, deadline_reminder_hours').eq('user_id', user.id).single(),
       ]);
 
       const depts = resDept.data || [];
@@ -92,7 +122,8 @@ export default function Setting({ onSettingsSaved }: SettingProps) {
           }
         }
         setEnglishID(profile.english_id || null);
-        setAutoOpen(profile.auto_open ?? true);
+        setClassStartAction((profile.class_start_action as ClassStartAction) ?? 'notify');
+        setDeadlineHours(profile.deadline_reminder_hours ?? null);
         setIsLightMode(profile.is_light_mode ?? false);
       } else if (depts.length > 0 && crses.length > 0 && clses.length > 0) {
         const firstDept = depts[0];
@@ -137,6 +168,37 @@ export default function Setting({ onSettingsSaved }: SettingProps) {
   }, [baseCourse, classesDB, courseClass]);
 
   useEffect(() => {
+    getPushState().then(setPushState).catch(() => setPushState('unsupported'));
+  }, []);
+
+  const handleTogglePush = async () => {
+    if (!user || isPushBusy) return;
+    setIsPushBusy(true);
+    try {
+      const next = pushState === 'enabled' ? await disablePush() : await enablePush();
+      setPushState(next);
+      if (next === 'enabled') toast.success('この端末で通知を受け取ります。');
+      else if (next === 'denied') toast.error('通知が許可されませんでした。');
+      else toast.success('この端末の通知をオフにしました。');
+    } catch (e) {
+      console.error('[Push Error]', e);
+      toast.error(`通知の設定に失敗しました: ${e instanceof Error ? e.message : String(e)}`);
+    } finally {
+      setIsPushBusy(false);
+    }
+  };
+
+  const handleTestPush = async () => {
+    if (!user) return;
+    try {
+      const { sent } = await sendTestPush(user.id);
+      toast.success(`テスト通知を送信しました（${sent}台）`);
+    } catch (e) {
+      toast.error(`テスト通知の送信に失敗しました: ${e instanceof Error ? e.message : String(e)}`);
+    }
+  };
+
+  useEffect(() => {
     purgeLegacyLmsSecrets();
     setLmsUsername(getLmsSession()?.username ?? '');
   }, []);
@@ -164,7 +226,10 @@ export default function Setting({ onSettingsSaved }: SettingProps) {
         user_id: user.id,
         class_id: courseClass,
         english_id: englishID,
-        auto_open: autoOpen,
+        class_start_action: classStartAction,
+        deadline_reminder_hours: deadlineHours,
+        // 旧バージョンのクライアント向けに auto_open も同期しておく
+        auto_open: classStartAction === 'auto_open',
         is_light_mode: isLightMode,
         updated_at: new Date().toISOString(),
       });
@@ -355,11 +420,72 @@ export default function Setting({ onSettingsSaved }: SettingProps) {
                   </div>
                 </div>
 
-                <div className="space-y-6">
-                  {/* 自動オープンのスイッチ */}
+                {/* 通知設定 */}
+                <div className="space-y-5 p-4 rounded-xl bg-slate-900/20 border border-slate-700/50">
                   <div>
-                    <Switch label="授業開始前に自動で出席確認を開く" checked={autoOpen} onChange={setAutoOpen} />
-                    <p className="text-xs text-slate-400 mt-2">※ポップアップブロックを解除してください</p>
+                    <label className="block text-sm font-semibold text-cyan-100 mb-1">
+                      通知
+                      {pushState === 'enabled' && <span className="ml-2 text-xs text-emerald-400 font-normal">✓ この端末はオン</span>}
+                    </label>
+                    {pushState && (
+                      <p className={`text-xs ${pushState === 'denied' || pushState === 'needs-install' ? 'text-amber-300' : 'text-slate-400'}`}>
+                        {PUSH_STATE_MESSAGES[pushState]}
+                      </p>
+                    )}
+                    {(pushState === 'enabled' || pushState === 'disabled') && (
+                      <div className="flex gap-2 mt-3">
+                        <button
+                          type="button"
+                          onClick={handleTogglePush}
+                          disabled={isPushBusy}
+                          className={`flex-1 py-2 rounded-lg text-sm font-semibold transition-colors disabled:opacity-50 ${
+                            pushState === 'enabled'
+                              ? 'border border-slate-500 text-slate-300 hover:bg-slate-700/50'
+                              : 'bg-cyan-700 hover:bg-cyan-600 text-white'
+                          }`}
+                        >
+                          {isPushBusy ? '処理中...' : pushState === 'enabled' ? 'この端末の通知をオフにする' : 'この端末で通知を受け取る'}
+                        </button>
+                        {pushState === 'enabled' && (
+                          <button
+                            type="button"
+                            onClick={handleTestPush}
+                            className="px-4 py-2 rounded-lg border border-cyan-500/50 text-cyan-300 hover:bg-cyan-500/10 text-sm transition-colors"
+                          >
+                            テスト
+                          </button>
+                        )}
+                      </div>
+                    )}
+                  </div>
+
+                  <div>
+                    <label htmlFor="deadline-reminder" className="block text-sm text-slate-200 mb-1">未完了の課題の締切通知</label>
+                    <select
+                      id="deadline-reminder"
+                      value={deadlineHours === null ? 'off' : String(deadlineHours)}
+                      onChange={(e) => setDeadlineHours(e.target.value === 'off' ? null : Number(e.target.value))}
+                      className="w-full bg-slate-900 border border-slate-600 rounded-lg p-2.5 text-slate-200 outline-none text-sm focus:border-cyan-400 transition-colors"
+                    >
+                      {DEADLINE_HOUR_OPTIONS.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
+                    </select>
+                    <p className="text-xs text-slate-400 mt-1">
+                      課題一覧はFMSを開いたときに更新されます。LMSで直接提出した場合は、FMSを開くと通知対象から外れます。
+                    </p>
+                  </div>
+
+                  <div>
+                    <RadioGroup
+                      legend="授業開始5分前"
+                      options={CLASS_START_OPTIONS}
+                      selectedValue={classStartAction}
+                      onChange={(val) => setClassStartAction(val as ClassStartAction)}
+                    />
+                    <p className="text-xs text-slate-400 mt-2">
+                      {classStartAction === 'notify' && '出席ページを開くか選べる通知を送ります（アプリを閉じていても届きます）。'}
+                      {classStartAction === 'auto_open' && 'FMSを開いている場合のみ、出席ページを自動で開きます。ポップアップブロックを解除してください。'}
+                      {classStartAction === 'none' && '何もしません。'}
+                    </p>
                   </div>
                 </div>
 

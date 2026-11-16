@@ -1,7 +1,7 @@
 // supabase/functions/send-push/index.ts
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts"
 import { createClient } from 'npm:@supabase/supabase-js@2'
-import webpush from "npm:web-push@3.6.7"
+import { sendToUser } from "../_shared/push.ts"
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
@@ -30,13 +30,7 @@ serve(async (req) => {
   }
 
   try {
-    webpush.setVapidDetails(
-      Deno.env.get('VAPID_SUBJECT')!,
-      Deno.env.get('VAPID_PUBLIC_KEY')!,
-      Deno.env.get('VAPID_PRIVATE_KEY')!
-    );
-
-    const { user_id, title, body } = await req.json();
+    const { user_id, title, body, url } = await req.json();
     if (!user_id || !title) return json({ error: "user_id と title が必要です" }, 400);
 
     const serviceRoleKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!;
@@ -59,43 +53,9 @@ serve(async (req) => {
       }
     }
 
-    // 🌟 変更点: .single() を外し、複数件取得できるようにした
-    const { data: subDataList, error: dbError } = await supabase
-      .from('user_subscriptions')
-      .select('subscription')
-      .eq('user_id', user_id);
-
-    if (dbError) {
-      return new Response(JSON.stringify({ error: "DB Error", details: dbError }), {
-        status: 500,
-        headers: { ...corsHeaders, "Content-Type": "application/json" }
-      });
-    }
-
-    // データが0件だった場合
-    if (!subDataList || subDataList.length === 0) {
-      return new Response(JSON.stringify({ error: "Subscription not found in DB" }), { 
-        status: 404, 
-        headers: { ...corsHeaders, "Content-Type": "application/json" } 
-      });
-    }
-
-    const results = await Promise.allSettled(
-      subDataList.map((subData) =>
-        webpush.sendNotification(subData.subscription, JSON.stringify({ title, body }))
-      )
-    );
-
-    const failed = results.filter((r) => r.status === 'rejected');
-    if (failed.length > 0) {
-      failed.forEach((r) => console.error("個別の送信エラー:", (r as PromiseRejectedResult).reason));
-    }
-
-    const succeeded = results.length - failed.length;
-    return new Response(
-      JSON.stringify({ success: succeeded > 0, sent: succeeded, failed: failed.length }),
-      { headers: { ...corsHeaders, "Content-Type": "application/json" } }
-    );
+    const result = await sendToUser(supabase, user_id, { title, body: body ?? '', url });
+    if (result.total === 0) return json({ error: "Subscription not found in DB" }, 404);
+    return json({ success: result.sent > 0, sent: result.sent, failed: result.failed });
 
   } catch (error) {
     return json({ error: error instanceof Error ? error.message : String(error) }, 500);

@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { mergeAssignments, getDeadlineStatus, getSubjectCategoryType, type Assignment, type LmsEvent, type DbSubject } from './assignments';
+import { mergeAssignments, getDeadlineStatus, getSubjectCategoryType, toDeadlineSyncItems, type Assignment, type LmsEvent, type DbSubject } from './assignments';
 
 const NOW = new Date('2026-11-16T12:00:00+09:00');
 const hoursFromNow = (h: number) => new Date(NOW.getTime() + h * 3600_000).toISOString();
@@ -94,5 +94,23 @@ describe('getSubjectCategoryType', () => {
   it('未定義は none', () => expect(getSubjectCategoryType(undefined)).toBe('none'));
   it('class > department > course の優先順', () => {
     expect(getSubjectCategoryType({ id: 1, category_code: '', subject_classes: [], subject_departments: [{ subject_id: 1 }], subject_courses: [{ subject_id: 1 }] })).toBe('department');
+  });
+});
+
+describe('toDeadlineSyncItems', () => {
+  it('未完了かつ締切前のものだけを、締切順に同期用の形へ変換する', () => {
+    const merged = mergeAssignments({
+      ...base,
+      assignments: [
+        dbAssign({ id: 1, name: 'レポート', deadline: hoursFromNow(48), url: 'https://example.com' }),
+        dbAssign({ id: 2, deadline: hoursFromNow(5), done: true }),
+        dbAssign({ id: 3, deadline: hoursFromNow(-2) }),
+      ],
+      lmsEvents: [lmsEvent({ uid: 'assign_9', summary: '「課題9」の提出期限', end: hoursFromNow(3) })],
+    });
+    expect(toDeadlineSyncItems(merged, NOW)).toEqual([
+      { uid: 'assign_9', title: '課題9', deadline: new Date(hoursFromNow(3)).toISOString(), url: null },
+      { uid: 'db_1', title: 'レポート', deadline: new Date(hoursFromNow(48)).toISOString(), url: 'https://example.com' },
+    ]);
   });
 });

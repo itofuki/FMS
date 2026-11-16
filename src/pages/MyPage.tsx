@@ -16,12 +16,14 @@ import Setting from '../components/Setting';
 import Feedback from '../components/Feedback';
 import Tips from '../components/Tips';
 import Loading from '../components/Loading';
+import DeadlineReminderSync from '../components/DeadlineReminderSync';
 
 const VALID_DAYS: Day[] = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri'];
 function isDay(key: unknown): key is Day {
   return VALID_DAYS.includes(key as Day);
 }
 
+// 授業開始前の通知（サーバー側）は supabase/functions/_shared/reminders.ts の PERIOD_STARTS を使うので、変更時は両方揃えること
 const periodTimes = [
   { period: 1, start: { h: 9, m: 15 }, end: { h: 10, m: 55 } },
   { period: 2, start: { h: 10, m: 55 }, end: { h: 12, m: 25 } },
@@ -167,7 +169,7 @@ export default function MyPage() {
       const [timetableRes, profileRes] = await Promise.all([
         supabase.rpc('get_user_timetable', { p_user_id: user.id }),
         supabase.from("profiles").select(`
-          auto_open,
+          class_start_action,
           classes (
             courses (
               name
@@ -187,7 +189,7 @@ export default function MyPage() {
         setIsProfileSet(false);
       } else {
         type ProfileWithCourse = {
-          auto_open: boolean | null;
+          class_start_action: string | null;
           classes: { courses: { name: string } | { name: string }[] | null } | { courses: { name: string } | { name: string }[] | null }[] | null;
         };
         const profileData = profileRes.data as unknown as ProfileWithCourse | null;
@@ -209,7 +211,8 @@ export default function MyPage() {
           setIsProfileSet(false);
         }
         
-        setAutoOpenEnabled(profileData?.auto_open ?? false);
+        // 「自動で開く」を選んだ場合のみ。「通知する」はサーバー（notify-scheduler）がプッシュ通知を送る
+        setAutoOpenEnabled(profileData?.class_start_action === 'auto_open');
       }
 
       const initialSubjects: Record<Day, Subject[]> = { Mon: [], Tue: [], Wed: [], Thu: [], Fri: [] };
@@ -357,6 +360,7 @@ export default function MyPage() {
 
   return (
     <div className="px-1 py-4 md:p-6 lg:p-8">
+      <DeadlineReminderSync subjects={uniqueSubjects} />
       <div className="w-full max-w-5xl mx-auto pt-16">
         <div className="flex justify-between items-center mb-5">
             <div className="flex flex-row items-baseline space-x-2 md:space-x-4">
