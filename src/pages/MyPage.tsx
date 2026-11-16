@@ -130,10 +130,6 @@ export default function MyPage() {
   const [openedSubjects, setOpenedSubjects] = useState<string[]>([]);
   const [isProfileSet, setIsProfileSet] = useState(false);
 
-  const toggleTimetableView = () => {
-    setIsWeeklyView(prev => !prev);
-  };
-
   const uniqueSubjects = Object.values(weeklySubjects)
     .flat()
     .filter((subject, index, self) => 
@@ -284,47 +280,6 @@ export default function MyPage() {
     return <Loading fullScreen />;
   }
 
-  const generateDynamicTitle = () => {
-    const now = new Date();
-    const month = now.getMonth() + 1;
-    const mday = now.getDate();
-    const weekDays = ["日", "月", "火", "水", "木", "金", "土"];
-    const wday = weekDays[now.getDay()];
-    const hours = String(now.getHours()).padStart(2, '0');
-    const minutes = String(now.getMinutes()).padStart(2, '0');
-
-    let currentPeriodLabel: string | null = null;
-    for (const periodInfo of periodTimes) {
-      const startTime = new Date(now);
-      startTime.setHours(periodInfo.start.h, periodInfo.start.m, 0, 0);
-      
-      const endTime = new Date(now);
-      endTime.setHours(periodInfo.end.h, periodInfo.end.m, 0, 0);
-
-      if (now >= startTime && now <= endTime) {
-        currentPeriodLabel = `${periodInfo.period}限`;
-        break;
-      }
-    }
-
-    return (
-      <span className="flex items-baseline">
-        <span className="text-2xl md:text-4xl">{month}</span>
-        <span className="text-base md:text-lg mx-0.5 md:mx-1">/</span>
-        <span className="text-2xl md:text-4xl">{mday}</span>
-        <span className="text-base md:text-xl ml-1">({wday})</span>
-        <span className="ml-2 md:ml-4 flex items-baseline">
-          <span className="text-2xl md:text-4xl">{hours}</span>
-          <span className="text-base md:text-lg mx-0.5 md:mx-1">:</span>
-          <span className="text-2xl md:text-4xl">{minutes}</span>
-        </span>
-        {currentPeriodLabel && (
-          <span className="text-base md:text-xl ml-1">({currentPeriodLabel})</span>
-        )}
-      </span>
-    );
-  };
-
   const courseStyle = getCourseStyle(courseName);
 
   const renderMainContent = () => {
@@ -333,12 +288,11 @@ export default function MyPage() {
         return (
           <TimetableContainer
             isWeeklyView={isWeeklyView}
-            toggleTimetableView={toggleTimetableView}
-            dynamicTitle={generateDynamicTitle()}
-            courseName={courseName}
+            onChangeView={setIsWeeklyView}
             courseStyle={courseStyle}
             isProfileSet={isProfileSet}
             weeklySubjects={weeklySubjects}
+            subjects={uniqueSubjects}
           />
         );
       case 'assignments':
@@ -359,9 +313,10 @@ export default function MyPage() {
   };
 
   return (
-    <div className="px-1 py-4 md:p-6 lg:p-8">
+    <div className="px-1 py-4 md:p-6 lg:py-8 lg:pl-8 lg:pr-0">
+      {/* 広い画面では右側の内側の余白をなくし、右の列の外側の余白をメニューの左側（32px）にそろえる */}
       <DeadlineReminderSync subjects={uniqueSubjects} />
-      <div className="w-full max-w-5xl mx-auto pt-16">
+      <div className="w-full max-w-5xl mx-auto lg:max-w-none pt-16">
         {/* パンくずリスト: 現在地を小さく示し、大きな見出しで場所を取らない */}
         <div className="flex items-center justify-between gap-3 mb-3 px-1 text-xs sm:text-sm">
           <nav aria-label="現在地" className="flex items-center gap-1.5 text-fg-muted min-w-0">
