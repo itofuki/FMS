@@ -23,12 +23,21 @@ const urlB64ToUint8Array = (base64: string) => {
 
 const getRegistration = () => navigator.serviceWorker.ready;
 
+// Service Worker が未登録だと serviceWorker.ready は永遠に解決しないため、状態確認には期限を付ける
+const getRegistrationWithTimeout = (ms = 5000) =>
+  Promise.race([
+    getRegistration(),
+    new Promise<null>((resolve) => setTimeout(() => resolve(null), ms)),
+  ]);
+
 export async function getPushState(): Promise<PushState> {
   if (!('serviceWorker' in navigator) || !('PushManager' in window) || !('Notification' in window)) {
     return isIos() && !isStandalone() ? 'needs-install' : 'unsupported';
   }
   if (Notification.permission === 'denied') return 'denied';
-  const sub = await (await getRegistration()).pushManager.getSubscription();
+  const registration = await getRegistrationWithTimeout();
+  if (!registration) return 'unsupported';
+  const sub = await registration.pushManager.getSubscription();
   return sub ? 'enabled' : 'disabled';
 }
 

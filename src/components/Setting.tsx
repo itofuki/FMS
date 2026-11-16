@@ -92,7 +92,6 @@ export default function Setting({ onSettingsSaved }: SettingProps) {
         navigate("/login");
         return;
       }
-      setUser(user);
 
       const [resDept, resCourse, resClass, resProfile] = await Promise.all([
         supabase.from('departments').select('*').order('id'),
@@ -135,6 +134,10 @@ export default function Setting({ onSettingsSaved }: SettingProps) {
           if (firstClass) setCourseClass(firstClass.id);
         }
       }
+
+      // 学科・コース・クラスのデータが揃ってから最後に user をセットし、フォームを1回で描画する
+      // （先にセットすると、選択肢が後から段階的に現れてページが乱れる）
+      setUser(user);
     };
     fetchAllData();
   }, [navigate]);
@@ -292,7 +295,22 @@ export default function Setting({ onSettingsSaved }: SettingProps) {
     navigate("/");
   };
 
-  if (!user) return <Loading fullScreen />;
+  const frameTitle = (
+    <div className="flex justify-center items-center gap-2 sm:gap-3 w-full">
+      <FiSettings className="text-cyan-400 text-xl sm:text-3xl" />
+      <span className="font-orbitron font-bold text-cyan-300 text-glow text-xl sm:text-3xl">
+        設定
+      </span>
+    </div>
+  );
+
+  if (!user) {
+    return (
+      <ChapterFrame title={frameTitle}>
+        <Loading />
+      </ChapterFrame>
+    );
+  }
 
   const departmentOptions = departmentsDB.map(d => ({ value: String(d.id), label: d.name }));
   const courseOptions = coursesDB
@@ -303,17 +321,10 @@ export default function Setting({ onSettingsSaved }: SettingProps) {
     .map(c => ({ value: String(c.id), label: c.name }));
 
   return (
-    <ChapterFrame
-      title={
-        <div className="flex justify-center items-center gap-2 sm:gap-3 w-full">
-          <FiSettings className="text-cyan-400 text-xl sm:text-3xl" />
-          <span className="font-orbitron font-bold text-cyan-300 text-glow text-xl sm:text-3xl">
-            設定
-          </span>
-        </div>
-      }
-    >
-      <div className="flex flex-col items-center justify-center p-1 sm:p-2 animate-in fade-in duration-300">
+    <ChapterFrame title={frameTitle}>
+      {/* w-full: 親(ChapterFrame)が items-center のため、指定しないと中身の幅に縮み、
+          Advanced を開いて長い文が出たときにカードの幅が変わってしまう */}
+      <div className="w-full flex flex-col items-center justify-center p-1 sm:p-2 animate-in fade-in duration-300">
         
         <div className="w-full max-w-3xl bg-slate-800/40 backdrop-blur-md border border-white/10 rounded-2xl p-4 sm:p-6 md:p-8 mb-6 shadow-xl">
 
