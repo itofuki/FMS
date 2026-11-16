@@ -367,13 +367,9 @@ const TestPrep: React.FC<TestPrepProps> = ({ subject }) => {
   const currentQuestion = sessionQuestions[currentIndex];
   const correctCount = results.filter(Boolean).length;
 
-  return (
-    <div>
-      <ChapterFrame
-        icon={FiCheckSquare}
-        title="テスト対策"
-        meta={isAdminMode && <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded bg-amber-400 text-slate-900 text-xs font-bold"><FiTool size={12} />管理者モード</span>}
-        actions={userRole === 'admin' && (
+  // 科目選択の一覧（管理者モードでないとき）は、外側のカードを付けずに課題ページと同じ2列にする
+  const isSubjectList = !(isAdminMode && userRole === 'admin') && view === 'subjects';
+  const adminToggle = (
           // 課題ページと同じく、管理者モードはひと目で分かるよう黄色
           <button
             type="button"
@@ -391,7 +387,16 @@ const TestPrep: React.FC<TestPrepProps> = ({ subject }) => {
             {/* Mantine の CSS が button の文字指定を上書きするため、文字は span 側で指定する */}
             <span className="text-xs font-bold">{isAdminMode ? '終了' : '管理者モード'}</span>
           </button>
-        )}
+  );
+
+  return (
+    <div>
+      <ChapterFrame
+        icon={FiCheckSquare}
+        title="テスト対策"
+        bare={isSubjectList}
+        meta={isAdminMode && <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded bg-amber-400 text-slate-900 text-xs font-bold"><FiTool size={12} />管理者モード</span>}
+        actions={userRole === 'admin' && !isSubjectList && adminToggle}
       >
         <div className="w-full flex flex-col gap-6">
 
@@ -586,35 +591,75 @@ const TestPrep: React.FC<TestPrepProps> = ({ subject }) => {
           ) : (
             <>
               {view === 'subjects' && (
-                decks.length === 0 ? (
-                  <div className="text-center py-10 px-4">
-                    <FiInbox size={28} className="mx-auto text-fg-subtle mb-2" />
-                    <p className="text-fg-muted text-sm">まだ出題できる科目はありません</p>
+                // 課題ページと同じく「科目ごとの小見出し＋1件ずつのカード」、広い画面では右に概要の列
+                <div className="xl:grid xl:grid-cols-[minmax(0,1fr)_18rem] xl:gap-8 xl:items-start">
+                  <aside className="mb-6 xl:mb-0 xl:mt-[52px] xl:order-2 xl:sticky xl:top-4 bg-surface border border-line">
+                    <div className="px-4 sm:px-5 py-4 border-b border-line">
+                      <p className="text-sm font-bold text-fg-muted">問題集の概要</p>
+                      <dl className="mt-2 grid grid-cols-[1fr_auto] gap-y-1.5 text-sm">
+                        <dt className="text-fg-muted">科目</dt>
+                        <dd className="font-bold text-fg text-right">{new Set(decks.map(d => d.subjectId)).size}</dd>
+                        <dt className="text-fg-muted">問題の合計</dt>
+                        <dd className="font-bold text-fg text-right">{decks.reduce((n, d) => n + d.questions.length, 0)}問</dd>
+                      </dl>
+                    </div>
+                    <p className="px-4 sm:px-5 py-4 text-sm text-fg-muted leading-relaxed">
+                      問題集を選ぶと、1問ずつ答えと解説を確認しながら進められます。
+                    </p>
+                  </aside>
+
+                  <div className="xl:order-1 min-w-0 xl:px-6">
+                    {/* 一覧の見出し行: 左に件数、右に管理者モード（課題ページと同じ位置） */}
+                    <div className="flex items-center justify-between gap-3 mb-4 min-h-9">
+                      <span className="text-sm text-fg-muted">問題集 <span className="text-base font-bold text-fg">{decks.length}</span>セット</span>
+                      {userRole === 'admin' && adminToggle}
+                    </div>
+                    {decks.length === 0 ? (
+                      <div className="text-center py-12 px-4 bg-surface border border-line rounded-lg">
+                        <FiInbox size={28} className="mx-auto text-fg-subtle mb-2" />
+                        <p className="text-fg-muted text-sm">まだ出題できる科目はありません</p>
+                      </div>
+                    ) : (
+                      Array.from(new Map(decks.map(d => [d.subjectId, d.subjectName])).entries()).map(([subjectId, subjectName]) => {
+                        const subjectDecks = decks.filter(d => d.subjectId === subjectId);
+                        return (
+                          <section key={subjectId} className="mb-6 last:mb-0">
+                            <h3 className="flex items-center gap-2 mb-3 px-1 text-base font-bold text-fg">
+                              <span className="w-1 h-4 rounded-full bg-accent" aria-hidden="true" />
+                              {subjectName}
+                              <span className="text-sm font-normal text-fg-muted">{subjectDecks.length}セット</span>
+                            </h3>
+                            <ul className="flex flex-col gap-3">
+                              {subjectDecks.map(deck => (
+                                <li key={deck.key}>
+                                  <button
+                                    onClick={() => startSession(deck.key)}
+                                    className="group w-full flex items-center gap-4 px-4 sm:px-5 py-4 rounded-xl shadow-sm bg-surface hover:shadow-md transition-shadow text-left"
+                                  >
+                                    <FiHelpCircle className="text-accent flex-shrink-0" size={22} />
+                                    <span className="flex-1 min-w-0">
+                                      <span className={`inline-block text-xs px-1.5 py-0.5 rounded border ${QUESTION_SET_BADGE_CLASSES[deck.questionSet]}`}>
+                                        {QUESTION_SET_LABELS[deck.questionSet]}
+                                      </span>
+                                      <span className="block mt-1 text-[17px] font-bold text-fg leading-snug truncate">
+                                        {subjectName}の{QUESTION_SET_LABELS[deck.questionSet]}
+                                      </span>
+                                      <span className="block mt-0.5 text-sm text-fg-muted">{deck.questions.length}問</span>
+                                    </span>
+                                    <span className="flex-shrink-0 inline-flex items-center gap-1 h-9 px-3 rounded-full bg-accent-soft text-accent group-hover:bg-accent-solid group-hover:text-on-accent transition-colors">
+                                      <span className="text-sm font-bold">始める</span>
+                                      <FiChevronRight size={16} />
+                                    </span>
+                                  </button>
+                                </li>
+                              ))}
+                            </ul>
+                          </section>
+                        );
+                      })
+                    )}
                   </div>
-                ) : (
-                  // 掲示板の一覧と同じく、1つの枠の中に区切り線で並べる
-                  <div className="flex flex-col w-full rounded-md border border-line divide-y divide-line overflow-hidden">
-                    {decks.map(deck => (
-                      <button
-                        key={deck.key}
-                        onClick={() => startSession(deck.key)}
-                        className="group flex items-center gap-3 w-full px-4 py-3 bg-surface hover:bg-surface-2 transition-colors text-left"
-                      >
-                        <FiHelpCircle className="text-accent flex-shrink-0" size={18} />
-                        <span className="flex-1 min-w-0">
-                          <span className={`inline-block text-[11px] px-1.5 py-0.5 rounded border ${QUESTION_SET_BADGE_CLASSES[deck.questionSet]}`}>
-                            {QUESTION_SET_LABELS[deck.questionSet]}
-                          </span>
-                          <span className="block mt-0.5 text-[15px] font-semibold text-fg group-hover:text-accent group-hover:underline underline-offset-4 transition-colors truncate">
-                            {deck.subjectName}
-                          </span>
-                        </span>
-                        <span className="flex-shrink-0 text-xs text-fg-muted">{deck.questions.length}問</span>
-                        <FiChevronRight className="flex-shrink-0 text-fg-subtle group-hover:text-accent group-hover:translate-x-0.5 transition-all" size={18} />
-                      </button>
-                    ))}
-                  </div>
-                )
+                </div>
               )}
 
               {view === 'session' && currentQuestion && (

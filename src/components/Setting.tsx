@@ -7,7 +7,6 @@ import type { User } from "@supabase/supabase-js";
 import { toast } from 'sonner';
 import { FiSettings } from "react-icons/fi";
 import RadioGroup from "./RadioGroup";
-import Collapsible from "./Collapsible";
 import ChapterFrame from "../components/ChapterFrame";
 import Loading from "./Loading";
 import { ThemeSelector } from "./ThemeToggle";
@@ -302,213 +301,244 @@ export default function Setting({ onSettingsSaved }: SettingProps) {
     .filter(c => String(c.course_id) === String(baseCourse))
     .map(c => ({ value: String(c.id), label: c.name }));
 
+  const SECTIONS = [
+    { id: 'settings-profile', label: '所属とクラス' },
+    { id: 'settings-notify', label: '通知' },
+    { id: 'settings-lms', label: 'LMS 連携' },
+    { id: 'settings-display', label: '表示' },
+    { id: 'settings-account', label: 'アカウント' },
+  ];
+  const scrollTo = (id: string) => document.getElementById(id)?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+
   return (
-    <ChapterFrame icon={FiSettings} title="設定">
-      {/* w-full: 親(ChapterFrame)が items-center のため、指定しないと中身の幅に縮み、
-          Advanced を開いて長い文が出たときにカードの幅が変わってしまう */}
-      <div className="w-full flex flex-col items-center animate-in fade-in duration-300">
-        
-        <div className="w-full max-w-3xl">
+    <ChapterFrame title="設定" bare>
+      <div className="xl:grid xl:grid-cols-[minmax(0,1fr)_18rem] xl:gap-8 xl:items-start animate-in fade-in duration-300">
+        {/* 右の列（広い画面）: 項目の目次と、保存が必要な項目の説明 */}
+        <aside className="hidden xl:block xl:order-2 xl:sticky xl:top-4 bg-surface border border-line">
+          <nav aria-label="設定の項目" className="px-5 py-4 border-b border-line">
+            <p className="text-sm font-bold text-fg-muted">この画面の項目</p>
+            <ul className="mt-2 space-y-1">
+              {SECTIONS.map(sec => (
+                <li key={sec.id}>
+                  <button type="button" onClick={() => scrollTo(sec.id)} className="w-full text-left px-2 py-1.5 -mx-2 rounded-md text-fg hover:bg-surface-3 transition-colors">
+                    <span className="text-sm">{sec.label}</span>
+                  </button>
+                </li>
+              ))}
+            </ul>
+          </nav>
+          <p className="px-5 py-4 text-sm text-fg-muted leading-relaxed">
+            「所属とクラス」「通知」は［変更を保存］で保存されます。LMS 連携・表示はその場で反映されます。
+          </p>
+        </aside>
 
-          <form onSubmit={handleSubmit} className="space-y-4 sm:space-y-6 text-left">
-            <div className="text-fg transition-colors duration-300">
-              <RadioGroup 
-                legend="所属する学科を選択してください" 
-                options={departmentOptions} 
-                selectedValue={department ? String(department) : null} 
-                onChange={(val) => setDepartment(Number(val))} 
-              />
-            </div>
-            
-            {department && courseOptions.length > 0 && (
-              <div className="animate-in fade-in slide-in-from-top-2 duration-300">
-                <RadioGroup 
-                  legend="コースを選択してください" 
-                  options={courseOptions} 
-                  selectedValue={baseCourse ? String(baseCourse) : null} 
-                  onChange={(val) => setBaseCourse(Number(val))} 
+        <div className="xl:order-1 min-w-0 xl:px-6 flex flex-col gap-5">
+          {/* 保存が必要な項目（所属とクラス・通知） */}
+          <form onSubmit={handleSubmit} className="flex flex-col gap-5">
+            <SettingsCard id="settings-profile" title="所属とクラス" description="時間割と課題の表示に使います。">
+              <div className="space-y-5">
+                <RadioGroup
+                  legend="学科"
+                  options={departmentOptions}
+                  selectedValue={department ? String(department) : null}
+                  onChange={(val) => setDepartment(Number(val))}
+                />
+                {department && courseOptions.length > 0 && (
+                  <RadioGroup
+                    legend="コース"
+                    options={courseOptions}
+                    selectedValue={baseCourse ? String(baseCourse) : null}
+                    onChange={(val) => setBaseCourse(Number(val))}
+                  />
+                )}
+                {baseCourse && classOptions.length > 0 && (
+                  <RadioGroup
+                    legend="クラス"
+                    options={classOptions}
+                    selectedValue={courseClass ? String(courseClass) : null}
+                    onChange={(val) => setCourseClass(Number(val))}
+                  />
+                )}
+                <RadioGroup
+                  legend="英語のクラス"
+                  options={englishClassOptions}
+                  selectedValue={englishID ? String(englishID) : null}
+                  onChange={(val) => setEnglishID(Number(val))}
                 />
               </div>
-            )}
+            </SettingsCard>
 
-            {baseCourse && classOptions.length > 0 && (
-              <div className="animate-in fade-in slide-in-from-top-2 duration-300">
-                <RadioGroup 
-                  legend="クラスを選択してください" 
-                  options={classOptions} 
-                  selectedValue={courseClass ? String(courseClass) : null} 
-                  onChange={(val) => setCourseClass(Number(val))} 
-                />
-              </div>
-            )}
-
-            <hr className="border-t border-line my-6" />
-            
-            <RadioGroup 
-              legend="英語のクラスを選択してください" 
-              options={englishClassOptions} 
-              selectedValue={englishID ? String(englishID) : null} 
-              onChange={(val) => setEnglishID(Number(val))} 
-            />
-            
-            <div>
-              <p className="block text-left text-fg font-semibold mb-2 text-sm sm:text-[15px]">テーマ</p>
-              <ThemeSelector />
-              <p className="text-xs text-fg-subtle mt-2">選んだ時点で反映され、この端末にだけ保存されます。</p>
-            </div>
-
-            <div ref={advancedRef}>
-              <Collapsible title="Advanced" defaultOpen={isAdvancedFocused} open={isAdvancedFocused}>
-                
-                {/* LMS ログイン情報 */}
-                <div className={`space-y-3 mb-6 p-4 rounded-xl transition-all duration-700 ${isAdvancedFocused ? 'bg-accent-soft border border-accent/80' : 'bg-surface border border-line'}`}>
-                  <div>
-                    <label className="block text-sm font-semibold text-accent mb-1">
-                      LMS ログイン情報
-                      {lmsCredentialsSaved && (
-                        <span className="ml-2 text-xs text-up font-normal">✓ 接続済み</span>
-                      )}
-                    </label>
-                    <p className="text-xs text-fg-muted">
-                      LMSのIDとパスワードでログインすると課題を自動取得できます。
-                      パスワードは保存されず、ログイン後に発行されるLMSのアクセストークンのみをこのブラウザ内に保存します。
-                      トークンの有効期限が切れた場合は、再度ログインしてください。
-                    </p>
-                  </div>
-                  <div className="space-y-2">
-                    <input
-                      type="text"
-                      autoComplete="username"
-                      value={lmsUsername}
-                      onChange={(e) => setLmsUsername(e.target.value)}
-                      placeholder="LMSのユーザーID"
-                      className="w-full bg-surface border border-line rounded-lg p-3 text-fg outline-none text-sm placeholder:text-fg-subtle focus:border-accent transition-colors"
-                    />
-                    <input
-                      type="password"
-                      autoComplete="current-password"
-                      value={lmsPassword}
-                      onChange={(e) => setLmsPassword(e.target.value)}
-                      placeholder={lmsCredentialsSaved ? "再ログインする場合のみ入力" : "LMSのパスワード"}
-                      className="w-full bg-surface border border-line rounded-lg p-3 text-fg outline-none text-sm placeholder:text-fg-subtle focus:border-accent transition-colors"
-                    />
-                  </div>
-                  {lmsStatus && (
-                    <p className={`text-xs ${lmsStatus.ok ? 'text-up' : 'text-down'}`}>
-                      {lmsStatus.ok ? '✓ ' : '✗ '}{lmsStatus.message}
+            <SettingsCard id="settings-notify" title="通知" description="締切が近い課題や、授業の開始前にお知らせします。">
+              <div className="space-y-6">
+                {/* この端末で受け取るか（その場で反映） */}
+                <div>
+                  <p className="text-sm sm:text-[15px] font-semibold text-fg">
+                    この端末での通知
+                    {pushState === 'enabled' && <span className="ml-2 text-xs text-up font-bold">オン</span>}
+                  </p>
+                  {pushState && (
+                    <p className={`mt-1 text-sm ${pushState === 'denied' || pushState === 'needs-install' ? 'text-warn' : 'text-fg-muted'}`}>
+                      {PUSH_STATE_MESSAGES[pushState]}
                     </p>
                   )}
-                  <div className="flex gap-2">
-                    <button
-                      type="button"
-                      onClick={handleSaveLmsCredentials}
-                      disabled={isLmsLoading}
-                      className="flex-1 py-2 rounded-lg bg-accent-solid hover:bg-accent-solid-hover text-on-accent text-sm font-semibold transition-colors disabled:opacity-50"
-                    >
-                      {isLmsLoading ? '接続確認中...' : (lmsCredentialsSaved ? '再ログイン' : 'ログインして接続')}
-                    </button>
-                    {lmsCredentialsSaved && (
+                  {(pushState === 'enabled' || pushState === 'disabled') && (
+                    <div className="flex flex-wrap gap-2 mt-3">
                       <button
                         type="button"
-                        onClick={handleClearLmsCredentials}
-                        className="px-4 py-2 rounded-lg border border-down/50 text-down hover:bg-down-soft text-sm transition-colors"
+                        onClick={handleTogglePush}
+                        disabled={isPushBusy}
+                        className={`h-9 px-4 rounded-md transition-colors disabled:opacity-50 ${
+                          pushState === 'enabled'
+                            ? 'border border-line-strong text-fg hover:bg-surface-2'
+                            : 'bg-accent-solid hover:bg-accent-solid-hover text-on-accent'
+                        }`}
                       >
-                        接続解除
+                        <span className="text-sm font-bold">{isPushBusy ? '処理中...' : pushState === 'enabled' ? 'この端末の通知をオフにする' : 'この端末で通知を受け取る'}</span>
                       </button>
-                    )}
-                  </div>
-                </div>
-
-                {/* 通知設定 */}
-                <div className="space-y-5 p-4 rounded-xl bg-surface border border-line">
-                  <div>
-                    <label className="block text-sm font-semibold text-accent mb-1">
-                      通知
-                      {pushState === 'enabled' && <span className="ml-2 text-xs text-up font-normal">✓ この端末はオン</span>}
-                    </label>
-                    {pushState && (
-                      <p className={`text-xs ${pushState === 'denied' || pushState === 'needs-install' ? 'text-warn' : 'text-fg-muted'}`}>
-                        {PUSH_STATE_MESSAGES[pushState]}
-                      </p>
-                    )}
-                    {(pushState === 'enabled' || pushState === 'disabled') && (
-                      <div className="flex gap-2 mt-3">
-                        <button
-                          type="button"
-                          onClick={handleTogglePush}
-                          disabled={isPushBusy}
-                          className={`flex-1 py-2 rounded-lg text-sm font-semibold transition-colors disabled:opacity-50 ${
-                            pushState === 'enabled'
-                              ? 'border border-line text-fg-muted hover:bg-surface-3/50'
-                              : 'bg-accent-solid hover:bg-accent-solid-hover text-on-accent'
-                          }`}
-                        >
-                          {isPushBusy ? '処理中...' : pushState === 'enabled' ? 'この端末の通知をオフにする' : 'この端末で通知を受け取る'}
+                      {pushState === 'enabled' && (
+                        <button type="button" onClick={handleTestPush} className="h-9 px-4 rounded-md border border-line-strong text-fg hover:bg-surface-2 transition-colors">
+                          <span className="text-sm font-bold">テスト通知を送る</span>
                         </button>
-                        {pushState === 'enabled' && (
-                          <button
-                            type="button"
-                            onClick={handleTestPush}
-                            className="px-4 py-2 rounded-lg border border-accent/50 text-accent hover:bg-accent-soft text-sm transition-colors"
-                          >
-                            テスト
-                          </button>
-                        )}
-                      </div>
-                    )}
-                  </div>
-
-                  <div>
-                    <label htmlFor="deadline-reminder" className="block text-sm text-fg mb-1">未完了の課題の締切通知</label>
-                    <select
-                      id="deadline-reminder"
-                      value={deadlineHours === null ? 'off' : String(deadlineHours)}
-                      onChange={(e) => setDeadlineHours(e.target.value === 'off' ? null : Number(e.target.value))}
-                      className="w-full bg-surface border border-line rounded-lg p-2.5 text-fg outline-none text-sm focus:border-accent transition-colors"
-                    >
-                      {DEADLINE_HOUR_OPTIONS.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
-                    </select>
-                    <p className="text-xs text-fg-muted mt-1">
-                      課題一覧はFMSを開いたときに更新されます。LMSで直接提出した場合は、FMSを開くと通知対象から外れます。
-                    </p>
-                  </div>
-
-                  <div>
-                    <RadioGroup
-                      legend="授業開始5分前"
-                      options={CLASS_START_OPTIONS}
-                      selectedValue={classStartAction}
-                      onChange={(val) => setClassStartAction(val as ClassStartAction)}
-                    />
-                    <p className="text-xs text-fg-muted mt-2">
-                      {classStartAction === 'notify' && '出席ページを開くか選べる通知を送ります（アプリを閉じていても届きます）。'}
-                      {classStartAction === 'auto_open' && 'FMSを開いている場合のみ、出席ページを自動で開きます。ポップアップブロックを解除してください。'}
-                      {classStartAction === 'none' && '何もしません。'}
-                    </p>
-                  </div>
+                      )}
+                    </div>
+                  )}
                 </div>
 
-              </Collapsible>
-            </div>
+                <div>
+                  <label htmlFor="deadline-reminder" className="block text-sm sm:text-[15px] font-semibold text-fg mb-2">未完了の課題の締切通知</label>
+                  <select
+                    id="deadline-reminder"
+                    value={deadlineHours === null ? 'off' : String(deadlineHours)}
+                    onChange={(e) => setDeadlineHours(e.target.value === 'off' ? null : Number(e.target.value))}
+                    className="w-full sm:w-64 h-10 bg-surface border border-line-strong rounded-md px-3 text-fg outline-none text-sm focus:border-accent transition-colors"
+                  >
+                    {DEADLINE_HOUR_OPTIONS.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
+                  </select>
+                  <p className="text-sm text-fg-muted mt-2">
+                    課題一覧は FMS を開いたときに更新されます。LMS で直接提出した場合は、FMS を開くと通知の対象から外れます。
+                  </p>
+                </div>
 
-            <div className="text-center pt-4 sm:pt-6">
-              <button type="submit" disabled={loading} className="w-full max-w-xs py-2.5 sm:py-3 rounded-xl bg-accent-solid hover:bg-accent-solid-hover font-semibold text-base sm:text-lg text-on-accent shadow-lg hover:scale-105 transition-transform duration-300 disabled:opacity-50">
-                {loading ? "保存中..." : "保存"}
+                <div>
+                  <RadioGroup
+                    legend="授業開始5分前"
+                    options={CLASS_START_OPTIONS}
+                    selectedValue={classStartAction}
+                    onChange={(val) => setClassStartAction(val as ClassStartAction)}
+                  />
+                  <p className="text-sm text-fg-muted mt-2">
+                    {classStartAction === 'notify' && '出席ページを開くか選べる通知を送ります（アプリを閉じていても届きます）。'}
+                    {classStartAction === 'auto_open' && 'FMS を開いている場合のみ、出席ページを自動で開きます。ポップアップブロックを解除してください。'}
+                    {classStartAction === 'none' && '何もしません。'}
+                  </p>
+                </div>
+              </div>
+            </SettingsCard>
+
+            {/* 保存ボタン（画面の下に付いてくる。所属とクラス・通知の変更だけが対象） */}
+            <div className="sticky bottom-20 md:bottom-4 z-10 flex items-center justify-between gap-3 rounded-xl bg-surface shadow-md border border-line px-4 sm:px-5 py-3">
+              <p className="text-sm text-fg-muted">「所属とクラス」「通知」の変更を保存します</p>
+              <button type="submit" disabled={loading} className="flex-shrink-0 h-10 px-6 rounded-md bg-accent-solid hover:bg-accent-solid-hover text-on-accent transition-colors disabled:opacity-50">
+                <span className="text-sm font-bold">{loading ? '保存中...' : '変更を保存'}</span>
               </button>
             </div>
           </form>
 
-          <hr className="border-t border-line my-6 sm:my-8" />
-          
-          <div className="text-center">
-            <h3 className="text-xs sm:text-sm md:text-base font-semibold text-fg-muted mb-3 sm:mb-4">アカウント操作</h3>
-            <button onClick={handleLogout} className="w-full max-w-xs py-2.5 sm:py-3 rounded-xl bg-surface-3/50 hover:bg-down/90 font-semibold text-sm sm:text-base text-fg hover:text-on-accent border border-line hover:border-down transition-all duration-300">
-              ログアウト
-            </button>
+          {/* LMS 連携（その場で反映）。課題ページの「再ログイン」から来たときは強調する */}
+          <div ref={advancedRef}>
+            <SettingsCard
+              id="settings-lms"
+              title="LMS 連携"
+              description="LMS の ID とパスワードでログインすると、課題を自動で取得します。"
+              highlight={isAdvancedFocused}
+              badge={lmsCredentialsSaved ? <span className="text-xs px-2 py-0.5 rounded-full bg-up-soft text-up font-bold">接続済み</span> : undefined}
+            >
+              <div className="space-y-3">
+                <div className="grid gap-2 sm:grid-cols-2">
+                  <input
+                    type="text"
+                    autoComplete="username"
+                    value={lmsUsername}
+                    onChange={(e) => setLmsUsername(e.target.value)}
+                    placeholder="LMS のユーザー ID"
+                    aria-label="LMS のユーザー ID"
+                    className="w-full h-10 bg-surface border border-line-strong rounded-md px-3 text-fg outline-none text-sm placeholder:text-fg-subtle focus:border-accent transition-colors"
+                  />
+                  <input
+                    type="password"
+                    autoComplete="current-password"
+                    value={lmsPassword}
+                    onChange={(e) => setLmsPassword(e.target.value)}
+                    placeholder={lmsCredentialsSaved ? '再ログインする場合のみ入力' : 'LMS のパスワード'}
+                    aria-label="LMS のパスワード"
+                    className="w-full h-10 bg-surface border border-line-strong rounded-md px-3 text-fg outline-none text-sm placeholder:text-fg-subtle focus:border-accent transition-colors"
+                  />
+                </div>
+                {lmsStatus && (
+                  <p role="status" className={`text-sm ${lmsStatus.ok ? 'text-up' : 'text-down'}`}>
+                    {lmsStatus.ok ? '✓ ' : '✗ '}{lmsStatus.message}
+                  </p>
+                )}
+                <div className="flex flex-wrap gap-2">
+                  <button
+                    type="button"
+                    onClick={handleSaveLmsCredentials}
+                    disabled={isLmsLoading}
+                    className="h-9 px-4 rounded-md bg-accent-solid hover:bg-accent-solid-hover text-on-accent transition-colors disabled:opacity-50"
+                  >
+                    <span className="text-sm font-bold">{isLmsLoading ? '接続を確認中...' : (lmsCredentialsSaved ? '再ログイン' : 'ログインして接続')}</span>
+                  </button>
+                  {lmsCredentialsSaved && (
+                    <button type="button" onClick={handleClearLmsCredentials} className="h-9 px-4 rounded-md border border-down/50 text-down hover:bg-down-soft transition-colors">
+                      <span className="text-sm font-bold">接続を解除</span>
+                    </button>
+                  )}
+                </div>
+                <p className="text-sm text-fg-muted leading-relaxed">
+                  パスワードは保存されず、ログイン後に発行される LMS のアクセストークンだけをこのブラウザに保存します。トークンの有効期限が切れたら、もう一度ログインしてください。
+                </p>
+              </div>
+            </SettingsCard>
           </div>
-          
+
+          {/* 表示（その場で反映） */}
+          <SettingsCard id="settings-display" title="表示" description="選んだ時点で反映され、この端末にだけ保存されます。">
+            <p className="text-sm sm:text-[15px] font-semibold text-fg mb-2">テーマ</p>
+            <ThemeSelector />
+          </SettingsCard>
+
+          {/* アカウント */}
+          <SettingsCard id="settings-account" title="アカウント">
+            <div className="flex flex-wrap items-center justify-between gap-3">
+              <p className="text-sm text-fg-muted">{user.email} でログイン中</p>
+              <button onClick={handleLogout} className="h-9 px-4 rounded-md border border-down/50 text-down hover:bg-down-soft transition-colors">
+                <span className="text-sm font-bold">ログアウト</span>
+              </button>
+            </div>
+          </SettingsCard>
         </div>
       </div>
     </ChapterFrame>
+  );
+}
+
+/** 設定の1項目（1枚のカード）。highlight は「ここを見てほしい」ときの強調 */
+function SettingsCard({ id, title, description, badge, highlight = false, children }: {
+  id: string;
+  title: string;
+  description?: string;
+  badge?: React.ReactNode;
+  highlight?: boolean;
+  children: React.ReactNode;
+}) {
+  return (
+    <section id={id} className={`scroll-mt-4 rounded-xl shadow-sm bg-surface px-5 sm:px-6 py-5 transition-shadow duration-700 ${highlight ? 'ring-2 ring-accent' : ''}`}>
+      <div className="flex items-center gap-2">
+        <h3 className="text-lg font-bold text-fg">{title}</h3>
+        {badge}
+      </div>
+      {description && <p className="mt-1 text-sm text-fg-muted">{description}</p>}
+      <div className="mt-4">{children}</div>
+    </section>
   );
 }

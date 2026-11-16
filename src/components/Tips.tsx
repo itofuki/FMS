@@ -1,45 +1,69 @@
-import { Download } from 'lucide-react';
+/* src/components/Tips.tsx
+ * 便利な使い方ガイドの一覧。課題ページと同じく「1件 = 1枚のカード」、広い画面では右に補足の列。
+ * ガイドを増やすときは TIPS に追加する。
+ */
+import { Link } from 'react-router-dom';
+import { FiDownload, FiArrowRight, FiInfo } from 'react-icons/fi';
+import ChapterFrame from './ChapterFrame';
+
+type Tip = {
+  title: string;
+  description: string;
+  isNew?: boolean;
+  meta: string;
+  file: { href: string; downloadName: string; label: string };
+};
+
+const TIPS: Tip[] = [
+  {
+    title: 'LMS爆速ログイン完全ガイド',
+    description:
+      '毎回の「LMSの2段階認証」でメールやモバイルアプリ確認の手間をゼロに。PCとスマホ両方で、ワンタイムパスワードを「コピペ」や「自動入力」だけで突破する設定手順をまとめました。',
+    isNew: true,
+    meta: 'PDF・設定は約5分',
+    file: { href: '/lms_fast_login_guide.pdf', downloadName: 'LMS爆速ログイン完全ガイド.pdf', label: 'PDFをダウンロード' },
+  },
+];
 
 export default function Tips() {
   return (
-    <div className="mx-auto max-w-3xl p-6">
-      <h1 className="mb-6 text-2xl font-bold text-fg">💡 Tips</h1>
-      
-      {/* ガイドのダウンロードカード */}
-      <div className="overflow-hidden rounded-xl border border-line bg-surface shadow-lg">
-        
-        {/* --- 1. ヘッダー：タイトルとバッジ --- */}
-        <div className="border-b border-line bg-surface-2 px-5 py-4 sm:px-6">
-          <div className="flex items-center gap-3">
-            <span className="rounded bg-accent-solid px-2 py-0.5 text-xs font-bold tracking-wider text-on-accent">
-              NEW
-            </span>
-            <h2 className="text-xl font-bold text-fg">LMS爆速ログイン完全ガイド</h2>
-          </div>
-        </div>
-
-        {/* --- 2. ボディ：詳細説明 --- */}
-        <div className="px-5 py-6 sm:px-6">
-          <p className="leading-relaxed text-fg-muted">
-            毎回の「LMSの2段階認証」でメールやモバイルアプリ確認の手間をゼロに。PCとスマホ両方で、ワンタイムパスワードを「コピペ」や「自動入力」だけで突破する設定手順（約5分）をまとめました。
+    <ChapterFrame title="Tips" meta={<span>ガイド <span className="font-semibold text-fg">{TIPS.length}</span>件</span>} bare>
+      <div className="xl:grid xl:grid-cols-[minmax(0,1fr)_18rem] xl:gap-8 xl:items-start">
+        {/* 右の列: Tips について */}
+        <aside className="mb-6 xl:mb-0 xl:order-2 xl:sticky xl:top-4 bg-surface border border-line px-4 sm:px-5 py-4">
+          <p className="text-sm font-bold text-fg-muted flex items-center gap-1.5"><FiInfo size={14} />Tips について</p>
+          <p className="mt-2 text-sm text-fg-muted leading-relaxed">
+            FMS や LMS をもっと便利に使うための手順をまとめています。
           </p>
-        </div>
+          <Link to="?tab=feedback" className="mt-3 inline-flex items-center gap-1 text-sm font-semibold text-link hover:underline">
+            ほしいガイドを提案する <FiArrowRight size={14} />
+          </Link>
+        </aside>
 
-        {/* --- 3. フッター：アクションエリア --- */}
-        <div className="border-t border-line bg-surface-2/50 px-5 py-4 sm:px-6">
-          <div className="flex justify-end">
-            <a
-              href="/lms_fast_login_guide.pdf" 
-              download="LMS爆速ログイン完全ガイド.pdf"
-              className="flex w-full sm:w-auto items-center justify-center gap-2 rounded-lg bg-accent-solid px-6 py-2.5 text-sm font-medium text-on-accent transition-all hover:bg-accent-solid-hover focus:outline-none focus:ring-2 focus:ring-accent focus:ring-offset-2 focus:ring-offset-surface"
-            >
-              <Download className="h-4 w-4" />
-              PDFマニュアルをダウンロード
-            </a>
-          </div>
-        </div>
-        
+        {/* 左: ガイドの一覧 */}
+        <ul className="xl:order-1 min-w-0 xl:px-6 flex flex-col gap-5">
+          {TIPS.map(tip => (
+            <li key={tip.title} className="rounded-xl shadow-sm bg-surface px-5 sm:px-6 py-5">
+              <div className="flex flex-wrap items-center gap-2 text-sm">
+                {tip.isNew && <span className="px-2 py-0.5 rounded-full bg-accent-soft text-accent text-xs font-bold">NEW</span>}
+                <span className="text-fg-muted">{tip.meta}</span>
+              </div>
+              <h3 className="mt-2 text-lg sm:text-xl font-bold text-fg leading-snug">{tip.title}</h3>
+              <p className="mt-2 text-[15px] leading-relaxed text-fg-muted">{tip.description}</p>
+              <div className="mt-4 flex justify-end">
+                <a
+                  href={tip.file.href}
+                  download={tip.file.downloadName}
+                  className="inline-flex w-full sm:w-auto items-center justify-center gap-2 h-10 px-5 rounded-md bg-accent-solid hover:bg-accent-solid-hover text-on-accent transition-colors"
+                >
+                  <FiDownload size={16} />
+                  <span className="text-sm font-bold">{tip.file.label}</span>
+                </a>
+              </div>
+            </li>
+          ))}
+        </ul>
       </div>
-    </div>
+    </ChapterFrame>
   );
 }
