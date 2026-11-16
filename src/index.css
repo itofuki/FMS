@@ -1,69 +1,132 @@
 /* src/index.css */
 
-@import url('https://fonts.googleapis.com/css2?family=Noto+Sans+JP:wght@400;700&family=Orbitron:wght@400;700&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=Noto+Sans+JP:wght@400;500;700&display=swap');
 @import "tailwindcss";
 @import "tw-animate-css";
 
+/* ------------------------------------------------------------
+ * テーマ
+ *   Mantine が <html data-mantine-color-scheme="light|dark"> を付けるので、それに合わせて
+ *   色トークン（CSS変数）を切り替える。コンポーネントでは slate-900 などの生の色ではなく
+ *   bg-surface / text-fg / border-line などのトークンを使うこと。
+ * ------------------------------------------------------------ */
+@custom-variant dark (&:where([data-mantine-color-scheme=dark], [data-mantine-color-scheme=dark] *));
+
+:root {
+  color-scheme: light;
+
+  /* ライト: 元のダーク配色（スレート＋シアン）を明るくしたもの。文字は WCAG AA（4.5:1）以上 */
+  --bg: #e5eaf0;            /* ページ背景（薄いグレー） */
+  --surface: #ffffff;       /* カード（背景のグレーと区別がつく白） */
+  --surface-2: #f8fafc;     /* 入力欄・カード内の区画 */
+  --surface-3: #e2e8f0;     /* ホバー・選択中 */
+  --line: #cbd5e1;          /* 罫線 */
+  --line-strong: #94a3b8;
+
+  --fg: #1e293b;            /* 本文（黒に近づけすぎない） */
+  --fg-muted: #475569;      /* 補足 */
+  --fg-subtle: #64748b;     /* さらに弱い文字・完了済み */
+
+  --accent: #0e7490;        /* 文字・アイコンのアクセント（シアン） */
+  --accent-solid: #0e7490;  /* ボタン背景 */
+  --accent-solid-hover: #155e75;
+  --accent-soft: #ecfeff;   /* 選択中・強調の薄い背景 */
+  --on-accent: #ffffff;
+  --link: #0e7490;
+
+  --up: #047857;            /* 完了・成功 */
+  --up-soft: #ecfdf5;
+  --down: #b91c1c;          /* 期限切れ・エラー */
+  --down-soft: #fef2f2;
+  --warn: #b45309;          /* 期限間近・注意 */
+  --warn-soft: #fffbeb;
+
+}
+
+/* ダーク: 元デザインのスレート＋シアン。カードは背景（slate-900）より一段明るい slate-800 にして浮き上がらせる */
+[data-mantine-color-scheme='dark'] {
+  color-scheme: dark;
+
+  --bg: #0f172a;
+  --surface: #1e293b;
+  --surface-2: #273449;
+  --surface-3: #334155;
+  --line: #3b4a60;
+  --line-strong: #55657d;
+
+  --fg: #e2e8f0;
+  --fg-muted: #94a3b8;
+  --fg-subtle: #8391a7;
+
+  --accent: #22d3ee;
+  --accent-solid: #0891b2;
+  --accent-solid-hover: #06b6d4;
+  --accent-soft: #0c3a4a;
+  --on-accent: #ffffff;
+  --link: #22d3ee;
+
+  --up: #34d399;
+  --up-soft: #0d3b2e;
+  --down: #f87171;
+  --down-soft: #4a1d24;
+  --warn: #fbbf24;
+  --warn-soft: #463413;
+
+}
+
+/* 最上部の帯（テーマに関係なく濃いスレート固定）の中では、文字やアイコンのトークンを白系に置き換える。
+   中のコンポーネントは text-accent / text-fg-muted などをそのまま使えば読める色になる */
+.on-header {
+  --fg: #ffffff;
+  --fg-muted: rgba(255, 255, 255, 0.85);
+  --fg-subtle: rgba(255, 255, 255, 0.65);
+  --line: rgba(255, 255, 255, 0.2);
+  --surface-3: rgba(255, 255, 255, 0.14);
+  --link: #ffffff;
+  --accent: #ffffff;
+}
+
+@theme inline {
+  --color-bg: var(--bg);
+  --color-surface: var(--surface);
+  --color-surface-2: var(--surface-2);
+  --color-surface-3: var(--surface-3);
+  --color-line: var(--line);
+  --color-line-strong: var(--line-strong);
+  --color-fg: var(--fg);
+  --color-fg-muted: var(--fg-muted);
+  --color-fg-subtle: var(--fg-subtle);
+  --color-accent: var(--accent);
+  --color-accent-solid: var(--accent-solid);
+  --color-accent-solid-hover: var(--accent-solid-hover);
+  --color-accent-soft: var(--accent-soft);
+  --color-on-accent: var(--on-accent);
+  --color-link: var(--link);
+  --color-up: var(--up);
+  --color-up-soft: var(--up-soft);
+  --color-down: var(--down);
+  --color-down-soft: var(--down-soft);
+  --color-warn: var(--warn);
+  --color-warn-soft: var(--warn-soft);
+  --font-sans: 'Noto Sans JP', ui-sans-serif, system-ui, sans-serif;
+}
+
+html,
 body {
-  font-family: 'Noto Sans JP', sans-serif;
-  background: linear-gradient(-45deg, #0f0c29, #302b63, #24243e, #00c6ff);
-  background-size: 400% 400%;
-  animation: gradientBG 15s ease infinite;
+  background-color: var(--bg);
+  color: var(--fg);
+}
+
+body {
+  font-family: var(--font-sans);
   height: 100vh;
 }
 
-.glowing-gear {
-  /* 基本的な transition */
-  transition: all 0.3s ease-in-out;
-  /* ネオン風の影 */
-  filter: drop-shadow(0 0 4px rgba(97, 218, 251, 0.5));
-}
-
-.glowing-gear:hover {
-  /* ホバー時に影を強くして光るように見せる */
-  filter: drop-shadow(0 0 10px rgba(97, 218, 251, 0.9));
-  /* わずかに回転 */
-  transform: rotate(30deg);
-}
-
-.text-glow {
-  text-shadow:
-    0 0 5px rgba(0, 220, 255, 0.5),
-    0 0 10px rgba(0, 220, 255, 0.4),
-    0 0 20px rgba(0, 220, 255, 0.3),
-    0 0 40px rgba(0, 220, 255, 0.2);
-}
-
-.text-gradient-cyan {
-  background-image: linear-gradient(45deg, #00A3B2, #00E0FF);
-  background-clip: text;
-  -webkit-background-clip: text; /* Safari対応 */
-  color: transparent;
-}
-
-@keyframes gradientBG {
-  0% {
-    background-position: 0% 50%;
-  }
-  50% {
-    background-position: 100% 50%;
-  }
-  100% {
-    background-position: 0% 50%;
-  }
-}
-
 .fms-loader-core {
-  animation: fms-loader-glow 1.6s ease-in-out infinite;
+  animation: fms-loader-pulse 1.6s ease-in-out infinite;
 }
 
-@keyframes fms-loader-glow {
-  0%, 100% {
-    box-shadow: 0 0 4px 1px rgba(34, 211, 238, 0.6);
-    transform: scale(0.85);
-  }
-  50% {
-    box-shadow: 0 0 14px 5px rgba(34, 211, 238, 0.9);
-    transform: scale(1);
-  }
+@keyframes fms-loader-pulse {
+  0%, 100% { transform: scale(0.85); opacity: 0.7; }
+  50% { transform: scale(1); opacity: 1; }
 }

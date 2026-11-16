@@ -6,7 +6,20 @@
     <meta charset="UTF-8" />
     <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
     <link rel="apple-touch-icon" href="/apple-touch-icon.png">
-    <meta name="theme-color" content="#000000">
+    <meta name="theme-color" content="#1e293b">
+    <!-- 描画前にテーマを適用して、読み込み時のちらつき（ライト→ダーク）を防ぐ。
+         Mantine の colorSchemeManager と同じ localStorage キーを読む -->
+    <script>
+      (function () {
+        try {
+          var v = localStorage.getItem('mantine-color-scheme-value');
+          var dark = v === 'dark' || ((!v || v === 'auto') && window.matchMedia('(prefers-color-scheme: dark)').matches);
+          var scheme = dark ? 'dark' : 'light';
+          document.documentElement.setAttribute('data-mantine-color-scheme', scheme);
+          document.querySelector('meta[name="theme-color"]').setAttribute('content', '#1e293b');
+        } catch (e) {}
+      })();
+    </script>
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>FMS</title>
   </head>
