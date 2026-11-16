@@ -18,22 +18,22 @@ export default function Loading({ label = '読み込み中...', fullScreen = fal
   const spinner = (
     <div className="flex flex-col items-center justify-center gap-3">
       <div className={`relative ${s.box}`}>
-        <div className="absolute inset-0 rounded-full border-2 border-cyan-400/15" />
-        <div className="absolute inset-0 rounded-full border-t-2 border-cyan-400 animate-spin [animation-duration:1.1s]" />
-        <div className="absolute inset-1 rounded-full border-b-2 border-blue-500/80 animate-spin [animation-duration:0.75s] [animation-direction:reverse]" />
+        <div className="absolute inset-0 rounded-full border-2 border-accent/15" />
+        <div className="absolute inset-0 rounded-full border-t-2 border-accent animate-spin [animation-duration:1.1s]" />
+        <div className="absolute inset-1 rounded-full border-b-2 border-accent/80 animate-spin [animation-duration:0.75s] [animation-direction:reverse]" />
         <div className="absolute inset-0 flex items-center justify-center">
-          <div className={`${s.dot} rounded-full bg-cyan-300 fms-loader-core`} />
+          <div className={`${s.dot} rounded-full bg-accent-solid fms-loader-core`} />
         </div>
       </div>
       {label && (
-        <p className={`font-orbitron text-cyan-300/90 ${s.text} tracking-wide animate-pulse`}>{label}</p>
+        <p className={`text-accent/90 ${s.text} tracking-wide animate-pulse`}>{label}</p>
       )}
     </div>
   );
 
   if (fullScreen) {
     return (
-      <div className="min-h-screen w-full flex items-center justify-center bg-slate-900">
+      <div className="min-h-screen w-full flex items-center justify-center bg-bg">
         {spinner}
       </div>
     );

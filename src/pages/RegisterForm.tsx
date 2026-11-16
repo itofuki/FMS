@@ -44,20 +44,20 @@ export default function RegisterForm() {
   };
 
   return (
-    <div className="min-h-screen flex items-center justify-center text-white mx-2">
-      <div className="w-full max-w-md p-8 rounded-2xl backdrop-blur-xl bg-white/10 shadow-lg border border-white/20">
-        <h2 className="text-3xl font-bold text-center mb-6 text-cyan-400 drop-shadow-md">
+    <div className="min-h-screen flex items-center justify-center text-fg mx-2">
+      <div className="w-full max-w-md p-8 rounded-2xl bg-surface shadow-sm border border-line">
+        <h2 className="text-3xl font-bold text-center mb-6 text-accent">
           🚀 Register Form
         </h2>
         <form onSubmit={handleSubmit} className="space-y-5">
           {/* Email */}
           <div>
-            <label className="block text-sm mb-2 text-cyan-300">Email</label>
+            <label className="block text-sm mb-2 text-fg-muted">Email</label>
             <input
               type="email"
               value={email}
               onChange={(e) => setEmail(e.target.value)}
-              className="w-full px-4 py-3 rounded-xl bg-black/40 text-white placeholder-gray-400 focus:ring-2 focus:ring-cyan-400 focus:outline-none border border-white/20"
+              className="w-full px-4 py-3 rounded-xl bg-surface-2 text-fg placeholder-fg-subtle focus:ring-2 focus:ring-accent focus:outline-none border border-line"
               placeholder="you@example.com"
               required
             />
@@ -65,12 +65,12 @@ export default function RegisterForm() {
 
           {/* Password */}
           <div>
-            <label className="block text-sm mb-2 text-cyan-300">Password</label>
+            <label className="block text-sm mb-2 text-fg-muted">Password</label>
             <input
               type="password"
               value={password}
               onChange={(e) => setPassword(e.target.value)}
-              className="w-full px-4 py-3 rounded-xl bg-black/40 text-white placeholder-gray-400 focus:ring-2 focus:ring-pink-500 focus:outline-none border border-white/20"
+              className="w-full px-4 py-3 rounded-xl bg-surface-2 text-fg placeholder-fg-subtle focus:ring-2 focus:ring-accent focus:outline-none border border-line"
               placeholder="********"
               required
             />
@@ -81,7 +81,7 @@ export default function RegisterForm() {
             type="submit"
             // ✨ 変更点: ローディング中はボタンを無効化し、スタイルも変更
             disabled={loading}
-            className="w-full py-3 rounded-xl bg-gradient-to-r from-cyan-500 via-purple-500 to-pink-500 font-semibold text-lg text-white shadow-lg hover:scale-105 transition-transform duration-300 disabled:opacity-50 disabled:cursor-not-allowed"
+            className="w-full py-3 rounded-xl bg-accent-solid hover:bg-accent-solid-hover font-semibold text-lg text-on-accent transition-colors duration-200 disabled:opacity-50 disabled:cursor-not-allowed"
           >
             {/* ✨ 変更点: ローディング状態に応じてボタンのテキストを変更 */}
             {loading ? '登録中...' : 'Register'}
@@ -89,9 +89,9 @@ export default function RegisterForm() {
         </form>
 
         {/* Login link */}
-        <p className="text-center mt-6 text-sm text-gray-400">
+        <p className="text-center mt-6 text-sm text-fg-muted">
           Already have an account?{" "}
-          <Link to="/login" className="text-cyan-400 hover:underline">
+          <Link to="/login" className="text-accent hover:underline">
             Login here
           </Link>
         </p>
