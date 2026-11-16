@@ -168,7 +168,7 @@ const StudyRoom = () => {
         </aside>
 
         {/* 左: 1日分の一覧表 */}
-        <div className="xl:order-1 min-w-0">
+        <div className="xl:order-1 min-w-0 xl:px-6">
           <div className="flex items-baseline gap-2 mb-3 px-1">
             <h3 className="text-base font-bold text-fg">{fmtDate(toYmd(dateOf(selected)))}（{WEEKDAY_LABELS[selected]}）</h3>
             {isTodaySelected && <span className="text-xs font-bold px-2 py-0.5 rounded-full bg-accent-soft text-accent">今日</span>}

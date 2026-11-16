@@ -732,7 +732,8 @@ const Assignments: React.FC<AssignmentsProps> = ({ subject }) => {
             )}
           </div>
         </aside>
-        <div className="xl:order-1 min-w-0">
+        {/* xl:px-6: 真ん中の列の左右に余白を取り、メニュー・進み具合の列との間に余裕を持たせる */}
+        <div className="xl:order-1 min-w-0 xl:px-6">
           {/* 一覧の見出し行: 左に件数、右に追加（どこに追加されるかが分かるよう一覧のすぐ上に置く） */}
           <div className="flex items-center justify-between gap-3 mb-4 px-3 sm:px-8 xl:px-0">
             <div className="flex items-center gap-2 min-w-0 text-sm text-fg-muted">

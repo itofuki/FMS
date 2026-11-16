@@ -369,7 +369,7 @@ export const TimetableContainer: React.FC<TimetableContainerProps> = ({
             <NextClassCard subjects={todaySubjects} now={now} />
             <DueTodayCard subjects={subjects} now={now} />
           </aside>
-          <div className="xl:order-1 min-w-0 pt-3">
+          <div className="xl:order-1 min-w-0 xl:px-6 pt-3">
             <TodayTimeline subjects={todaySubjects} now={now} assignmentCount={assignmentCount} />
           </div>
         </div>
