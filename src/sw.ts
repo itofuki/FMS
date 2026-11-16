@@ -61,39 +61,45 @@ registerRoute(
 // ==========================================
 
 // ② プッシュ通知を「受け取った」時の処理
+type PushData = {
+  title: string;
+  body: string;
+  url?: string;
+  tag?: string;
+  actions?: { action: string; title: string }[];
+};
+
 self.addEventListener('push', (event) => {
-  // 🌟 修正ポイント：型を明示的に指定し、url?: string (省略可能) を追加する
-  let data: { title: string; body: string; url?: string } = { 
-    title: 'FMS', 
-    body: '新しいお知らせがあります' 
-  };
-  
+  let data: PushData = { title: 'FMS', body: '新しいお知らせがあります' };
+
   if (event.data) {
     try {
-      data = event.data.json();
+      data = { ...data, ...event.data.json() };
     } catch {
       data.body = event.data.text();
     }
   }
 
-  const options = {
+  // actions は TS の lib 定義に無いブラウザがあるため型を広げて渡す
+  const options: NotificationOptions & { actions?: { action: string; title: string }[] } = {
     body: data.body,
     icon: '/pwa-192x192.png',
     badge: '/favicon.svg',
-    data: {
-      url: data.url || '/' // 👈 これでエラーが消えます！
-    }
+    tag: data.tag,
+    data: { url: data.url || '/' },
+    actions: data.actions,
   };
 
-  event.waitUntil(
-    self.registration.showNotification(data.title, options)
-  );
+  event.waitUntil(self.registration.showNotification(data.title, options));
 });
 
 // ③ 通知をクリックした時の処理
+//    「閉じる」ボタンなら何もしない。本文タップ・「開く」ボタンなら URL を開く。
 self.addEventListener('notificationclick', (event) => {
   event.notification.close();
-  const url = event.notification.data?.url || '/';
+  if (event.action === 'dismiss') return;
+
+  const url = new URL(event.notification.data?.url || '/', self.location.origin).href;
   event.waitUntil(
     self.clients.matchAll({ type: 'window', includeUncontrolled: true }).then((clientList) => {
       for (const client of clientList) {

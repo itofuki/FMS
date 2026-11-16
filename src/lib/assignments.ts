@@ -158,3 +158,22 @@ export function mergeAssignments({
     return new Date(a.deadline).getTime() - new Date(b.deadline).getTime();
   });
 }
+
+export type DeadlineSyncItem = { uid: string; title: string; deadline: string; url: string | null };
+
+/**
+ * 締切リマインダー用にサーバーへ同期する項目を作る。
+ * 未完了かつ締切前の課題のみ。uid は LMS 課題はそのまま、DB 課題は `db_<id>`。
+ * 締切順に並べるので、内容が同じなら結果も同じになる（不要な再同期の判定に使う）。
+ */
+export function toDeadlineSyncItems(items: UnifiedAssignment[], now: Date = new Date()): DeadlineSyncItem[] {
+  return items
+    .filter((a) => !a.done && new Date(a.deadline).getTime() > now.getTime())
+    .map((a) => ({
+      uid: a.isLms ? String(a.id) : `db_${a.id}`,
+      title: a.name.replace(/[「」]|の提出期限/g, ''),
+      deadline: new Date(a.deadline).toISOString(),
+      url: a.url || null,
+    }))
+    .sort((a, b) => a.deadline.localeCompare(b.deadline) || a.uid.localeCompare(b.uid));
+}
