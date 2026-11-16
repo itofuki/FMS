@@ -434,3 +434,10 @@ enabled = true
 verify_jwt = true
 import_map = "./functions/fetch-lms-assignments/deno.json"
 entrypoint = "./functions/fetch-lms-assignments/index.ts"
+
+[functions.notify-scheduler]
+enabled = true
+# pg_cron から共有シークレット（x-scheduler-secret）付きで呼ばれるため JWT 検証は無効
+verify_jwt = false
+import_map = "./functions/notify-scheduler/deno.json"
+entrypoint = "./functions/notify-scheduler/index.ts"
