@@ -48,10 +48,12 @@ const deadlineTag = (deadline: string) => {
   const remaining = new Date(deadline).getTime() - Date.now();
   const { label } = getDeadlineStatus(deadline, false);
   const text = label.replace(/[()]/g, '');
-  if (remaining < 0) return { label: text, className: 'border-down/50 text-down bg-down-soft', dot: 'bg-down' };
-  if (remaining <= 24 * 60 * 60 * 1000) return { label: text, className: 'border-down/50 text-down', dot: 'bg-down' };
-  if (remaining <= 3 * 24 * 60 * 60 * 1000) return { label: text, className: 'border-warn/50 text-warn', dot: 'bg-warn' };
-  return { label: text, className: 'border-line-strong text-fg-muted', dot: 'bg-fg-subtle' };
+  // 控えめな見た目（薄い背景＋色文字＋細い枠＋小さな点）。カードの縁にまたがって載せるので、
+  // 背景には透けない色（*-soft / surface はいずれも不透明）を使う
+  if (remaining < 0) return { label: '期限切れ', className: 'bg-down-soft text-down border-down/50', dot: 'bg-down' };
+  if (remaining <= 24 * 60 * 60 * 1000) return { label: text, className: 'bg-down-soft text-down border-down/40', dot: 'bg-down' };
+  if (remaining <= 3 * 24 * 60 * 60 * 1000) return { label: text, className: 'bg-warn-soft text-warn border-warn/40', dot: 'bg-warn' };
+  return { label: text, className: 'bg-surface text-fg-muted border-line-strong', dot: 'bg-fg-subtle' };
 };
 
 // ダークモードの課題カードの色（配色変更前の元の課題カードの色: 通常 slate-700/80・公式 slate-800・完了 slate-800/60）
@@ -456,6 +458,15 @@ const Assignments: React.FC<AssignmentsProps> = ({ subject }) => {
         key={assignment.id}
         className={`relative flex items-start gap-3.5 px-4 sm:px-5 py-4 rounded-xl shadow-sm transition-shadow ${editingId === assignment.id ? 'bg-accent-soft ring-2 ring-accent' : `bg-surface hover:shadow-md ${rowDarkBg(assignment)}`}`}
       >
+        {/* 残り時間のバッジは、カードの右上の角に上の縁にまたがるように載せる。
+            右端は「⋮」と同じ right-2 にそろえ、角の丸み（12px）の内側に収める */}
+        {tag && (
+          <span className={`absolute -top-2.5 right-2 inline-flex items-center gap-1 px-2 py-0.5 rounded-full border text-xs font-bold whitespace-nowrap ${tag.className}`}>
+            <span className={`w-1.5 h-1.5 rounded-full ${tag.dot}`} aria-hidden="true" />
+            {tag.label}
+          </span>
+        )}
+
         {/* 「⋮」はカードの右端・上下中央に */}
         {moreMenu && <div className="absolute right-2 top-1/2 -translate-y-1/2">{moreMenu}</div>}
 
@@ -474,16 +485,7 @@ const Assignments: React.FC<AssignmentsProps> = ({ subject }) => {
             {assignment.submissionStatus === 'draft' && (
               <span className="text-xs px-1.5 rounded bg-accent-soft text-accent font-semibold">下書き</span>
             )}
-            {/* 締切と残り時間のバッジは、間で改行されないようひとかたまりにする */}
-            <span className="inline-flex items-center gap-2 whitespace-nowrap">
-              <span className="text-fg-muted">締切 {formatDateTime(assignment.deadline)}</span>
-              {tag && (
-                <span className={`inline-flex items-center gap-1 px-1.5 py-px rounded border text-xs font-bold ${tag.className}`}>
-                  <span className={`w-1.5 h-1.5 rounded-sm ${tag.dot}`} aria-hidden="true" />
-                  {tag.label}
-                </span>
-              )}
-            </span>
+            <span className="text-fg-muted whitespace-nowrap">締切 {formatDateTime(assignment.deadline)}</span>
           </div>
 
           {/* 2行目: 課題名（リンクがあれば押すと開く） */}
@@ -736,7 +738,7 @@ const Assignments: React.FC<AssignmentsProps> = ({ subject }) => {
           const collapsed = group.key === 'done' && !showDone;
           return (
             <section key={group.key} className="mb-6 last:mb-0 px-3 sm:px-8 xl:px-0">
-              <h3 className="flex items-center gap-2 mb-3 px-1 text-base font-bold text-fg">
+              <h3 className="flex items-center gap-2 mb-4 px-1 text-base font-bold text-fg">
                 <span className={`w-1 h-4 rounded-full ${GROUP_STYLE[group.key].bar}`} aria-hidden="true" />
                 {group.label}
                 <span className="text-sm font-normal text-fg-muted">{group.items.length}件</span>
@@ -751,7 +753,7 @@ const Assignments: React.FC<AssignmentsProps> = ({ subject }) => {
                 )}
               </h3>
               {!collapsed && (
-                <ul className="flex flex-col gap-3">
+                <ul className="flex flex-col gap-5">
                   {group.items.map(renderRow)}
                 </ul>
               )}
