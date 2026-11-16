@@ -11,6 +11,8 @@ import Switch from "./Switch";
 import Collapsible from "./Collapsible";
 import ChapterFrame from "../components/ChapterFrame";
 import Loading from "./Loading";
+import { useQueryClient } from "@tanstack/react-query";
+import { getLmsSession, saveLmsSession, clearLmsSession, invokeFetchLms, LmsError, purgeLegacyLmsSecrets } from "../lib/lms";
 
 type DeptDB = { id: number; name: string; code: string };
 type CourseDB = { id: number; department_id: number; name: string; code: string };
@@ -22,6 +24,7 @@ type SettingProps = {
 export default function Setting({ onSettingsSaved }: SettingProps) {
   const navigate = useNavigate();
   const [searchParams, setSearchParams] = useSearchParams();
+  const queryClient = useQueryClient();
   const [user, setUser] = useState<User | null>(null);
   
   const [departmentsDB, setDepartmentsDB] = useState<DeptDB[]>([]);
@@ -41,9 +44,7 @@ export default function Setting({ onSettingsSaved }: SettingProps) {
   const [lmsPassword, setLmsPassword] = useState('');
   const [isLmsLoading, setIsLmsLoading] = useState(false);
   const [lmsStatus, setLmsStatus] = useState<{ ok: boolean; message: string } | null>(null);
-  const [lmsCredentialsSaved, setLmsCredentialsSaved] = useState(
-    () => !!(localStorage.getItem('fms_lms_username') && localStorage.getItem('fms_lms_password'))
-  );
+  const [lmsCredentialsSaved, setLmsCredentialsSaved] = useState(() => !!getLmsSession());
 
   const advancedRef = useRef<HTMLDivElement>(null);
   const isAdvancedFocused = searchParams.get("focus") === "advanced";
@@ -136,8 +137,8 @@ export default function Setting({ onSettingsSaved }: SettingProps) {
   }, [baseCourse, classesDB, courseClass]);
 
   useEffect(() => {
-    setLmsUsername(localStorage.getItem('fms_lms_username') ?? '');
-    setLmsPassword(localStorage.getItem('fms_lms_password') ?? '');
+    purgeLegacyLmsSecrets();
+    setLmsUsername(getLmsSession()?.username ?? '');
   }, []);
 
   useEffect(() => {
@@ -176,8 +177,8 @@ export default function Setting({ onSettingsSaved }: SettingProps) {
       }
 
       setSearchParams({ tab: 'timetable' });
-    } catch (error: any) {
-      toast.error(`エラーが発生しました: ${error.message}`);
+    } catch (error) {
+      toast.error(`エラーが発生しました: ${error instanceof Error ? error.message : String(error)}`);
     } finally {
       setLoading(false);
     }
@@ -191,50 +192,33 @@ export default function Setting({ onSettingsSaved }: SettingProps) {
     setIsLmsLoading(true);
     setLmsStatus(null);
     try {
-      const { data, error } = await supabase.functions.invoke('fetch-lms-assignments', {
-        body: {
-          username: lmsUsername,
-          password: lmsPassword,
-        },
-      });
-
-      // 詳細なデバッグ情報をコンソールに出力
-      if (data?.hint) console.warn('[LMS Debug]', data.hint);
-      if (error) console.error('[LMS Error]', error);
-
-      if (error) {
-        setLmsStatus({ ok: false, message: `通信エラー: ${error.message}` });
-        return;
-      }
-      if (data?.code === 'AUTH_FAILED') {
-        setLmsStatus({ ok: false, message: data.error ?? 'IDまたはパスワードが正しくありません。' });
-        return;
-      }
-
-      localStorage.setItem('fms_lms_username', lmsUsername);
-      localStorage.setItem('fms_lms_password', lmsPassword);
-      localStorage.removeItem('fms_lms_mfa_secret');
+      // パスワードはこの1回の接続にだけ使い、保存しない（保存するのはMoodleのトークンのみ）
+      const data = await invokeFetchLms({ username: lmsUsername, password: lmsPassword });
+      saveLmsSession({ username: lmsUsername, token: data.token, userId: data.userId });
+      setLmsPassword('');
       setLmsCredentialsSaved(true);
       setLmsStatus({ ok: true, message: `接続に成功しました！${data.events?.length ?? 0}件のイベントを取得できます。` });
-      toast.success('LMSの認証情報を保存しました。');
-    } catch (e: any) {
-      setLmsStatus({ ok: false, message: 'エラー: ' + e.message });
+      queryClient.invalidateQueries({ queryKey: ['lmsEvents'] });
+      toast.success('LMSに接続しました。');
+    } catch (e) {
+      console.error('[LMS Error]', e);
+      const message = e instanceof LmsError && e.code === 'AUTH_FAILED'
+        ? 'IDまたはパスワードが正しくありません。'
+        : `エラー: ${e instanceof Error ? e.message : String(e)}`;
+      setLmsStatus({ ok: false, message });
     } finally {
       setIsLmsLoading(false);
     }
   };
 
   const handleClearLmsCredentials = () => {
-    localStorage.removeItem('fms_lms_username');
-    localStorage.removeItem('fms_lms_password');
-    localStorage.removeItem('fms_lms_mfa_secret');
-    localStorage.removeItem('fms_lms_token');
-    localStorage.removeItem('fms_lms_userid');
+    clearLmsSession();
+    queryClient.removeQueries({ queryKey: ['lmsEvents'] });
     setLmsUsername('');
     setLmsPassword('');
     setLmsCredentialsSaved(false);
     setLmsStatus(null);
-    toast.success('LMSの認証情報を削除しました。');
+    toast.success('LMSとの接続を解除しました。');
   };
 
   const handleLogout = async () => {
@@ -318,12 +302,13 @@ export default function Setting({ onSettingsSaved }: SettingProps) {
                     <label className="block text-sm font-semibold text-cyan-100 mb-1">
                       LMS ログイン情報
                       {lmsCredentialsSaved && (
-                        <span className="ml-2 text-xs text-emerald-400 font-normal">✓ 保存済み</span>
+                        <span className="ml-2 text-xs text-emerald-400 font-normal">✓ 接続済み</span>
                       )}
                     </label>
                     <p className="text-xs text-slate-400">
-                      LMSのIDとパスワードを入力すると課題を自動取得できます。
-                      認証情報はこのブラウザ内にのみ保存され、サーバーには保存されません。
+                      LMSのIDとパスワードでログインすると課題を自動取得できます。
+                      パスワードは保存されず、ログイン後に発行されるLMSのアクセストークンのみをこのブラウザ内に保存します。
+                      トークンの有効期限が切れた場合は、再度ログインしてください。
                     </p>
                   </div>
                   <div className="space-y-2">
@@ -340,7 +325,7 @@ export default function Setting({ onSettingsSaved }: SettingProps) {
                       autoComplete="current-password"
                       value={lmsPassword}
                       onChange={(e) => setLmsPassword(e.target.value)}
-                      placeholder="LMSのパスワード"
+                      placeholder={lmsCredentialsSaved ? "再ログインする場合のみ入力" : "LMSのパスワード"}
                       className="w-full bg-slate-900 border border-slate-600 rounded-lg p-3 text-slate-200 outline-none text-sm placeholder:text-slate-600 focus:border-cyan-400 transition-colors"
                     />
                   </div>
@@ -356,7 +341,7 @@ export default function Setting({ onSettingsSaved }: SettingProps) {
                       disabled={isLmsLoading}
                       className="flex-1 py-2 rounded-lg bg-cyan-700 hover:bg-cyan-600 text-white text-sm font-semibold transition-colors disabled:opacity-50"
                     >
-                      {isLmsLoading ? '接続確認中...' : '保存して接続テスト'}
+                      {isLmsLoading ? '接続確認中...' : (lmsCredentialsSaved ? '再ログイン' : 'ログインして接続')}
                     </button>
                     {lmsCredentialsSaved && (
                       <button
@@ -364,7 +349,7 @@ export default function Setting({ onSettingsSaved }: SettingProps) {
                         onClick={handleClearLmsCredentials}
                         className="px-4 py-2 rounded-lg border border-red-500/50 text-red-400 hover:bg-red-500/10 text-sm transition-colors"
                       >
-                        削除
+                        接続解除
                       </button>
                     )}
                   </div>

@@ -405,20 +405,11 @@ s3_secret_key = "env(S3_SECRET_KEY)"
 # JSON string passed through to pg-delta SQL formatting.
 # format_options = "{\"keywordCase\":\"upper\",\"indent\":2,\"maxWidth\":80,\"commaStyle\":\"trailing\"}"
 
-[functions.process-schedule-image]
-enabled = true
-verify_jwt = true
-import_map = "./functions/process-schedule-image/deno.json"
-# Uncomment to specify a custom file path to the entrypoint.
-# Supported file extensions are: .ts, .js, .mjs, .jsx, .tsx
-entrypoint = "./functions/process-schedule-image/index.ts"
-# Specifies static files to be bundled with the function. Supports glob patterns.
-# For example, if you want to serve static HTML pages in your function:
-# static_files = [ "./functions/process-schedule-image/*.html" ]
-
 [functions.slack-schedule-receiver]
 enabled = true
-verify_jwt = true
+# Slack からは Supabase の JWT を付けられないため JWT 検証は無効化し、
+# 代わりに関数内で Slack の署名（SLACK_SIGNING_SECRET）を検証する
+verify_jwt = false
 import_map = "./functions/slack-schedule-receiver/deno.json"
 # Uncomment to specify a custom file path to the entrypoint.
 # Supported file extensions are: .ts, .js, .mjs, .jsx, .tsx

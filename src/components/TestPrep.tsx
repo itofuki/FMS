@@ -7,7 +7,7 @@ import Loading from './Loading';
 import { FiCheckSquare, FiCheck, FiX, FiPlus, FiEdit2, FiTrash2, FiTool, FiArrowLeft, FiRefreshCw, FiHelpCircle, FiInbox, FiChevronRight, FiCheckCircle, FiXCircle, FiImage } from 'react-icons/fi';
 import { Textarea, TextInput, Select, SegmentedControl, Radio, Button, Group, FileInput } from '@mantine/core';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import type { User } from '@supabase/supabase-js';
+import { useUserProfile } from '../hooks/useUserProfile';
 import { toast } from 'sonner';
 
 type Subject = { id: number; name: string };
@@ -108,34 +108,7 @@ const TestPrep: React.FC<TestPrepProps> = ({ subject }) => {
   const [results, setResults] = useState<boolean[]>([]);
 
   // --- データ取得 ---
-  const { data: currentUser, isLoading: isLoadingUser } = useQuery<User | null>({
-    queryKey: ['currentUser'],
-    queryFn: async () => {
-      const { data: { user } } = await supabase.auth.getUser();
-      return user;
-    },
-    staleTime: Infinity,
-  });
-
-  const { data: userProfile, isLoading: isLoadingProfile } = useQuery({
-    queryKey: ['userProfile', currentUser?.id],
-    queryFn: async () => {
-      if (!currentUser) return null;
-      const { data, error } = await supabase
-        .from('profiles')
-        .select('role')
-        .eq('user_id', currentUser.id)
-        .single();
-      if (error) {
-        console.error('Profile fetch error:', error);
-        return null;
-      }
-      return data;
-    },
-    enabled: !!currentUser?.id,
-  });
-
-  const userRole = userProfile?.role || 'user';
+  const { currentUser, userRole, isLoading: isLoadingProfile } = useUserProfile();
 
   const { data: quizQuestions = [], isLoading: isLoadingQuestions } = useQuery<QuizQuestion[]>({
     queryKey: ['quizQuestions'],
@@ -152,7 +125,7 @@ const TestPrep: React.FC<TestPrepProps> = ({ subject }) => {
     },
   });
 
-  const loading = isLoadingUser || isLoadingProfile || isLoadingQuestions;
+  const loading = isLoadingProfile || isLoadingQuestions;
 
   const deckKey = (subjectId: number, questionSet: QuestionSet) => `${subjectId}:${questionSet}`;
 
@@ -183,7 +156,7 @@ const TestPrep: React.FC<TestPrepProps> = ({ subject }) => {
 
   // --- 管理者用ミューテーション ---
   const upsertMutation = useMutation({
-    mutationFn: async (payload: { isEdit: boolean; id?: number; data: any }) => {
+    mutationFn: async (payload: { isEdit: boolean; id?: number; data: Record<string, unknown> }) => {
       if (payload.isEdit) {
         const { error } = await supabase.from('quiz_questions').update(payload.data).eq('id', payload.id);
         if (error) throw error;

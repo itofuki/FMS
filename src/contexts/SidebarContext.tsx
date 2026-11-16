@@ -40,6 +40,7 @@ export const SidebarProvider = ({ children }: { children: ReactNode }) => {
 };
 
 // Contextを簡単に使うためのカスタムフック
+// eslint-disable-next-line react-refresh/only-export-components -- Provider とフックを同じファイルに置く慣例のため
 export const useSidebar = () => {
   const context = useContext(SidebarContext);
   if (context === undefined) {

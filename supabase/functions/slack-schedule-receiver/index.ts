@@ -2,21 +2,89 @@
 
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
-import { GoogleGenerativeAI } from "npm:@google/generative-ai";
+import { GoogleGenerativeAI, type GenerativeModel } from "npm:@google/generative-ai";
 import { encode } from "https://deno.land/std@0.200.0/encoding/base64.ts";
 
 const slackUserToken = Deno.env.get("SLACK_USER_TOKEN")!;
 const geminiApiKey = Deno.env.get("GEMINI_API_KEY")!;
 const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
 const supabaseServiceKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
+const slackSigningSecret = Deno.env.get("SLACK_SIGNING_SECRET");
+// preview モデルは提供終了しうるため、環境変数で差し替え可能にする
+const geminiModel = Deno.env.get("GEMINI_MODEL") ?? "gemini-3.1-pro-preview";
+
+const PERIODS = 6;
+const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
+
+type ParsedSchedule = {
+  target_date: string;
+  talk_rooms: string[];
+  study_rooms: string[];
+};
+type ParsedResult = { start_date: string; end_date: string; schedules: ParsedSchedule[] };
+
+/** Slack の署名（X-Slack-Signature）を検証する。5分より古いリクエストはリプレイとみなして拒否 */
+async function verifySlackSignature(req: Request, rawBody: string): Promise<boolean> {
+  if (!slackSigningSecret) {
+    console.error("🚨 SLACK_SIGNING_SECRET が設定されていません");
+    return false;
+  }
+  const timestamp = req.headers.get("x-slack-request-timestamp");
+  const signature = req.headers.get("x-slack-signature");
+  if (!timestamp || !signature) return false;
+  if (Math.abs(Date.now() / 1000 - Number(timestamp)) > 60 * 5) return false;
+
+  const key = await crypto.subtle.importKey(
+    "raw", new TextEncoder().encode(slackSigningSecret),
+    { name: "HMAC", hash: "SHA-256" }, false, ["sign"],
+  );
+  const mac = await crypto.subtle.sign("HMAC", key, new TextEncoder().encode(`v0:${timestamp}:${rawBody}`));
+  const expected = "v0=" + Array.from(new Uint8Array(mac)).map((b) => b.toString(16).padStart(2, "0")).join("");
+
+  // 定数時間比較
+  if (expected.length !== signature.length) return false;
+  let diff = 0;
+  for (let i = 0; i < expected.length; i++) diff |= expected.charCodeAt(i) ^ signature.charCodeAt(i);
+  return diff === 0;
+}
+
+/** AIの出力を検証し、DBに入れてよい形に正規化する。不正なら例外 */
+function validateParsed(raw: unknown): ParsedResult {
+  const r = raw as Partial<ParsedResult> | null;
+  if (!r || !DATE_RE.test(String(r.start_date)) || !DATE_RE.test(String(r.end_date))) {
+    throw new Error("AIが期間の読み取りに失敗しました。");
+  }
+  if (!Array.isArray(r.schedules) || r.schedules.length === 0) {
+    throw new Error("AIの出力に schedules がありません。");
+  }
+  const isRow = (a: unknown): a is string[] =>
+    Array.isArray(a) && a.length === PERIODS && a.every((v) => typeof v === "string" && v.length > 0);
+
+  const schedules = r.schedules.map((s, i) => {
+    if (!DATE_RE.test(String(s?.target_date))) throw new Error(`schedules[${i}].target_date が不正です`);
+    if (!isRow(s.talk_rooms) || !isRow(s.study_rooms)) {
+      throw new Error(`schedules[${i}] (${s.target_date}) の部屋配列が要素数${PERIODS}の文字列配列ではありません`);
+    }
+    if (s.target_date < r.start_date! || s.target_date > r.end_date!) {
+      throw new Error(`schedules[${i}].target_date (${s.target_date}) が期間外です`);
+    }
+    return { target_date: s.target_date, talk_rooms: s.talk_rooms, study_rooms: s.study_rooms };
+  });
+  return { start_date: r.start_date!, end_date: r.end_date!, schedules };
+}
 
 // 実行環境の強制終了を避けるため、1回の待機を短くして回数で粘る
-async function generateContentWithRetry(model: any, requestData: any, maxRetries = 8) {
+async function generateContentWithRetry(
+  model: GenerativeModel,
+  requestData: Parameters<GenerativeModel["generateContent"]>[0],
+  maxRetries = 8,
+) {
   for (let i = 0; i < maxRetries; i++) {
     try {
       return await model.generateContent(requestData);
-    } catch (error: any) {
-      const isRetryable = error.status === 503 || error.status === 429;
+    } catch (error) {
+      const status = (error as { status?: number }).status;
+      const isRetryable = status === 503 || status === 429;
 
       if (isRetryable && i < maxRetries - 1) {
         const exponentialWait = Math.pow(2, i) * 3000; 
@@ -24,7 +92,7 @@ async function generateContentWithRetry(model: any, requestData: any, maxRetries
         const jitter = Math.floor(Math.random() * 5000); 
         const waitTime = Math.min(exponentialWait, delayCap) + jitter;
 
-        console.log(`⚠️ サーバー混雑中(${error.status}): ${(waitTime / 1000).toFixed(1)}秒待機して再試行します... (試行 ${i + 1}/${maxRetries})`);
+        console.log(`⚠️ サーバー混雑中(${status}): ${(waitTime / 1000).toFixed(1)}秒待機して再試行します... (試行 ${i + 1}/${maxRetries})`);
         
         await new Promise(resolve => setTimeout(resolve, waitTime));
         continue;
@@ -32,6 +100,7 @@ async function generateContentWithRetry(model: any, requestData: any, maxRetries
       throw error;
     }
   }
+  throw new Error("Gemini の呼び出しに失敗しました（リトライ上限）");
 }
 
 serve(async (req) => {
@@ -42,6 +111,9 @@ serve(async (req) => {
     if (retryNum) return new Response("OK", { status: 200 });
 
     const bodyText = await req.text();
+    if (!(await verifySlackSignature(req, bodyText))) {
+      return new Response("Invalid signature", { status: 401 });
+    }
     const body = JSON.parse(bodyText);
 
     if (body.type === "url_verification") return new Response(body.challenge, { status: 200 });
@@ -71,18 +143,18 @@ serve(async (req) => {
       const pdfRes = await fetch(file.url_private_download, { headers: { Authorization: `Bearer ${slackUserToken}` } });
       const pdfUint8Array = new Uint8Array(await pdfRes.arrayBuffer());
 
-      console.log("🧠 gemini-3.1-pro-preview による解析を開始します...");
+      console.log(`🧠 ${geminiModel} による解析を開始します...`);
       const genAI = new GoogleGenerativeAI(geminiApiKey);
       
       const model = genAI.getGenerativeModel({ 
-        model: "gemini-3.1-pro-preview",
+        model: geminiModel,
         generationConfig: { 
           responseMimeType: "application/json",
           temperature: 0
         }
       });
       
-      const pdfBase64 = encode(pdfUint8Array);
+      const pdfBase64 = encode(pdfUint8Array.buffer);
 
       // プロンプトの内容は一切変更せず維持
       const prompt = `あなたは視覚的ドキュメント解析の専門家です。提供されたPDF（自習室開放時間割）を以下の【思考プロセス】に従って厳密に解析し、JSONデータを作成してください。
@@ -145,14 +217,9 @@ serve(async (req) => {
         prompt
       ]);
       
-      const parsed = JSON.parse(result.response.text());
-
-      // 修正1: grid_analysis のログを削除し、代わりに全体の件数などをログ出しする
+      // 要素数・日付形式などを検証してから保存する（不正な出力でDBを壊さない）
+      const parsed = validateParsed(JSON.parse(result.response.text()));
       console.log(`🧠 AI解析完了: ${parsed.schedules.length}日分のデータを取得しました。`);
-
-      if (!parsed.start_date || !parsed.end_date) {
-        throw new Error(`AIが期間の読み取りに失敗しました。`);
-      }
       
       const fileName = `timetable_${parsed.start_date}_${parsed.end_date}.pdf`;
       const supabase = createClient(supabaseUrl, supabaseServiceKey);
@@ -172,12 +239,8 @@ serve(async (req) => {
       }, { onConflict: 'filename' });
       if (metaError) throw new Error(`メタデータ保存エラー: ${metaError.message}`);
 
-      // 修正2: DB保存用に、layoutキーを取り除いた新しい配列を作成する
-      const schedulesForDb = parsed.schedules.map((s: any) => ({
-        target_date: s.target_date,
-        talk_rooms: s.talk_rooms,
-        study_rooms: s.study_rooms
-      }));
+      // validateParsed で layout キーは取り除き済み
+      const schedulesForDb = parsed.schedules;
 
       // 3. room_schedules への保存
       const { error: dbError } = await supabase.from('room_schedules').upsert(schedulesForDb, { 
