@@ -672,8 +672,9 @@ const Assignments: React.FC<AssignmentsProps> = ({ subject }) => {
     >
       {/* 画面が広い（xl 以上）ときは、ヤフーファイナンスの掲示板のように「左に一覧・右に補足」の2列にする。
           課題カードが横に間延びしないようにし、進み具合はスクロールしても右に残す */}
-      <div className="xl:grid xl:grid-cols-[minmax(0,1fr)_300px] xl:gap-6 xl:items-start">
-        <aside className="mb-6 xl:mb-0 xl:order-2 xl:sticky xl:top-4">
+      <div className="xl:grid xl:grid-cols-[minmax(0,1fr)_18rem] xl:gap-8 xl:items-start">
+        {/* xl:mt-[52px]: 左の「未完了・追加」の行（高さ36px＋下余白16px）の分だけ下げ、左右の上端をそろえる */}
+        <aside className="mb-6 xl:mb-0 xl:mt-[52px] xl:order-2 xl:sticky xl:top-4">
           <div className="bg-surface border border-line">
             {/* 上段: LMS の同期状態と更新 */}
             <div className="px-4 sm:px-6 xl:px-5 py-3 flex flex-col gap-2 text-sm border-b border-line">

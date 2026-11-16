@@ -240,7 +240,7 @@ export default function Layout() {
         <div className="flex-1 overflow-y-auto w-full pb-20 md:pb-0 [scrollbar-gutter:stable]">
           <div className="flex w-full max-w-[1500px] mx-auto px-2 sm:px-6 lg:px-8">
             {chapterLinks.length > 0 && (
-              <aside className="hidden lg:flex sticky top-0 self-start h-screen w-64 flex-shrink-0 bg-surface border-r border-line p-4 pt-16 flex-col justify-between z-10">
+              <aside className="hidden lg:flex sticky top-0 self-start h-screen w-72 flex-shrink-0 bg-surface border-r border-line p-4 pt-16 flex-col justify-between z-10">
                 <SidebarContent links={chapterLinks} activeId={activeChapter} onNavigate={setActiveChapter} closeMenu={() => {}} />
               </aside>
             )}
