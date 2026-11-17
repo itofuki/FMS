@@ -9,7 +9,7 @@ import { useEffect, useMemo, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { FiExternalLink, FiCalendar, FiMapPin } from 'react-icons/fi';
 import ChapterFrame from './ChapterFrame';
-import Loading from './Loading';
+import { SkeletonBar, TableSkeleton } from './Skeleton';
 import { supabase } from '../lib/supabaseClient';
 import {
   PERIODS, WEEKDAYS, WEEKDAY_LABELS, formatHm, formatMinutes, minutesLeft, mondayOf, nowInJst,
@@ -93,7 +93,6 @@ const StudyRoom = () => {
   const next = openPeriods.find(p => periodState(p, now) === 'before');
   const focus = current ?? next;
 
-  const wd = ['日', '月', '火', '水', '木', '金', '土'][now.getDay()];
   const fmtDate = (ymd: string) => { const [, m, d] = ymd.split('-'); return `${Number(m)}/${Number(d)}`; };
 
   const daySwitch = (
@@ -118,19 +117,14 @@ const StudyRoom = () => {
   );
 
   return (
-    <ChapterFrame
-      title="自習室"
-      meta={<span className="font-semibold text-fg">{now.getMonth() + 1}/{now.getDate()}（{wd}） {String(now.getHours()).padStart(2, '0')}:{String(now.getMinutes()).padStart(2, '0')}</span>}
-      actions={daySwitch}
-      bare
-    >
+    <ChapterFrame title="自習室" bare>
       <div className="xl:grid xl:grid-cols-[minmax(0,1fr)_18rem] xl:gap-8 xl:items-start">
         {/* 右の列: 今使える部屋・掲載期間と PDF */}
         <aside className="mb-6 xl:mb-0 xl:order-2 xl:sticky xl:top-4 bg-surface border border-line">
           <div className="px-4 sm:px-5 py-4 border-b border-line">
             <p className="text-sm font-bold text-fg-muted flex items-center gap-1.5"><FiMapPin size={14} />{current ? '今使える部屋' : '次に開く部屋'}</p>
             {isLoading ? (
-              <Loading size="sm" label="" />
+              <div className="mt-3 space-y-2" aria-label="読み込み中"><SkeletonBar className="h-3 w-24" /><SkeletonBar className="h-6 w-32" /><SkeletonBar className="h-6 w-32" /></div>
             ) : todayRooms && focus ? (
               <>
                 <p className="mt-2 text-sm text-fg-muted">
@@ -169,13 +163,17 @@ const StudyRoom = () => {
 
         {/* 左: 1日分の一覧表 */}
         <div className="xl:order-1 min-w-0 xl:px-6">
-          <div className="flex items-baseline gap-2 mb-3 px-1">
-            <h3 className="text-base font-bold text-fg">{fmtDate(toYmd(dateOf(selected)))}（{WEEKDAY_LABELS[selected]}）</h3>
-            {isTodaySelected && <span className="text-xs font-bold px-2 py-0.5 rounded-full bg-accent-soft text-accent">今日</span>}
+          {/* 見出し行: 左に表示中の日付、右に曜日の切り替え（課題の「追加」と同じく真ん中の列の右上） */}
+          <div className="flex items-center justify-between gap-3 mb-4 px-1 xl:px-0">
+            <div className="flex items-center gap-2 min-w-0">
+              <h3 className="text-base font-bold text-fg whitespace-nowrap">{fmtDate(toYmd(dateOf(selected)))}（{WEEKDAY_LABELS[selected]}）</h3>
+              {isTodaySelected && <span className="text-xs font-bold px-2 py-0.5 rounded-full bg-accent-soft text-accent whitespace-nowrap">今日</span>}
+            </div>
+            <div className="flex-shrink-0">{daySwitch}</div>
           </div>
           <div className="bg-surface border border-line rounded-lg overflow-hidden">
             {isLoading ? (
-              <Loading />
+              <TableSkeleton />
             ) : !rooms ? (
               <p className="text-center py-12 px-4 text-sm text-fg-muted">この日の情報はありません</p>
             ) : (

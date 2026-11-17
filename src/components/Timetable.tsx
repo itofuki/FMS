@@ -9,13 +9,13 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
 import type { IconType } from 'react-icons';
-import { FiArrowRight, FiExternalLink, FiFileText, FiClock, FiCoffee } from 'react-icons/fi';
+import { FiArrowRight, FiExternalLink, FiFileText, FiClock, FiCoffee, FiCheckCircle } from 'react-icons/fi';
 import ChapterFrame from './ChapterFrame';
 import { useUnifiedAssignments } from '../hooks/useUnifiedAssignments';
 import type { Subject as AssignmentSubject } from '../lib/assignments';
 import {
   PERIODS, WEEKDAYS, WEEKDAY_LABELS, formatHm, formatMinutes, focusPeriod, minutesLeft,
-  nowInJst, periodState, periodTime, weekdayOf, toYmd,
+  nowInJst, periodState, periodTime, weekdayOf,
 } from '../lib/schedule';
 import './Timetable.css';
 
@@ -33,8 +33,12 @@ export type Day = 'Mon' | 'Tue' | 'Wed' | 'Thu' | 'Fri';
 
 const LMS_BASE = 'https://lms-tokyo.iput.ac.jp';
 /** 出席IDがあれば出席ページ、なければコースページ */
+const courseUrl = (s: Subject) => `${LMS_BASE}/course/view.php?id=${s.id.split('-')[0]}`;
 const attendanceUrl = (s: Subject) =>
-  s.attendanceId ? `${LMS_BASE}/mod/attendance/view.php?id=${s.attendanceId}` : `${LMS_BASE}/course/view.php?id=${s.id.split('-')[0]}`;
+  s.attendanceId ? `${LMS_BASE}/mod/attendance/view.php?id=${s.attendanceId}` : courseUrl(s);
+
+/** 出席を取る時間（開始10分前〜授業中）。この間だけ右の列の出席ボタンを目立たせる */
+const ATTENDANCE_LEAD_MIN = 10;
 
 /** 1分ごとに更新される日本時間の「今」 */
 function useNow() {
@@ -163,7 +167,7 @@ function TodayTimeline({ subjects, now, assignmentCount }: { subjects: Subject[]
                   className="mt-1.5 inline-flex items-start gap-1.5 text-[17px] sm:text-lg font-bold text-fg leading-snug break-words hover:text-link hover:underline"
                 >
                   <span>{s.name}</span>
-                  <FiExternalLink size={15} className="mt-1.5 flex-shrink-0 text-fg-subtle" aria-label={s.attendanceId ? '出席ページを開く' : 'コースページを開く'} />
+                  <FiExternalLink size={15} className="mt-1.5 flex-shrink-0 text-fg-subtle" aria-hidden="true" />
                 </a>
                 {count > 0 && (
                   <div className="mt-3 flex flex-wrap items-center gap-2">
@@ -191,7 +195,7 @@ function WeekGrid({ weeklySubjects, now }: { weeklySubjects: Record<Day, Subject
   return (
     <div className="bg-bg dark:bg-surface border border-line rounded-lg p-2 sm:p-4">
       {/* ライトは灰色の地に白いマス（課題ページと同じ見え方）、ダークは元の地の色 */}
-      {/* スマホでも5日分が1画面に収まるよう、最小幅は付けない */}
+      {/* スマホでも5日分が1画面に収まるよう、最小幅は付けない。科目名は2行まで出し、超える分は「…」で省く（全文はマスの title で見られる） */}
       <div className="grid gap-1 sm:gap-2" style={{ gridTemplateColumns: 'auto repeat(5, minmax(0, 1fr))' }}>
         <div />
         {WEEKDAYS.map(d => (
@@ -210,7 +214,7 @@ function WeekGrid({ weeklySubjects, now }: { weeklySubjects: Record<Day, Subject
             {WEEKDAYS.map(d => {
               const s = weeklySubjects[d]?.find(x => x.period === p.period);
               const isNow = d === today && periodState(p.period, now) === 'current';
-              if (!s) return <div key={d} className="h-16 rounded-md sm:rounded-lg border border-dashed border-line" />;
+              if (!s) return <div key={d} className="min-h-16 rounded-md sm:rounded-lg border border-dashed border-line" />;
               return (
                 <a
                   key={d}
@@ -218,13 +222,17 @@ function WeekGrid({ weeklySubjects, now }: { weeklySubjects: Record<Day, Subject
                   target="_blank"
                   rel="noopener noreferrer"
                   title={`${s.name}（${s.classroom} / ${s.teacher}）`}
-                  className={`h-16 rounded-md sm:rounded-lg px-1 sm:px-2 py-1 sm:py-1.5 flex flex-col justify-center gap-0.5 shadow-sm transition-colors ${
+                  className={`min-h-16 rounded-md sm:rounded-lg px-1 sm:px-2 py-1 sm:py-1.5 flex flex-col justify-center gap-0.5 shadow-sm transition-colors ${
                     // 授業のマスも課題カードと同じ色
                     isNow ? 'bg-accent-soft ring-2 ring-accent' : 'bg-surface dark:bg-slate-700/80 hover:bg-surface-2 dark:hover:bg-slate-700'
                   }`}
                 >
-                  <span className="text-[11px] sm:text-[13px] font-bold text-fg leading-tight line-clamp-2 break-all sm:break-normal">{s.name}</span>
-                  <span className="text-[10px] sm:text-[11px] text-fg-muted truncate">{s.classroom}</span>
+                  <span className="text-[11px] sm:text-[13px] font-bold text-fg leading-tight line-clamp-2 break-all sm:break-normal text-center">{s.name}</span>
+                  {/* 教室と先生を左右半分ずつ（それぞれ中央揃え）。収まらない分は「…」で省く（全文はマスの title で見られる） */}
+                  <span className="grid grid-cols-2 gap-1 text-[10px] sm:text-[11px] text-fg-muted leading-tight">
+                    <span className="truncate text-center">{s.classroom}</span>
+                    <span className="truncate text-center">{s.teacher}</span>
+                  </span>
                 </a>
               );
             })}
@@ -236,7 +244,7 @@ function WeekGrid({ weeklySubjects, now }: { weeklySubjects: Record<Day, Subject
 }
 
 // ------------------------------------------------------------------
-// 右の列: 次の授業・今日締切の課題
+// 右の列: 授業中・次の授業
 // ------------------------------------------------------------------
 
 function NextClassCard({ subjects, now }: { subjects: Subject[]; now: Date }) {
@@ -244,7 +252,7 @@ function NextClassCard({ subjects, now }: { subjects: Subject[]; now: Date }) {
   const s = focus ? subjects.find(x => x.period === focus.period) : undefined;
   const t = s ? periodTime(s.period) : undefined;
   return (
-    <div className="px-4 sm:px-5 py-4 border-b border-line">
+    <div className="px-4 sm:px-5 py-4">
       <p className="text-sm font-bold text-fg-muted flex items-center gap-1.5"><FiClock size={14} />{focus?.state === 'current' ? '授業中' : '次の授業'}</p>
       {s && t ? (
         <>
@@ -255,46 +263,24 @@ function NextClassCard({ subjects, now }: { subjects: Subject[]; now: Date }) {
               ? <>{formatHm(t.end)} まで（あと<span className="font-bold text-accent">{formatMinutes(minutesLeft(s.period, now))}</span>）</>
               : <>{formatHm(t.start)} 開始（あと<span className="font-bold text-warn">{formatMinutes(minutesLeft(s.period, now))}</span>）</>}
           </p>
-          <a
-            href={attendanceUrl(s)}
-            target="_blank"
-            rel="noopener noreferrer"
-            className="mt-3 flex items-center justify-center gap-1.5 h-9 rounded-md bg-accent-solid hover:bg-accent-solid-hover text-on-accent transition-colors"
-          >
-            <FiExternalLink size={14} />
-            <span className="text-sm font-bold">{s.attendanceId ? '出席ページを開く' : 'コースページを開く'}</span>
-          </a>
+          {/* 出席する: 出席を取る時間（開始10分前〜授業中）で、出席ページがある科目のときだけ出す。
+              それ以外は情報だけ（コースページ・出席ページは授業カードの授業名からも開ける） */}
+          {s.attendanceId && (focus!.state === 'current' || minutesLeft(s.period, now) <= ATTENDANCE_LEAD_MIN) && (
+            <a
+              href={attendanceUrl(s)}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="mt-3 inline-flex items-center gap-1.5 h-9 px-4 rounded-md bg-accent-solid hover:bg-accent-solid-hover text-on-accent shadow-sm transition-colors"
+            >
+              <FiCheckCircle size={15} aria-hidden="true" />
+              <span className="text-sm font-bold">出席する</span>
+              <FiExternalLink size={13} className="opacity-70" aria-hidden="true" />
+            </a>
+          )}
         </>
       ) : (
         <p className="mt-2 text-sm text-fg-muted">{weekdayOf(now) ? (subjects.length ? '今日の授業は終わりました' : '今日の授業はありません') : '今日は授業がありません'}</p>
       )}
-    </div>
-  );
-}
-
-function DueTodayCard({ subjects, now }: { subjects: AssignmentSubject[]; now: Date }) {
-  const { items } = useUnifiedAssignments(subjects);
-  const today = toYmd(now);
-  const due = items.filter(a => !a.done && toYmd(new Date(new Date(a.deadline).toLocaleString('en-US', { timeZone: 'Asia/Tokyo' }))) === today);
-  return (
-    <div className="px-4 sm:px-5 py-4">
-      <div className="flex items-center justify-between">
-        <p className="text-sm font-bold text-fg-muted flex items-center gap-1.5"><FiFileText size={14} />今日締切の課題</p>
-        <span className={`text-sm font-bold ${due.length ? 'text-down' : 'text-fg-subtle'}`}>{due.length}件</span>
-      </div>
-      {due.length > 0 ? (
-        <ul className="mt-2 space-y-1.5">
-          {due.slice(0, 3).map(a => (
-            <li key={a.id} className="text-sm text-fg truncate">・{a.name.replace(/[「」]|の提出期限/g, '')}</li>
-          ))}
-          {due.length > 3 && <li className="text-xs text-fg-muted">ほか {due.length - 3}件</li>}
-        </ul>
-      ) : (
-        <p className="mt-2 text-sm text-fg-muted">今日が締切の課題はありません</p>
-      )}
-      <Link to="?tab=assignments" className="mt-3 inline-flex items-center gap-1 text-sm font-semibold text-link hover:underline">
-        課題を見る <FiArrowRight size={14} />
-      </Link>
     </div>
   );
 }
@@ -365,20 +351,27 @@ export const TimetableContainer: React.FC<TimetableContainerProps> = ({
   }
 
   return (
-    <ChapterFrame title="時間割" meta={meta} actions={viewSwitch} bare>
-      {isWeeklyView ? (
-        <WeekGrid weeklySubjects={weeklySubjects} now={now} />
-      ) : (
-        <div className="xl:grid xl:grid-cols-[minmax(0,1fr)_18rem] xl:gap-8 xl:items-start">
-          <aside className="mb-6 xl:mb-0 xl:order-2 xl:sticky xl:top-4 bg-surface border border-line">
-            <NextClassCard subjects={todaySubjects} now={now} />
-            <DueTodayCard subjects={subjects} now={now} />
-          </aside>
-          <div className="xl:order-1 min-w-0 xl:px-6 pt-3">
-            <TodayTimeline subjects={todaySubjects} now={now} assignmentCount={assignmentCount} />
+    <ChapterFrame title="時間割" bare>
+      {/* 今日・週のどちらでも右の列を出し、切り替えボタンの位置が動かないようにする */}
+      <div className="xl:grid xl:grid-cols-[minmax(0,1fr)_18rem] xl:gap-8 xl:items-start">
+        <aside className="mb-6 xl:mb-0 xl:order-2 xl:sticky xl:top-4 bg-surface border border-line">
+          <NextClassCard subjects={todaySubjects} now={now} />
+        </aside>
+        <div className="xl:order-1 min-w-0 xl:px-6">
+          {/* 見出し行: 左に日付、右に今日・週の切り替え（課題の「追加」と同じく真ん中の列の右上） */}
+          <div className="flex items-center justify-between gap-3 mb-4 px-1 xl:px-0">
+            <div className="flex items-center gap-2 min-w-0 text-sm text-fg-muted">{meta}</div>
+            <div className="flex-shrink-0">{viewSwitch}</div>
           </div>
+          {isWeeklyView ? (
+            <WeekGrid weeklySubjects={weeklySubjects} now={now} />
+          ) : (
+            <div className="pt-3">
+              <TodayTimeline subjects={todaySubjects} now={now} assignmentCount={assignmentCount} />
+            </div>
+          )}
         </div>
-      )}
+      </div>
     </ChapterFrame>
   );
 };
