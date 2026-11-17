@@ -6,10 +6,14 @@
  *   - 広い画面では右の列に「次の授業」と「今日締切の課題」
  *   - 今日／週の切り替えは文字のボタン
  */
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { Suspense, lazy, useCallback, useEffect, useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { FiArrowRight, FiExternalLink, FiFileText, FiClock, FiCoffee, FiCheckCircle, FiAlertTriangle } from 'react-icons/fi';
 import ChapterFrame from './ChapterFrame';
+import { BsQrCodeScan } from 'react-icons/bs';
+
+// QR の読み取り（カメラと jsQR）は、押したときだけ読み込む
+const QrScanner = lazy(() => import('./QrScanner'));
 import { useUnifiedAssignments } from '../hooks/useUnifiedAssignments';
 import { useAttendance, type AttendanceMap } from '../hooks/useAttendance';
 import { absenceAllowance, type AttendanceSummary } from '../lib/attendance';
@@ -318,6 +322,8 @@ function AttendanceChip({ summary, periodsPerDay }: { summary: AttendanceSummary
 // ------------------------------------------------------------------
 
 function NextClassCard({ subjects, now, attendance }: { subjects: Subject[]; now: Date; attendance: AttendanceMap }) {
+  const [scanning, setScanning] = useState(false);
+  const closeScanner = useCallback(() => setScanning(false), []);
   const focus = focusPeriod(subjects.map(s => s.period), now);
   const s = focus ? subjects.find(x => x.period === focus.period) : undefined;
   const t = s ? periodTime(s.period) : undefined;
@@ -340,19 +346,36 @@ function NextClassCard({ subjects, now, attendance }: { subjects: Subject[]; now
               <p className="mt-0.5"><AbsencesLeft summary={attendance[s.attendanceId]} periodsPerDay={periodsPerDay(subjects, s)} /></p>
             </div>
           )}
-          {/* 出席する: 出席を取る時間（開始10分前〜授業中）で、出席ページがある科目のときだけ出す。
-              それ以外は情報だけ（コースページ・出席ページは授業カードの授業名からも開ける） */}
-          {s.attendanceId && (focus!.state === 'current' || minutesLeft(s.period, now) <= ATTENDANCE_LEAD_MIN) && (
-            <a
-              href={attendanceUrl(s)}
-              target="_blank"
-              rel="noopener noreferrer"
-              className="mt-3 inline-flex items-center gap-1.5 h-9 px-4 rounded-md bg-accent-solid hover:bg-accent-solid-hover text-on-accent shadow-sm transition-colors"
-            >
-              <FiCheckCircle size={15} aria-hidden="true" />
-              <span className="text-sm font-bold">出席する</span>
-              <FiExternalLink size={13} className="opacity-70" aria-hidden="true" />
-            </a>
+          {/* 出欠を打てる時間（開始10分前〜授業中）だけ、出席の操作を出す。
+              「出席する」は出席ページがある科目のときだけ。「QR を読み取る」は出欠の QR コード用 */}
+          {(focus!.state === 'current' || minutesLeft(s.period, now) <= ATTENDANCE_LEAD_MIN) && (
+            <div className="mt-3 flex flex-wrap gap-2">
+              {s.attendanceId && (
+                <a
+                  href={attendanceUrl(s)}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="inline-flex items-center gap-1.5 h-9 px-4 rounded-md bg-accent-solid hover:bg-accent-solid-hover text-on-accent shadow-sm transition-colors"
+                >
+                  <FiCheckCircle size={15} aria-hidden="true" />
+                  <span className="text-sm font-bold">出席する</span>
+                  <FiExternalLink size={13} className="opacity-70" aria-hidden="true" />
+                </a>
+              )}
+              <button
+                type="button"
+                onClick={() => setScanning(true)}
+                className="inline-flex items-center gap-1.5 h-9 px-4 rounded-md border border-line-strong text-fg hover:bg-surface-2 transition-colors"
+              >
+                <BsQrCodeScan size={15} aria-hidden="true" />
+                <span className="text-sm font-bold">QR を読み取る</span>
+              </button>
+            </div>
+          )}
+          {scanning && (
+            <Suspense fallback={null}>
+              <QrScanner onClose={closeScanner} />
+            </Suspense>
           )}
         </>
       ) : (
