@@ -139,12 +139,13 @@ function TodayTimeline({ subjects, now, assignmentCount }: { subjects: Subject[]
                 aria-hidden="true"
               />
               {/* 右: カード */}
-              <div className={`relative rounded-xl shadow-sm px-4 sm:px-5 py-4 transition-opacity ${
-                // 課題カードと同じ色（ライトは白、ダークは元の配色の slate-700/80、終わった授業は課題の完了と同じ slate-800/60）
-                state === 'current' ? 'bg-surface dark:bg-slate-700/80 ring-2 ring-accent'
-                : state === 'after' ? 'bg-surface dark:bg-slate-800/60'
-                : 'bg-surface dark:bg-slate-700/80'
-              } ${state === 'after' ? 'opacity-60' : ''}`}>
+              <div className={`relative rounded-xl px-4 sm:px-5 py-4 transition-opacity ${
+                // 課題カードと同じ色（ライトは白、ダークは元の配色の slate-700/80）
+                state === 'current' ? 'shadow-sm bg-surface dark:bg-slate-700/80 ring-2 ring-accent'
+                // 終わった授業: ライトは灰色・影なし・薄めにしてはっきりグレーアウト。ダークは課題の完了と同じ slate-800/60
+                : state === 'after' ? 'bg-slate-200 border border-slate-300 opacity-50 dark:border-0 dark:bg-slate-800/60 dark:opacity-60 dark:shadow-sm'
+                : 'shadow-sm bg-surface dark:bg-slate-700/80'
+              }`}>
                 <StateBadge state={badgeState} minutes={minutesLeft(s.period, now)} />
                 <p className="text-sm text-fg-muted">
                   <span className="font-semibold text-accent">{s.period}限</span>
