@@ -8,6 +8,7 @@
  */
 import { FunctionsHttpError } from '@supabase/supabase-js';
 import { supabase } from './supabaseClient';
+import { clearLmsIssue } from './lmsStatus';
 
 export const LMS_BASE = 'https://lms-tokyo.iput.ac.jp';
 
@@ -41,6 +42,7 @@ export const saveLmsSession = (s: LmsSession) => {
   localStorage.setItem(KEY_TOKEN, s.token);
   localStorage.setItem(KEY_USERID, String(s.userId));
   purgeLegacyLmsSecrets();
+  clearLmsIssue();
 };
 
 export const clearLmsSession = () => {

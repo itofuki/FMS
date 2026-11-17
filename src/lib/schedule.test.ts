@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { periodState, minutesLeft, focusPeriod, formatMinutes, mondayOf, toYmd, weekdayOf } from './schedule';
+import { periodState, minutesLeft, focusPeriod, formatMinutes, mondayOf, toYmd, weekdayOf, currentPeriodLabel } from './schedule';
 
 // 2026-11-17 は火曜日
 const at = (h: number, m: number, day = 17) => new Date(2026, 10, day, h, m);
@@ -45,5 +45,20 @@ describe('mondayOf / weekdayOf', () => {
   it('土日は null', () => {
     expect(weekdayOf(at(10, 0, 17))).toBe('Tue');
     expect(weekdayOf(at(10, 0, 21))).toBeNull();
+  });
+});
+
+describe('currentPeriodLabel', () => {
+  it('1〜6限の授業時間中だけ何限かを返す', () => {
+    expect(currentPeriodLabel(at(9, 15))).toBe('1限');
+    expect(currentPeriodLabel(at(10, 55))).toBe('2限');
+    expect(currentPeriodLabel(at(19, 49))).toBe('6限');
+  });
+  it('授業時間外（1限前・休み時間・昼休み・6限後・土日）は null', () => {
+    expect(currentPeriodLabel(at(8, 0))).toBeNull();
+    expect(currentPeriodLabel(at(12, 40))).toBeNull();
+    expect(currentPeriodLabel(at(14, 55))).toBeNull();
+    expect(currentPeriodLabel(at(19, 50))).toBeNull();
+    expect(currentPeriodLabel(at(10, 0, 21))).toBeNull();
   });
 });

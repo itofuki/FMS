@@ -12,9 +12,27 @@ import ChapterFrame from './ChapterFrame';
 import { SkeletonBar, TableSkeleton } from './Skeleton';
 import { supabase } from '../lib/supabaseClient';
 import {
-  PERIODS, WEEKDAYS, WEEKDAY_LABELS, formatHm, formatMinutes, minutesLeft, mondayOf, nowInJst,
-  periodState, toYmd, weekdayOf, type Weekday,
+  PERIODS, WEEKDAYS, WEEKDAY_LABELS, formatHm, formatMinutes, mondayOf, nowInJst,
+  toYmd, weekdayOf, type PeriodState, type Weekday,
 } from '../lib/schedule';
+
+// 自習室・談話室の時間枠。授業の時限と同じだが、6限の枠は閉館の 21:30 まで使える（表示も「6限～」）
+const ROOM_SLOTS = PERIODS.map(p => (p.period === 6 ? { ...p, end: { h: 21, m: 30 }, label: '6限～' } : { ...p, label: `${p.period}限` }));
+const slotOf = (period: number) => ROOM_SLOTS[period - 1];
+const toMin = (t: { h: number; m: number }) => t.h * 60 + t.m;
+const nowMin = (now: Date) => now.getHours() * 60 + now.getMinutes();
+/** その枠が、今から見て「これから / 使用中 / 終了」のどれか（6限の枠は 21:30 まで） */
+const slotState = (period: number, now: Date): PeriodState => {
+  const s = slotOf(period);
+  const n = nowMin(now);
+  return n < toMin(s.start) ? 'before' : n < toMin(s.end) ? 'current' : 'after';
+};
+/** 開始まで（これから）または終了まで（使用中）の残り分 */
+const slotMinutesLeft = (period: number, now: Date) => {
+  const s = slotOf(period);
+  const n = nowMin(now);
+  return Math.max(0, slotState(period, now) === 'before' ? toMin(s.start) - n : toMin(s.end) - n);
+};
 
 type DayRooms = { study: string[]; talk: string[] };
 
@@ -87,12 +105,14 @@ const StudyRoom = () => {
 
   // 今使える部屋（授業中の時限、なければ次に開く時限）
   const openPeriods = todayRooms
-    ? PERIODS.map(p => p.period).filter(p => isOpen(todayRooms.study[p - 1]) || isOpen(todayRooms.talk[p - 1]))
+    ? ROOM_SLOTS.map(p => p.period).filter(p => isOpen(todayRooms.study[p - 1]) || isOpen(todayRooms.talk[p - 1]))
     : [];
-  const current = openPeriods.find(p => periodState(p, now) === 'current');
-  const next = openPeriods.find(p => periodState(p, now) === 'before');
+  const current = openPeriods.find(p => slotState(p, now) === 'current');
+  const next = openPeriods.find(p => slotState(p, now) === 'before');
   const focus = current ?? next;
 
+  // 見出しの「何限」も自習室の枠で数える（19:50〜21:30 は「6限～」）
+  const periodLabel = weekdayOf(now) ? ROOM_SLOTS.find(p => slotState(p.period, now) === 'current')?.label ?? null : null;
   const fmtDate = (ymd: string) => { const [, m, d] = ymd.split('-'); return `${Number(m)}/${Number(d)}`; };
 
   const daySwitch = (
@@ -128,10 +148,10 @@ const StudyRoom = () => {
             ) : todayRooms && focus ? (
               <>
                 <p className="mt-2 text-sm text-fg-muted">
-                  <span className="font-semibold text-accent mr-2">{focus}限</span>
+                  <span className="font-semibold text-accent mr-2">{slotOf(focus).label}</span>
                   {current
-                    ? <>{formatHm(PERIODS[focus - 1].end)} まで（あと{formatMinutes(minutesLeft(focus, now))}）</>
-                    : <>{formatHm(PERIODS[focus - 1].start)} から（あと{formatMinutes(minutesLeft(focus, now))}）</>}
+                    ? <>{formatHm(slotOf(focus).end)} まで（あと{formatMinutes(slotMinutesLeft(focus, now))}）</>
+                    : <>{formatHm(slotOf(focus).start)} から（あと{formatMinutes(slotMinutesLeft(focus, now))}）</>}
                 </p>
                 <dl className="mt-3 grid grid-cols-[auto_1fr] gap-x-4 gap-y-2 items-baseline">
                   <dt className="text-sm text-fg-muted">自習室</dt>
@@ -165,9 +185,15 @@ const StudyRoom = () => {
         <div className="xl:order-1 min-w-0 xl:px-6">
           {/* 見出し行: 左に表示中の日付、右に曜日の切り替え（課題の「追加」と同じく真ん中の列の右上） */}
           <div className="flex items-center justify-between gap-3 mb-4 px-1 xl:px-0">
-            <div className="flex items-center gap-2 min-w-0">
-              <h3 className="text-base font-bold text-fg whitespace-nowrap">{fmtDate(toYmd(dateOf(selected)))}（{WEEKDAY_LABELS[selected]}）</h3>
-              {isTodaySelected && <span className="text-xs font-bold px-2 py-0.5 rounded-full bg-accent-soft text-accent whitespace-nowrap">今日</span>}
+            <div className="flex flex-wrap items-center gap-x-2 gap-y-0.5 min-w-0">
+              <h3 className="text-base sm:text-lg font-bold text-fg whitespace-nowrap">{fmtDate(toYmd(dateOf(selected)))}（{WEEKDAY_LABELS[selected]}）</h3>
+              {/* 今日を表示しているときは、今の時刻と何限かも出す（時間割と同じ） */}
+              {isTodaySelected && (
+                <span className="text-base sm:text-lg font-bold tabular-nums whitespace-nowrap">
+                  <span className="text-fg-muted">{String(now.getHours()).padStart(2, '0')}:{String(now.getMinutes()).padStart(2, '0')}</span>
+                  {periodLabel && <span className="ml-2 text-accent">{periodLabel}</span>}
+                </span>
+              )}
             </div>
             <div className="flex-shrink-0">{daySwitch}</div>
           </div>
@@ -186,8 +212,8 @@ const StudyRoom = () => {
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-line">
-                  {PERIODS.map(p => {
-                    const state = isTodaySelected ? periodState(p.period, now) : 'before';
+                  {ROOM_SLOTS.map(p => {
+                    const state = isTodaySelected ? slotState(p.period, now) : 'before';
                     const study = rooms.study[p.period - 1];
                     const talk = rooms.talk[p.period - 1];
                     return (
@@ -197,7 +223,7 @@ const StudyRoom = () => {
                         className={`${state === 'current' ? 'bg-accent-soft' : ''} ${state === 'after' ? 'opacity-50' : ''}`}
                       >
                         <th scope="row" className={`relative px-4 sm:px-5 py-3 font-normal ${state === 'current' ? 'before:absolute before:left-0 before:inset-y-0 before:w-1 before:bg-accent' : ''}`}>
-                          <span className="block text-[15px] font-bold text-fg">{p.period}限</span>
+                          <span className="block text-[15px] font-bold text-fg">{p.label}</span>
                           <span className="block text-xs text-fg-muted">{formatHm(p.start)}〜{formatHm(p.end)}</span>
                         </th>
                         <td className="px-3 sm:px-5 py-3">

@@ -8,6 +8,7 @@ import { supabase } from '../lib/supabaseClient';
 import { getLmsSession, lmsCoursesSyncKey } from '../lib/lms';
 import { fetchLmsCourses } from '../lib/lmsCourses';
 import { nowInJst, toYmd } from '../lib/schedule';
+import { clearLmsIssue, reportLmsIssue } from '../lib/lmsStatus';
 
 type SyncMark = { day: string; sig: string };
 
@@ -19,7 +20,14 @@ export async function syncLmsCoursesNow(): Promise<boolean> {
   let prev: SyncMark | null = null;
   try { prev = JSON.parse(localStorage.getItem(key) ?? 'null'); } catch { /* 読めなければ初回扱い */ }
 
-  const courses = await fetchLmsCourses(session.token, session.userId);
+  let courses;
+  try {
+    courses = await fetchLmsCourses(session.token, session.userId);
+  } catch (e) {
+    reportLmsIssue(e);
+    throw e;
+  }
+  clearLmsIssue();
   const { error } = await supabase.rpc('sync_user_lms_courses', { p_items: courses });
   if (error) throw error;
   const sig = JSON.stringify(courses);

@@ -5,8 +5,6 @@ import { supabase } from "../lib/supabaseClient";
 import { useNavigate, useSearchParams } from "react-router-dom";
 import { useSidebar, type ChapterLink } from "../contexts/SidebarContext";
 import { useScheduledReloader } from "../hooks/useScheduledReloader";
-import { type IconType } from 'react-icons';
-import { FiCpu, FiWifi, FiGitPullRequest, FiPlay, FiFilm, FiHelpCircle } from "react-icons/fi";
 import { TimetableContainer, type Day, type Subject } from '../components/Timetable';
 import StudyRoom from '../components/StudyRoom';
 import Assignments from '../components/Assignments';
@@ -17,6 +15,7 @@ import Tips from '../components/Tips';
 import { PageSkeleton, TimetableSkeleton } from '../components/Skeleton';
 import DeadlineReminderSync from '../components/DeadlineReminderSync';
 import { menuGroupLabel } from '../lib/menu';
+import { PERIODS } from '../lib/schedule';
 import { useLmsCourseSync } from '../hooks/useLmsCourseSync';
 
 const VALID_DAYS: Day[] = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri'];
@@ -25,14 +24,6 @@ function isDay(key: unknown): key is Day {
 }
 
 // 授業開始前の通知（サーバー側）は supabase/functions/_shared/reminders.ts の PERIOD_STARTS を使うので、変更時は両方揃えること
-const periodTimes = [
-  { period: 1, start: { h: 9, m: 15 }, end: { h: 10, m: 55 } },
-  { period: 2, start: { h: 10, m: 55 }, end: { h: 12, m: 25 } },
-  { period: 3, start: { h: 13, m: 20 }, end: { h: 14, m: 50 } },
-  { period: 4, start: { h: 15, m: 0 }, end: { h: 16, m: 30 } },
-  { period: 5, start: { h: 16, m: 40 }, end: { h: 18, m: 10 } },
-  { period: 6, start: { h: 18, m: 20 }, end: { h: 19, m: 50 } },
-];
 
 type TimetableRpcData = {
   id: number;
@@ -43,40 +34,6 @@ type TimetableRpcData = {
   classroom: string;
   category_code: string; 
   attendance_id?: number | null; // ★RPCから返ってくるID
-};
-
-type CourseStyle = {
-  icon: IconType;
-  label: string;
-  color: string;
-};
-
-const courseStyles: Record<string, CourseStyle> = {
-  'IA': { icon: FiCpu, label: 'AI', color: 'text-purple-600 dark:text-purple-400' },
-  'IS': { icon: FiWifi, label: 'IoT', color: 'text-sky-600 dark:text-sky-400' },
-  'IR': { icon: FiGitPullRequest, label: 'Robot', color: 'text-orange-600 dark:text-orange-400' },
-  'DL': { icon: FiHelpCircle, label: 'Planner', color: 'text-pink-600 dark:text-pink-400' },
-  'DG': { icon: FiPlay, label: 'Programmer', color: 'text-emerald-600 dark:text-emerald-400' },
-  'DC': { icon: FiFilm, label: 'CG', color: 'text-amber-600 dark:text-amber-400' },
-};
-
-const getCourseStyle = (courseName: string): CourseStyle | null => {
-  if (!courseName) return null;
-  const lowerCaseCourseName = courseName.toLowerCase();
-  
-  const matchedKey = Object.keys(courseStyles).find(key => 
-    lowerCaseCourseName.includes(key.toLowerCase())
-  );
-
-  if (matchedKey) {
-    return courseStyles[matchedKey];
-  }
-  
-  return {
-    icon: FiHelpCircle,
-    label: '未選択',
-    color: 'text-fg-muted',
-  };
 };
 
 const myPageChapters: ChapterLink[] = [
@@ -123,7 +80,6 @@ export default function MyPage() {
 
   const navigate = useNavigate();
   // （ログイン中のユーザー自体は保持しない。メールアドレスは設定の「アカウント」に表示する）
-  const [courseName, setCourseName] = useState<string>("");
   const [isWeeklyView, setIsWeeklyView] = useState(false);
   const [weeklySubjects, setWeeklySubjects] = useState<Record<Day, Subject[]>>({ Mon: [], Tue: [], Wed: [], Thu: [], Fri: [] });
   const [loading, setLoading] = useState(true);
@@ -205,13 +161,8 @@ export default function MyPage() {
           }
         }
         
-        if (courseNameValue) {
-          setCourseName(courseNameValue);
-          setIsProfileSet(true);
-        } else {
-          setCourseName("コース未設定");
-          setIsProfileSet(false);
-        }
+        // 学科・クラスが設定済みなら、従来の時間割を出せる
+        setIsProfileSet(!!courseNameValue);
         
         // 「自動で開く」を選んだ場合のみ。「通知する」はサーバー（notify-scheduler）がプッシュ通知を送る
         setAutoOpenEnabled(profileData?.class_start_action === 'auto_open');
@@ -258,7 +209,7 @@ export default function MyPage() {
 
     const now = new Date(new Date().toLocaleString("en-US", { timeZone: "Asia/Tokyo" }));
     todaySubjects.forEach(subject => {
-      const timeInfo = periodTimes.find(p => p.period === subject.period);
+      const timeInfo = PERIODS.find(p => p.period === subject.period);
       if (!timeInfo) return;
 
       const startTime = new Date(now);
@@ -285,8 +236,6 @@ export default function MyPage() {
   }, [loading, autoOpenEnabled, weeklySubjects, openedSubjects]);
 
 
-  const courseStyle = getCourseStyle(courseName);
-
   const renderMainContent = () => {
     switch (activeChapter) {
       case 'timetable':
@@ -294,7 +243,6 @@ export default function MyPage() {
           <TimetableContainer
             isWeeklyView={isWeeklyView}
             onChangeView={setIsWeeklyView}
-            courseStyle={courseStyle}
             isProfileSet={isProfileSet}
             weeklySubjects={weeklySubjects}
             subjects={uniqueSubjects}

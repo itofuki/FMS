@@ -8,16 +8,16 @@
  */
 import React, { useEffect, useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
-import type { IconType } from 'react-icons';
-import { FiArrowRight, FiExternalLink, FiFileText, FiClock, FiCoffee, FiCheckCircle } from 'react-icons/fi';
+import { FiArrowRight, FiExternalLink, FiFileText, FiClock, FiCoffee, FiCheckCircle, FiAlertTriangle } from 'react-icons/fi';
 import ChapterFrame from './ChapterFrame';
 import { useUnifiedAssignments } from '../hooks/useUnifiedAssignments';
 import { useAttendance, type AttendanceMap } from '../hooks/useAttendance';
 import { absenceAllowance, type AttendanceSummary } from '../lib/attendance';
+import { useLmsIssue, type LmsIssue } from '../lib/lmsStatus';
 import type { Subject as AssignmentSubject } from '../lib/assignments';
 import {
   PERIODS, WEEKDAYS, WEEKDAY_LABELS, formatHm, formatMinutes, focusPeriod, minutesLeft,
-  nowInJst, periodState, periodTime, weekdayOf,
+  nowInJst, periodState, periodTime, weekdayOf, currentPeriodLabel,
 } from '../lib/schedule';
 import './Timetable.css';
 
@@ -254,6 +254,23 @@ function WeekGrid({ weeklySubjects, now }: { weeklySubjects: Record<Day, Subject
 // 出席率（LMS の出欠）
 // ------------------------------------------------------------------
 
+/** LMS（出席率・コース）を更新できなかったときの控えめなお知らせ。時間割自体は前回の内容で表示を続ける */
+function LmsIssueNotice({ issue }: { issue: LmsIssue }) {
+  return (
+    <div role="status" className="mb-4 flex flex-wrap items-center justify-between gap-x-3 gap-y-1 rounded-lg border border-warn/40 bg-warn-soft px-4 py-2.5 text-sm">
+      <p className="text-fg">
+        <FiAlertTriangle size={14} className="inline -mt-0.5 mr-1.5 text-warn" aria-hidden="true" />
+        {issue === 'expired'
+          ? 'LMS のログインが切れたため、出席率とコースを更新できませんでした。'
+          : 'LMS に接続できず、出席率とコースを更新できませんでした。'}
+      </p>
+      {issue === 'expired'
+        ? <Link to="?tab=setting&focus=advanced" className="font-bold text-link hover:underline whitespace-nowrap">再ログイン</Link>
+        : <span className="text-fg-muted whitespace-nowrap">次に開いたときにもう一度試します</span>}
+    </div>
+  );
+}
+
 /** 「出席率 100%（記録 1 / 全 15 回）」。まだ記録がなければ「出席の記録はまだありません（全 15 回）」 */
 function attendanceLabel(a: AttendanceSummary) {
   return a.percent === null
@@ -317,7 +334,11 @@ function NextClassCard({ subjects, now, attendance }: { subjects: Subject[]; now
               : <>{formatHm(t.start)} 開始（あと<span className="font-bold text-warn">{formatMinutes(minutesLeft(s.period, now))}</span>）</>}
           </p>
           {s.attendanceId && attendance[s.attendanceId] && (
-            <p className="mt-1 text-sm text-fg-muted">{attendanceLabel(attendance[s.attendanceId])}<AbsencesLeft summary={attendance[s.attendanceId]} periodsPerDay={periodsPerDay(subjects, s)} prefix="・" /></p>
+            <div className="mt-2 pt-2 border-t border-line text-sm">
+              {/* 出席率と休める回数は 2 行に分け、休める回数を目立たせる */}
+              <p className="text-fg-muted">{attendanceLabel(attendance[s.attendanceId])}</p>
+              <p className="mt-0.5"><AbsencesLeft summary={attendance[s.attendanceId]} periodsPerDay={periodsPerDay(subjects, s)} /></p>
+            </div>
           )}
           {/* 出席する: 出席を取る時間（開始10分前〜授業中）で、出席ページがある科目のときだけ出す。
               それ以外は情報だけ（コースページ・出席ページは授業カードの授業名からも開ける） */}
@@ -348,7 +369,6 @@ function NextClassCard({ subjects, now, attendance }: { subjects: Subject[]; now
 interface TimetableContainerProps {
   isWeeklyView: boolean;
   onChangeView: (weekly: boolean) => void;
-  courseStyle: { icon: IconType; label: string; color: string } | null;
   isProfileSet: boolean;
   weeklySubjects: Record<Day, Subject[]>;
   /** 課題数を出すための科目一覧（課題ページと同じもの） */
@@ -356,23 +376,26 @@ interface TimetableContainerProps {
 }
 
 export const TimetableContainer: React.FC<TimetableContainerProps> = ({
-  isWeeklyView, onChangeView, courseStyle, isProfileSet, weeklySubjects, subjects,
+  isWeeklyView, onChangeView, isProfileSet, weeklySubjects, subjects,
 }) => {
   const now = useNow();
   const today = weekdayOf(now);
   const todaySubjects = useMemo(() => (today ? weeklySubjects[today] ?? [] : []), [today, weeklySubjects]);
   const { items } = useUnifiedAssignments(subjects);
+  const lmsIssue = useLmsIssue();
   // 出席率（LMS の出欠）。1 日 1 回取得し、端末にキャッシュする
   const attendance = useAttendance(useMemo(() => Object.values(weeklySubjects).flat(), [weeklySubjects]));
   const assignmentCount = (name: string) => items.filter(a => !a.done && a.subject_name === name).length;
 
   const wd = ['日', '月', '火', '水', '木', '金', '土'][now.getDay()];
+  // 今が何限か（1〜6限の授業時間中だけ出す）
+  const periodLabel = currentPeriodLabel(now);
   const meta = (
-    <span className="flex items-center gap-2 flex-wrap">
-      <span className="font-semibold text-fg">{now.getMonth() + 1}/{now.getDate()}（{wd}） {String(now.getHours()).padStart(2, '0')}:{String(now.getMinutes()).padStart(2, '0')}</span>
-      {courseStyle && courseStyle.label !== '未選択' && (
-        <span className={`inline-flex items-center gap-1 font-semibold ${courseStyle.color}`}><courseStyle.icon size={14} />{courseStyle.label} コース</span>
-      )}
+    // パンくずより一段大きくして、この画面の見出しとして読めるようにする（自習室の日付と同じ大きさ）
+    <span className="text-base sm:text-lg font-bold text-fg tabular-nums">
+      {now.getMonth() + 1}/{now.getDate()}（{wd}）
+      <span className="ml-2 text-fg-muted">{String(now.getHours()).padStart(2, '0')}:{String(now.getMinutes()).padStart(2, '0')}</span>
+      {periodLabel && <span className="ml-2 text-accent">{periodLabel}</span>}
     </span>
   );
 
@@ -397,10 +420,10 @@ export const TimetableContainer: React.FC<TimetableContainerProps> = ({
     return (
       <ChapterFrame title="時間割" meta={meta}>
         <div className="text-center py-10 px-4">
-          <h2 className="text-xl font-semibold text-fg mb-2">時間割を表示するには設定が必要です</h2>
-          <p className="text-fg-muted mb-6">所属コースと英語クラスを選択してください。</p>
-          <Link to="?tab=setting" className="inline-flex items-center gap-2 bg-accent-solid hover:bg-accent-solid-hover text-on-accent font-bold py-3 px-6 rounded-lg transition-colors">
-            <span>設定を開く</span>
+          <h2 className="text-xl font-semibold text-fg mb-2">時間割を表示するには LMS 連携が必要です</h2>
+          <p className="text-fg-muted mb-6">設定の「LMS 連携」でログインすると、LMS の今学期のコースから時間割を作ります。</p>
+          <Link to="?tab=setting&focus=advanced" className="inline-flex items-center gap-2 bg-accent-solid hover:bg-accent-solid-hover text-on-accent font-bold py-3 px-6 rounded-lg transition-colors">
+            <span>LMS 連携を開く</span>
             <FiArrowRight />
           </Link>
         </div>
@@ -421,6 +444,7 @@ export const TimetableContainer: React.FC<TimetableContainerProps> = ({
             <div className="flex items-center gap-2 min-w-0 text-sm text-fg-muted">{meta}</div>
             <div className="flex-shrink-0">{viewSwitch}</div>
           </div>
+          {lmsIssue && <LmsIssueNotice issue={lmsIssue} />}
           {isWeeklyView ? (
             <WeekGrid weeklySubjects={weeklySubjects} now={now} />
           ) : (

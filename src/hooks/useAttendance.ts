@@ -6,6 +6,7 @@ import { useQuery } from '@tanstack/react-query';
 import { fetchAttendanceSummary, type AttendanceSummary } from '../lib/attendance';
 import { attendanceCacheKey, getLmsSession } from '../lib/lms';
 import { nowInJst, toYmd } from '../lib/schedule';
+import { clearLmsIssue, reportLmsIssue } from '../lib/lmsStatus';
 import type { Subject } from '../components/Timetable';
 
 /** 出欠ページの id（cmid）→ 出席率 */
@@ -44,11 +45,19 @@ export function useAttendance(subjects: Subject[]): AttendanceMap {
       const results = await Promise.allSettled(
         cmids.map(async (cmid) => [cmid, await fetchAttendanceSummary(session!.token, cmid, targets.get(cmid)!)] as const),
       );
-      // 取れなかった科目は前回の値を残す（トークン切れなどは課題ページ側で再ログインを案内する）
+      // 取れなかった科目は前回の値を残す
       const next: AttendanceMap = { ...(cache?.data ?? {}) };
       for (const r of results) {
         if (r.status === 'fulfilled' && r.value[1]) next[r.value[0]] = r.value[1];
       }
+      // 1 科目も取れなければ、時間割に「更新できませんでした」を出す。表示は前回の値のまま、
+      // 今日取れたことにはしない（次に開いたときにまた取りに行く）
+      const failed = results.filter((r): r is PromiseRejectedResult => r.status === 'rejected');
+      if (failed.length === results.length) {
+        reportLmsIssue(failed[0].reason);
+        return next;
+      }
+      clearLmsIssue();
       if (cacheKey) writeCache(cacheKey, { day: today, data: next });
       return next;
     },

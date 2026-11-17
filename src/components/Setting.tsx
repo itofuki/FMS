@@ -16,7 +16,6 @@ import { useQueryClient } from "@tanstack/react-query";
 import { getPushState, enablePush, disablePush, sendTestPush, type PushState } from "../lib/push";
 import { getLmsSession, saveLmsSession, clearLmsSession, invokeFetchLms, LmsError, purgeLegacyLmsSecrets } from "../lib/lms";
 
-type DeptDB = { id: number; name: string; code: string };
 type CourseDB = { id: number; department_id: number; name: string; code: string };
 type ClassDB = { id: number; course_id: number; name: string };
 type ClassStartAction = 'auto_open' | 'notify' | 'none';
@@ -48,9 +47,8 @@ const PUSH_STATE_MESSAGES: Record<PushState, string> = {
 
 // 右の列の目次に並べる項目（id は各カードの id）
 const SECTIONS = [
-  { id: 'settings-profile', label: '所属とクラス' },
-  { id: 'settings-notify', label: '通知' },
   { id: 'settings-lms', label: 'LMS 連携' },
+  { id: 'settings-notify', label: '通知' },
   { id: 'settings-courses', label: '時間割（LMS）' },
   { id: 'settings-calendar', label: 'カレンダー連携' },
   { id: 'settings-display', label: '表示' },
@@ -65,11 +63,10 @@ type SettingProps = {
 
 export default function Setting({ onSettingsSaved }: SettingProps) {
   const navigate = useNavigate();
-  const [searchParams, setSearchParams] = useSearchParams();
+  const [searchParams] = useSearchParams();
   const queryClient = useQueryClient();
   const [user, setUser] = useState<User | null>(null);
   
-  const [departmentsDB, setDepartmentsDB] = useState<DeptDB[]>([]);
   const [coursesDB, setCoursesDB] = useState<CourseDB[]>([]);
   const [classesDB, setClassesDB] = useState<ClassDB[]>([]);
 
@@ -115,6 +112,7 @@ export default function Setting({ onSettingsSaved }: SettingProps) {
 
   // 目次: いま画面のどの項目を見ているか
   const [activeSection, setActiveSection] = useState(SECTIONS[0].id);
+
   // 目次を押した直後は、スクロールの途中経過で表示が揺れないよう少しの間だけ追従を止める
   const followPausedUntilRef = useRef(0);
   useEffect(() => {
@@ -144,12 +142,6 @@ export default function Setting({ onSettingsSaved }: SettingProps) {
   const advancedRef = useRef<HTMLDivElement>(null);
   const isAdvancedFocused = searchParams.get("focus") === "advanced";
 
-  const englishClassOptions = [
-    { value: "3803", label: 'A' }, { value: "3804", label: 'B' }, { value: "3805", label: 'C' },
-    { value: "3806", label: 'D' }, { value: "3807", label: 'E' }, { value: "3808", label: 'F' },
-    { value: "3809", label: 'G' },
-  ];
-
   useEffect(() => {
     const fetchAllData = async () => {
       const { data: { user } } = await supabase.auth.getUser();
@@ -169,7 +161,6 @@ export default function Setting({ onSettingsSaved }: SettingProps) {
       const crses = resCourse.data || [];
       const clses = resClass.data || [];
 
-      setDepartmentsDB(depts);
       setCoursesDB(crses);
       setClassesDB(clses);
 
@@ -279,17 +270,13 @@ export default function Setting({ onSettingsSaved }: SettingProps) {
   const handleSubmit = async (event: FormEvent) => {
     event.preventDefault();
     if (!user) return;
-    if (!courseClass) {
-      toast.error("クラスを最後まで選択してください");
-      return;
-    }
 
     setLoading(true);
     try {
       const { error } = await supabase.from("profiles").upsert({
         user_id: user.id,
-        class_id: courseClass,
-        english_id: englishID,
+        // 学科・クラスは設定画面では選ばない（時間割は LMS から作る）。以前の値があればそのまま残す
+        ...(courseClass ? { class_id: courseClass, english_id: englishID } : {}),
         class_start_action: classStartAction,
         deadline_reminder_hours: deadlineHours,
         // 旧バージョンのクライアント向けに auto_open も同期しておく
@@ -306,8 +293,6 @@ export default function Setting({ onSettingsSaved }: SettingProps) {
       if (onSettingsSaved) {
         onSettingsSaved();
       }
-
-      setSearchParams({ tab: 'timetable' });
     } catch (error) {
       toast.error(`エラーが発生しました: ${error instanceof Error ? error.message : String(error)}`);
     } finally {
@@ -368,14 +353,6 @@ export default function Setting({ onSettingsSaved }: SettingProps) {
     );
   }
 
-  const departmentOptions = departmentsDB.map(d => ({ value: String(d.id), label: d.name }));
-  const courseOptions = coursesDB
-    .filter(c => String(c.department_id) === String(department))
-    .map(c => ({ value: String(c.id), label: c.name }));
-  const classOptions = classesDB
-    .filter(c => String(c.course_id) === String(baseCourse))
-    .map(c => ({ value: String(c.id), label: c.name }));
-
   const scrollTo = (id: string) => {
     setActiveSection(id);
     followPausedUntilRef.current = Date.now() + 1000;
@@ -407,45 +384,71 @@ export default function Setting({ onSettingsSaved }: SettingProps) {
             </ul>
           </nav>
           <p className="px-5 py-4 text-sm text-fg-muted leading-relaxed">
-            「所属とクラス」「通知」は［変更を保存］で保存されます。LMS 連携・表示はその場で反映されます。
+            「通知」は［変更を保存］で保存されます。そのほかはその場で反映されます。
           </p>
         </aside>
 
         <div className="xl:order-1 min-w-0 xl:px-6 flex flex-col gap-5">
-          {/* 保存が必要な項目（所属とクラス・通知） */}
-          <form onSubmit={handleSubmit} className="flex flex-col gap-5">
-            <SettingsCard id="settings-profile" title="所属とクラス" description="時間割と課題の表示に使います。">
-              <div className="space-y-5">
-                <RadioGroup
-                  legend="学科"
-                  options={departmentOptions}
-                  selectedValue={department ? String(department) : null}
-                  onChange={(val) => setDepartment(Number(val))}
-                />
-                {department && courseOptions.length > 0 && (
-                  <RadioGroup
-                    legend="コース"
-                    options={courseOptions}
-                    selectedValue={baseCourse ? String(baseCourse) : null}
-                    onChange={(val) => setBaseCourse(Number(val))}
+          {/* LMS 連携（その場で反映）。課題ページの「再ログイン」から来たときは強調する */}
+          <div ref={advancedRef}>
+            <SettingsCard
+              id="settings-lms"
+              title="LMS 連携"
+              description="LMS の ID とパスワードでログインすると、課題を自動で取得します。"
+              highlight={isAdvancedFocused}
+              badge={lmsCredentialsSaved ? <span className="text-xs px-2 py-0.5 rounded-full bg-up-soft text-up font-bold">接続済み</span> : undefined}
+            >
+              <div className="space-y-3">
+                <div className="grid gap-2 sm:grid-cols-2">
+                  <input
+                    type="text"
+                    autoComplete="username"
+                    value={lmsUsername}
+                    onChange={(e) => setLmsUsername(e.target.value)}
+                    placeholder="LMS のユーザー ID"
+                    aria-label="LMS のユーザー ID"
+                    className="w-full h-10 bg-surface border border-line-strong rounded-md px-3 text-fg outline-none text-sm placeholder:text-fg-subtle focus:border-accent transition-colors"
                   />
-                )}
-                {baseCourse && classOptions.length > 0 && (
-                  <RadioGroup
-                    legend="クラス"
-                    options={classOptions}
-                    selectedValue={courseClass ? String(courseClass) : null}
-                    onChange={(val) => setCourseClass(Number(val))}
+                  <input
+                    type="password"
+                    autoComplete="current-password"
+                    value={lmsPassword}
+                    onChange={(e) => setLmsPassword(e.target.value)}
+                    placeholder={lmsCredentialsSaved ? '再ログインする場合のみ入力' : 'LMS のパスワード'}
+                    aria-label="LMS のパスワード"
+                    className="w-full h-10 bg-surface border border-line-strong rounded-md px-3 text-fg outline-none text-sm placeholder:text-fg-subtle focus:border-accent transition-colors"
                   />
+                </div>
+                {lmsStatus && (
+                  <p role="status" className={`text-sm ${lmsStatus.ok ? 'text-up' : 'text-down'}`}>
+                    {lmsStatus.ok ? '✓ ' : '✗ '}{lmsStatus.message}
+                  </p>
                 )}
-                <RadioGroup
-                  legend="英語のクラス"
-                  options={englishClassOptions}
-                  selectedValue={englishID ? String(englishID) : null}
-                  onChange={(val) => setEnglishID(Number(val))}
-                />
+                <div className="flex flex-wrap gap-2">
+                  <button
+                    type="button"
+                    onClick={handleSaveLmsCredentials}
+                    disabled={isLmsLoading}
+                    className="h-9 px-4 rounded-md bg-accent-solid hover:bg-accent-solid-hover text-on-accent transition-colors disabled:opacity-50"
+                  >
+                    <span className="text-sm font-bold">{isLmsLoading ? '接続を確認中...' : (lmsCredentialsSaved ? '再ログイン' : 'ログインして接続')}</span>
+                  </button>
+                  {lmsCredentialsSaved && (
+                    <button type="button" onClick={handleClearLmsCredentials} className="h-9 px-4 rounded-md border border-down/50 text-down hover:bg-down-soft transition-colors">
+                      <span className="text-sm font-bold">接続を解除</span>
+                    </button>
+                  )}
+                </div>
+                <p className="text-sm text-fg-muted leading-relaxed">
+                  パスワードは保存されず、ログイン後に発行される LMS のアクセストークンだけをこのブラウザに保存します。トークンの有効期限が切れたら、もう一度ログインしてください。
+                </p>
               </div>
             </SettingsCard>
+          </div>
+
+          {/* 保存が必要な項目（通知） */}
+          <form onSubmit={handleSubmit} className="flex flex-col gap-5">
+
 
             <SettingsCard id="settings-notify" title="通知" description="締切が近い課題や、授業の開始前にお知らせします。">
               <div className="space-y-6">
@@ -519,7 +522,7 @@ export default function Setting({ onSettingsSaved }: SettingProps) {
             <div role="status" className="sticky bottom-20 md:bottom-4 z-10 flex items-center justify-between gap-3 rounded-xl bg-surface shadow-md border border-warn px-4 sm:px-5 py-3 animate-in fade-in slide-in-from-bottom-2 duration-200">
               <p className="text-sm text-fg">
                 <span className="inline-block w-2 h-2 rounded-full bg-warn mr-2 align-middle" aria-hidden="true" />
-                {savedSnapshot === null ? '所属とクラスが未保存です' : '未保存の変更があります'}
+                未保存の変更があります
               </p>
               <button type="submit" disabled={loading} className="flex-shrink-0 h-10 px-6 rounded-md bg-accent-solid hover:bg-accent-solid-hover text-on-accent transition-colors disabled:opacity-50">
                 <span className="text-sm font-bold">{loading ? '保存中...' : '変更を保存'}</span>
@@ -527,63 +530,6 @@ export default function Setting({ onSettingsSaved }: SettingProps) {
             </div>
             )}
           </form>
-
-          {/* LMS 連携（その場で反映）。課題ページの「再ログイン」から来たときは強調する */}
-          <div ref={advancedRef}>
-            <SettingsCard
-              id="settings-lms"
-              title="LMS 連携"
-              description="LMS の ID とパスワードでログインすると、課題を自動で取得します。"
-              highlight={isAdvancedFocused}
-              badge={lmsCredentialsSaved ? <span className="text-xs px-2 py-0.5 rounded-full bg-up-soft text-up font-bold">接続済み</span> : undefined}
-            >
-              <div className="space-y-3">
-                <div className="grid gap-2 sm:grid-cols-2">
-                  <input
-                    type="text"
-                    autoComplete="username"
-                    value={lmsUsername}
-                    onChange={(e) => setLmsUsername(e.target.value)}
-                    placeholder="LMS のユーザー ID"
-                    aria-label="LMS のユーザー ID"
-                    className="w-full h-10 bg-surface border border-line-strong rounded-md px-3 text-fg outline-none text-sm placeholder:text-fg-subtle focus:border-accent transition-colors"
-                  />
-                  <input
-                    type="password"
-                    autoComplete="current-password"
-                    value={lmsPassword}
-                    onChange={(e) => setLmsPassword(e.target.value)}
-                    placeholder={lmsCredentialsSaved ? '再ログインする場合のみ入力' : 'LMS のパスワード'}
-                    aria-label="LMS のパスワード"
-                    className="w-full h-10 bg-surface border border-line-strong rounded-md px-3 text-fg outline-none text-sm placeholder:text-fg-subtle focus:border-accent transition-colors"
-                  />
-                </div>
-                {lmsStatus && (
-                  <p role="status" className={`text-sm ${lmsStatus.ok ? 'text-up' : 'text-down'}`}>
-                    {lmsStatus.ok ? '✓ ' : '✗ '}{lmsStatus.message}
-                  </p>
-                )}
-                <div className="flex flex-wrap gap-2">
-                  <button
-                    type="button"
-                    onClick={handleSaveLmsCredentials}
-                    disabled={isLmsLoading}
-                    className="h-9 px-4 rounded-md bg-accent-solid hover:bg-accent-solid-hover text-on-accent transition-colors disabled:opacity-50"
-                  >
-                    <span className="text-sm font-bold">{isLmsLoading ? '接続を確認中...' : (lmsCredentialsSaved ? '再ログイン' : 'ログインして接続')}</span>
-                  </button>
-                  {lmsCredentialsSaved && (
-                    <button type="button" onClick={handleClearLmsCredentials} className="h-9 px-4 rounded-md border border-down/50 text-down hover:bg-down-soft transition-colors">
-                      <span className="text-sm font-bold">接続を解除</span>
-                    </button>
-                  )}
-                </div>
-                <p className="text-sm text-fg-muted leading-relaxed">
-                  パスワードは保存されず、ログイン後に発行される LMS のアクセストークンだけをこのブラウザに保存します。トークンの有効期限が切れたら、もう一度ログインしてください。
-                </p>
-              </div>
-            </SettingsCard>
-          </div>
 
           {/* 時間割（LMS のコース）。読み取れなかった曜日・時限や教室を手で入れる（その場で反映） */}
           <SettingsCard id="settings-courses" title="時間割（LMS のコース）" description="LMS の今学期のコースから時間割を作ります。曜日・時限が読み取れないコースや教室はここで入れてください。">

@@ -1,7 +1,7 @@
 /* src/lib/schedule.ts
  * 時限の時刻表と、「今は何限か」「次の授業まで何分か」などの計算（時間割・自習室で共通）。
  * 時刻はすべて日本時間で扱う（nowInJst() の値を渡す）。
- * サーバー側の通知（supabase/functions/_shared/reminders.ts の PERIOD_STARTS）とも時刻をそろえること。
+ * サーバー側（supabase/functions/_shared/reminders.ts の PERIOD_TIMES）と同じであること。src/lib/periods.test.ts で確かめている。
  */
 
 export type PeriodTime = { period: number; start: { h: number; m: number }; end: { h: number; m: number } };
@@ -90,3 +90,11 @@ export function mondayOf(d: Date): Date {
 
 export const toYmd = (d: Date) =>
   `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+
+/** 今が何限か（見出し用）。1〜6限の授業時間中だけ「3限」を返し、それ以外（休み時間・昼休み・授業時間外・土日）は null */
+export function currentPeriodLabel(now: Date): string | null {
+  if (!weekdayOf(now)) return null;
+  const n = minutesOf(now);
+  const current = PERIODS.find((p) => n >= toMin(p.start) && n < toMin(p.end));
+  return current ? `${current.period}限` : null;
+}
