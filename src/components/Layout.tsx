@@ -2,6 +2,7 @@
 import { useRef, useEffect } from 'react';
 import { Outlet, Link } from "react-router-dom";
 import { ThemeToggleButton } from "./ThemeToggle";
+import { SUB_MENU_IDS } from "../lib/menu";
 import { Toaster } from 'sonner';
 import { useSidebar, type ChapterLink } from "../contexts/SidebarContext"; 
 import { FiMenu, FiSettings, FiCalendar, FiFileText, FiBookOpen, FiFolder, FiMessageSquare, FiExternalLink, FiCheckSquare } from "react-icons/fi";
@@ -30,10 +31,8 @@ const SidebarContent: React.FC<{
     closeMenu();
   };
   
-  // 下部に配置するメニューのIDリスト
-  const bottomLinkIds = ['tips', 'feedback', 'setting'];
-  const topLinks = links.filter(link => !bottomLinkIds.includes(link.id));
-  const bottomLinks = links.filter(link => bottomLinkIds.includes(link.id));
+  const topLinks = links.filter(link => !SUB_MENU_IDS.includes(link.id));
+  const bottomLinks = links.filter(link => SUB_MENU_IDS.includes(link.id));
 
   return (
     <div className="flex flex-col h-full pt-4 md:pt-6 overflow-y-auto">
@@ -61,10 +60,11 @@ const SidebarContent: React.FC<{
         ))}
       </ul>
 
-      {/* 設定やご意見のブロック */}
+      {/* サブメニュー（テスト対策・Tips・ご意見・設定） */}
       {bottomLinks.length > 0 && (
         <div className="mt-4 px-2 pb-4">
           <hr className="border-t border-line mb-4 transition-colors duration-300" />
+          <h2 className="text-xs font-semibold tracking-wider text-fg-subtle mb-3 px-2">サブメニュー</h2>
           
           <ul className="space-y-1">
             {bottomLinks.map(link => (
@@ -138,8 +138,6 @@ export default function Layout() {
     };
   }, [isMobileMenuOpen, setIsMobileMenuOpen]);
 
-  // ボトムナビゲーションに表示させないメニューのID
-  const bottomLinkIds = ['tips', 'feedback', 'setting'];
 
   return (
     <div 
@@ -254,7 +252,7 @@ export default function Layout() {
         {chapterLinks.length > 0 && (
         <nav className="md:hidden absolute bottom-0 left-0 w-full z-30 bg-surface/95 backdrop-blur-md border-t border-line pt-2 pb-[calc(0.5rem+env(safe-area-inset-bottom))]">
           <ul className="flex justify-around items-center h-14 px-1">
-            {chapterLinks.filter(link => !bottomLinkIds.includes(link.id)).map(link => (
+            {chapterLinks.filter(link => !SUB_MENU_IDS.includes(link.id)).map(link => (
               <li key={link.id} className="flex-1">
                 <button
                   onClick={() => setActiveChapter(link.id)}

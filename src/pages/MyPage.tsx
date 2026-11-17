@@ -17,6 +17,7 @@ import Feedback from '../components/Feedback';
 import Tips from '../components/Tips';
 import Loading from '../components/Loading';
 import DeadlineReminderSync from '../components/DeadlineReminderSync';
+import { menuGroupLabel } from '../lib/menu';
 
 const VALID_DAYS: Day[] = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri'];
 function isDay(key: unknown): key is Day {
@@ -320,7 +321,8 @@ export default function MyPage() {
         {/* パンくずリスト: 現在地を小さく示し、大きな見出しで場所を取らない */}
         <div className="flex items-center justify-between gap-3 mb-3 px-1 text-xs sm:text-sm">
           <nav aria-label="現在地" className="flex items-center gap-1.5 text-fg-muted min-w-0">
-            <span>マイページ</span>
+            {/* 先頭は、サイドメニューのどちらのグループ（メニュー／サブメニュー）にいるか */}
+            <span>{menuGroupLabel(activeChapter)}</span>
             <span aria-hidden="true" className="text-fg-subtle">›</span>
             <span className="font-semibold text-fg truncate">{myPageChapters.find(c => c.id === activeChapter)?.label ?? ''}</span>
           </nav>
