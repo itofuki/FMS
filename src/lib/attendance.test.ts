@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { parseAttendanceValues, toAttendanceSummary } from './attendance';
+import { parseAttendanceValues, toAttendanceSummary, absenceAllowance } from './attendance';
 
 // LMS のアプリ用画面（mod_attendance の mobile_view_activity）を、実際の形に近づけて縮めたもの
 const row = (key: string, value: string) => `
@@ -46,5 +46,24 @@ describe('toAttendanceSummary', () => {
   });
   it('回数が読めなければ null', () => {
     expect(toAttendanceSummary({ percentagesessionscompleted: '80.0%' })).toBeNull();
+  });
+});
+
+describe('absenceAllowance', () => {
+  const s = (points: string | null) => ({ completed: 5, total: 5, percent: 100, points });
+  it('1 コマの授業: 減点 11 点まで。減点なしなら 3 回休める', () => {
+    expect(absenceAllowance(s('15 / 15'), 1)).toEqual({ lost: 0, limit: 11, absencesLeft: 3 });
+  });
+  it('欠席 3 回 + 遅刻 2 回（減点 11）はセーフで、あと 0 回', () => {
+    expect(absenceAllowance(s('34 / 45'), 1)).toEqual({ lost: 11, limit: 11, absencesLeft: 0 });
+  });
+  it('上限を超えるとマイナス', () => {
+    expect(absenceAllowance(s('33 / 45'), 1)?.absencesLeft).toBe(-1);
+  });
+  it('2 コマ連続の授業は上限が 2 倍', () => {
+    expect(absenceAllowance(s('24 / 27'), 2)).toEqual({ lost: 3, limit: 22, absencesLeft: 6 });
+  });
+  it('得点が読めなければ null', () => {
+    expect(absenceAllowance(s(null), 1)).toBeNull();
   });
 });

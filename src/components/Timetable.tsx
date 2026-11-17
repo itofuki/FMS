@@ -13,7 +13,7 @@ import { FiArrowRight, FiExternalLink, FiFileText, FiClock, FiCoffee, FiCheckCir
 import ChapterFrame from './ChapterFrame';
 import { useUnifiedAssignments } from '../hooks/useUnifiedAssignments';
 import { useAttendance, type AttendanceMap } from '../hooks/useAttendance';
-import type { AttendanceSummary } from '../lib/attendance';
+import { absenceAllowance, type AttendanceSummary } from '../lib/attendance';
 import type { Subject as AssignmentSubject } from '../lib/assignments';
 import {
   PERIODS, WEEKDAYS, WEEKDAY_LABELS, formatHm, formatMinutes, focusPeriod, minutesLeft,
@@ -173,7 +173,7 @@ function TodayTimeline({ subjects, now, assignmentCount, attendance }: { subject
                 </a>
                 {(count > 0 || (s.attendanceId && attendance[s.attendanceId])) && (
                   <div className="mt-3 flex flex-wrap items-center gap-2">
-                    {s.attendanceId && attendance[s.attendanceId] && <AttendanceChip summary={attendance[s.attendanceId]} />}
+                    {s.attendanceId && attendance[s.attendanceId] && <AttendanceChip summary={attendance[s.attendanceId]} periodsPerDay={periodsPerDay(subjects, s)} />}
                     {count > 0 && (
                     <Link to="?tab=assignments" className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-md border border-line-strong text-fg hover:bg-surface-2 transition-colors">
                       <FiFileText size={13} className="text-warn" />
@@ -259,8 +259,26 @@ function attendanceLabel(a: AttendanceSummary) {
     : `出席率 ${Math.round(a.percent)}%（記録 ${a.completed} / 全 ${a.total} 回）`;
 }
 
-/** 授業カードの下段に出す出席率（押せない表示だけのもの） */
-function AttendanceChip({ summary }: { summary: AttendanceSummary }) {
+/** その授業が 1 日に何コマあるか（同じコースが同じ曜日に並んでいる数）。休める回数の上限の計算に使う */
+function periodsPerDay(daySubjects: Subject[], s: Subject) {
+  const courseId = s.id.split('-')[0];
+  return Math.max(1, daySubjects.filter(x => x.id.split('-')[0] === courseId && x.wday === s.wday).length);
+}
+
+/** 「あと 2 回休める」。上限が近ければ注意の色、超えていれば赤 */
+function AbsencesLeft({ summary, periodsPerDay, prefix = '' }: { summary: AttendanceSummary; periodsPerDay: number; prefix?: string }) {
+  const a = absenceAllowance(summary, periodsPerDay);
+  if (!a) return null;
+  const tone = a.absencesLeft < 0 ? 'text-down' : a.absencesLeft <= 1 ? 'text-warn' : 'text-fg';
+  return (
+    <span className={`font-bold ${tone}`} title={`減点 ${a.lost} 点 / 上限 ${a.limit} 点（欠席 −3 点・遅刻 −1 点）`}>
+      {prefix}{a.absencesLeft < 0 ? '休める上限を超えています' : `あと${a.absencesLeft}回休める`}
+    </span>
+  );
+}
+
+/** 授業カードの下段に出す出席率と休める回数（押せない表示だけのもの） */
+function AttendanceChip({ summary, periodsPerDay }: { summary: AttendanceSummary; periodsPerDay: number }) {
   return (
     <span
       title={`${attendanceLabel(summary)}${summary.points ? `・得点 ${summary.points}` : ''}（LMS の出欠より・1日1回更新）`}
@@ -270,6 +288,7 @@ function AttendanceChip({ summary }: { summary: AttendanceSummary }) {
       <span className="text-xs font-bold">
         {summary.percent === null ? '出席 記録なし' : <>出席率 <span className="text-fg">{Math.round(summary.percent)}%</span></>}
         <span className="font-normal ml-1">（{summary.completed}/{summary.total}回）</span>
+        <AbsencesLeft summary={summary} periodsPerDay={periodsPerDay} prefix=" · " />
       </span>
     </span>
   );
@@ -296,7 +315,7 @@ function NextClassCard({ subjects, now, attendance }: { subjects: Subject[]; now
               : <>{formatHm(t.start)} 開始（あと<span className="font-bold text-warn">{formatMinutes(minutesLeft(s.period, now))}</span>）</>}
           </p>
           {s.attendanceId && attendance[s.attendanceId] && (
-            <p className="mt-1 text-sm text-fg-muted">{attendanceLabel(attendance[s.attendanceId])}</p>
+            <p className="mt-1 text-sm text-fg-muted">{attendanceLabel(attendance[s.attendanceId])}<AbsencesLeft summary={attendance[s.attendanceId]} periodsPerDay={periodsPerDay(subjects, s)} prefix="・" /></p>
           )}
           {/* 出席する: 出席を取る時間（開始10分前〜授業中）で、出席ページがある科目のときだけ出す。
               それ以外は情報だけ（コースページ・出席ページは授業カードの授業名からも開ける） */}

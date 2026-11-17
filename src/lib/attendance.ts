@@ -75,3 +75,40 @@ export async function fetchAttendanceSummary(token: string, cmid: number, course
   const html = ((data?.templates ?? []) as { html?: string }[]).map((t) => t.html ?? '').join('\n');
   return toAttendanceSummary(parseAttendanceValues(html));
 }
+
+// ------------------------------------------------------------------
+// あと何回休めるか
+// 大学の基準: 全 15 回・出席点 45 点（1 回 3 点）のうち、減点 11 点まではセーフ
+// （例: 欠席 3 回 = 9 点 + 遅刻 2 回 = 2 点）。1 日に複数コマある授業は、コマ数に応じて上限も増える。
+// LMS からは各回の内訳が取れないため、減った点数から数える（欠席 1 回 = 3 点）。
+// ------------------------------------------------------------
+
+export const POINTS_PER_SESSION = 3;
+export const ALLOWED_LOST_POINTS_PER_PERIOD = 11;
+
+export type AbsenceAllowance = {
+  /** これまでに減った点数 */
+  lost: number;
+  /** 減ってもよい点数の上限 */
+  limit: number;
+  /** あと何回欠席できるか（上限を超えていればマイナス） */
+  absencesLeft: number;
+};
+
+/** 「24 / 27」→ { got: 24, max: 27 } */
+export function parsePoints(points: string | null): { got: number; max: number } | null {
+  const m = points?.match(/([\d.]+)\s*\/\s*([\d.]+)/);
+  if (!m) return null;
+  const got = Number(m[1]);
+  const max = Number(m[2]);
+  return Number.isFinite(got) && Number.isFinite(max) ? { got, max } : null;
+}
+
+/** periodsPerDay: その授業の 1 日あたりのコマ数（火曜 3・4 限なら 2） */
+export function absenceAllowance(summary: AttendanceSummary, periodsPerDay: number): AbsenceAllowance | null {
+  const p = parsePoints(summary.points);
+  if (!p) return null;
+  const lost = Math.max(0, p.max - p.got);
+  const limit = ALLOWED_LOST_POINTS_PER_PERIOD * Math.max(1, periodsPerDay);
+  return { lost, limit, absencesLeft: Math.floor((limit - lost) / POINTS_PER_SESSION) };
+}
