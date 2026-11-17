@@ -2,17 +2,10 @@
 // カレンダー購読（iCalendar / .ics）を組み立てる純粋関数。Deno / Vitest の両方から読み込める。
 // 時刻はすべて UTC（末尾 Z）で書き出す。授業の時刻は JST で定義し、ここで UTC に直す。
 
-import { LMS_BASE } from "./reminders.ts";
+import { LMS_BASE, PERIOD_TIMES } from "./reminders.ts";
 
-// 時限の時刻（JST）。src/lib/schedule.ts の PERIODS と揃えること
-export const PERIOD_TIMES: { period: number; start: [number, number]; end: [number, number] }[] = [
-  { period: 1, start: [9, 15], end: [10, 55] },
-  { period: 2, start: [10, 55], end: [12, 25] },
-  { period: 3, start: [13, 20], end: [14, 50] },
-  { period: 4, start: [15, 0], end: [16, 30] },
-  { period: 5, start: [16, 40], end: [18, 10] },
-  { period: 6, start: [18, 20], end: [19, 50] },
-];
+export { PERIOD_TIMES };
+
 
 const WDAY_INDEX: Record<string, number> = { Mon: 1, Tue: 2, Wed: 3, Thu: 4, Fri: 5 };
 const DAY_MS = 24 * 60 * 60 * 1000;

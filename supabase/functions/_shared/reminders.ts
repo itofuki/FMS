@@ -3,15 +3,19 @@
 
 export const LMS_BASE = "https://lms-tokyo.iput.ac.jp";
 
-// 時限ごとの開始時刻（JST）。フロントの src/pages/MyPage.tsx の periodTimes と揃えること
-export const PERIOD_STARTS: { period: number; h: number; m: number }[] = [
-  { period: 1, h: 9, m: 15 },
-  { period: 2, h: 10, m: 55 },
-  { period: 3, h: 13, m: 20 },
-  { period: 4, h: 15, m: 0 },
-  { period: 5, h: 16, m: 40 },
-  { period: 6, h: 18, m: 20 },
+// 時限ごとの開始・終了時刻（JST）。サーバー側（通知・カレンダー購読）はここだけを見る。
+// 画面側の src/lib/schedule.ts の PERIODS と同じであること（src/lib/periods.test.ts で確かめている）
+export const PERIOD_TIMES: { period: number; start: [number, number]; end: [number, number] }[] = [
+  { period: 1, start: [9, 15], end: [10, 55] },
+  { period: 2, start: [10, 55], end: [12, 25] },
+  { period: 3, start: [13, 20], end: [14, 50] },
+  { period: 4, start: [15, 0], end: [16, 30] },
+  { period: 5, start: [16, 40], end: [18, 10] },
+  { period: 6, start: [18, 20], end: [19, 50] },
 ];
+
+export const PERIOD_STARTS: { period: number; h: number; m: number }[] =
+  PERIOD_TIMES.map((p) => ({ period: p.period, h: p.start[0], m: p.start[1] }));
 
 export const CLASS_LEAD_MINUTES = 5;
 
