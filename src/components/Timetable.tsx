@@ -88,7 +88,7 @@ function StateBadge({ state, minutes }: { state: 'current' | 'next' | 'after' | 
     after: { label: '終了', cls: 'bg-surface text-fg-subtle border-line', dot: 'bg-fg-subtle' },
   }[state];
   return (
-    <span className={`absolute -top-2.5 right-2 inline-flex items-center gap-1 px-2 py-0.5 rounded-full border text-xs font-bold whitespace-nowrap ${map.cls}`}>
+    <span data-state-badge className={`absolute -top-2.5 right-2 inline-flex items-center gap-1 px-2 py-0.5 rounded-full border text-xs font-bold whitespace-nowrap ${map.cls}`}>
       <span className={`w-1.5 h-1.5 rounded-full ${map.dot}`} aria-hidden="true" />
       {map.label}
     </span>
@@ -148,8 +148,10 @@ function TodayTimeline({ subjects, now, assignmentCount, attendance }: { subject
               <div className={`relative rounded-xl px-4 sm:px-5 py-4 transition-opacity ${
                 // 課題カードと同じ色（ライトは白、ダークは元の配色の slate-700/80）
                 state === 'current' ? 'shadow-sm bg-surface dark:bg-slate-700/80 ring-2 ring-accent'
-                // 終わった授業: ライトは灰色・影なし・薄めにしてはっきりグレーアウト。ダークは課題の完了と同じ slate-800/60
-                : state === 'after' ? 'bg-slate-200 border border-slate-300 opacity-50 dark:border-0 dark:bg-slate-800/60 dark:opacity-60 dark:shadow-sm'
+                // 終わった授業: ライトは背景より一段濃い灰色の地と枠（背景に溶け込まないよう地は不透明）にし、中身だけ薄くする。
+                // 右上の状態バッジはカードの縁にまたがるので薄くしない（透けて枠線が見えるため）。
+                // ダークは課題の完了と同じ slate-800/60
+                : state === 'after' ? 'bg-[#d5dce5] border border-[#bcc6d3] [&>*:not([data-state-badge])]:opacity-55 dark:border-0 dark:bg-slate-800/60 dark:[&>*:not([data-state-badge])]:opacity-100 dark:opacity-60 dark:shadow-sm'
                 : 'shadow-sm bg-surface dark:bg-slate-700/80'
               }`}>
                 <StateBadge state={badgeState} minutes={minutesLeft(s.period, now)} />
