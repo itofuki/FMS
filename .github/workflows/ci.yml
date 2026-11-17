@@ -13,6 +13,10 @@ jobs:
   web:
     name: Web (lint / test / build)
     runs-on: ubuntu-latest
+    # テストとビルドは Supabase に接続しないが、クライアントの作成に URL が必要なのでダミーを渡す
+    env:
+      VITE_SUPABASE_URL: https://ci-placeholder.supabase.co
+      VITE_SUPABASE_ANON_KEY: ci-placeholder-anon-key
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
