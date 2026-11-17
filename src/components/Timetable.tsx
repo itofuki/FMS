@@ -12,6 +12,8 @@ import type { IconType } from 'react-icons';
 import { FiArrowRight, FiExternalLink, FiFileText, FiClock, FiCoffee, FiCheckCircle } from 'react-icons/fi';
 import ChapterFrame from './ChapterFrame';
 import { useUnifiedAssignments } from '../hooks/useUnifiedAssignments';
+import { useAttendance, type AttendanceMap } from '../hooks/useAttendance';
+import type { AttendanceSummary } from '../lib/attendance';
 import type { Subject as AssignmentSubject } from '../lib/assignments';
 import {
   PERIODS, WEEKDAYS, WEEKDAY_LABELS, formatHm, formatMinutes, focusPeriod, minutesLeft,
@@ -93,7 +95,7 @@ function StateBadge({ state, minutes }: { state: 'current' | 'next' | 'after' | 
   );
 }
 
-function TodayTimeline({ subjects, now, assignmentCount }: { subjects: Subject[]; now: Date; assignmentCount: (name: string) => number }) {
+function TodayTimeline({ subjects, now, assignmentCount, attendance }: { subjects: Subject[]; now: Date; assignmentCount: (name: string) => number; attendance: AttendanceMap }) {
   const focus = focusPeriod(subjects.map(s => s.period), now);
   const items = buildTimeline(subjects);
 
@@ -169,12 +171,15 @@ function TodayTimeline({ subjects, now, assignmentCount }: { subjects: Subject[]
                   <span>{s.name}</span>
                   <FiExternalLink size={15} className="mt-1.5 flex-shrink-0 text-fg-subtle" aria-hidden="true" />
                 </a>
-                {count > 0 && (
+                {(count > 0 || (s.attendanceId && attendance[s.attendanceId])) && (
                   <div className="mt-3 flex flex-wrap items-center gap-2">
+                    {s.attendanceId && attendance[s.attendanceId] && <AttendanceChip summary={attendance[s.attendanceId]} />}
+                    {count > 0 && (
                     <Link to="?tab=assignments" className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-md border border-line-strong text-fg hover:bg-surface-2 transition-colors">
                       <FiFileText size={13} className="text-warn" />
                       <span className="text-xs font-bold">課題 {count}件</span>
                     </Link>
+                    )}
                   </div>
                 )}
               </div>
@@ -244,10 +249,37 @@ function WeekGrid({ weeklySubjects, now }: { weeklySubjects: Record<Day, Subject
 }
 
 // ------------------------------------------------------------------
+// 出席率（LMS の出欠）
+// ------------------------------------------------------------------
+
+/** 「出席率 100%（記録 1 / 全 15 回）」。まだ記録がなければ「出席の記録はまだありません（全 15 回）」 */
+function attendanceLabel(a: AttendanceSummary) {
+  return a.percent === null
+    ? `出席の記録はまだありません（全 ${a.total} 回）`
+    : `出席率 ${Math.round(a.percent)}%（記録 ${a.completed} / 全 ${a.total} 回）`;
+}
+
+/** 授業カードの下段に出す出席率（押せない表示だけのもの） */
+function AttendanceChip({ summary }: { summary: AttendanceSummary }) {
+  return (
+    <span
+      title={`${attendanceLabel(summary)}${summary.points ? `・得点 ${summary.points}` : ''}（LMS の出欠より・1日1回更新）`}
+      className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-md bg-surface-2 dark:bg-slate-800/60 text-fg-muted"
+    >
+      <FiCheckCircle size={13} className="text-up" aria-hidden="true" />
+      <span className="text-xs font-bold">
+        {summary.percent === null ? '出席 記録なし' : <>出席率 <span className="text-fg">{Math.round(summary.percent)}%</span></>}
+        <span className="font-normal ml-1">（{summary.completed}/{summary.total}回）</span>
+      </span>
+    </span>
+  );
+}
+
+// ------------------------------------------------------------------
 // 右の列: 授業中・次の授業
 // ------------------------------------------------------------------
 
-function NextClassCard({ subjects, now }: { subjects: Subject[]; now: Date }) {
+function NextClassCard({ subjects, now, attendance }: { subjects: Subject[]; now: Date; attendance: AttendanceMap }) {
   const focus = focusPeriod(subjects.map(s => s.period), now);
   const s = focus ? subjects.find(x => x.period === focus.period) : undefined;
   const t = s ? periodTime(s.period) : undefined;
@@ -263,6 +295,9 @@ function NextClassCard({ subjects, now }: { subjects: Subject[]; now: Date }) {
               ? <>{formatHm(t.end)} まで（あと<span className="font-bold text-accent">{formatMinutes(minutesLeft(s.period, now))}</span>）</>
               : <>{formatHm(t.start)} 開始（あと<span className="font-bold text-warn">{formatMinutes(minutesLeft(s.period, now))}</span>）</>}
           </p>
+          {s.attendanceId && attendance[s.attendanceId] && (
+            <p className="mt-1 text-sm text-fg-muted">{attendanceLabel(attendance[s.attendanceId])}</p>
+          )}
           {/* 出席する: 出席を取る時間（開始10分前〜授業中）で、出席ページがある科目のときだけ出す。
               それ以外は情報だけ（コースページ・出席ページは授業カードの授業名からも開ける） */}
           {s.attendanceId && (focus!.state === 'current' || minutesLeft(s.period, now) <= ATTENDANCE_LEAD_MIN) && (
@@ -306,6 +341,8 @@ export const TimetableContainer: React.FC<TimetableContainerProps> = ({
   const today = weekdayOf(now);
   const todaySubjects = useMemo(() => (today ? weeklySubjects[today] ?? [] : []), [today, weeklySubjects]);
   const { items } = useUnifiedAssignments(subjects);
+  // 出席率（LMS の出欠）。1 日 1 回取得し、端末にキャッシュする
+  const attendance = useAttendance(useMemo(() => Object.values(weeklySubjects).flat(), [weeklySubjects]));
   const assignmentCount = (name: string) => items.filter(a => !a.done && a.subject_name === name).length;
 
   const wd = ['日', '月', '火', '水', '木', '金', '土'][now.getDay()];
@@ -355,7 +392,7 @@ export const TimetableContainer: React.FC<TimetableContainerProps> = ({
       {/* 今日・週のどちらでも右の列を出し、切り替えボタンの位置が動かないようにする */}
       <div className="xl:grid xl:grid-cols-[minmax(0,1fr)_18rem] xl:gap-8 xl:items-start">
         <aside className="mb-6 xl:mb-0 xl:order-2 xl:sticky xl:top-4 bg-surface border border-line">
-          <NextClassCard subjects={todaySubjects} now={now} />
+          <NextClassCard subjects={todaySubjects} now={now} attendance={attendance} />
         </aside>
         <div className="xl:order-1 min-w-0 xl:px-6">
           {/* 見出し行: 左に日付、右に今日・週の切り替え（課題の「追加」と同じく真ん中の列の右上） */}
@@ -367,7 +404,7 @@ export const TimetableContainer: React.FC<TimetableContainerProps> = ({
             <WeekGrid weeklySubjects={weeklySubjects} now={now} />
           ) : (
             <div className="pt-3">
-              <TodayTimeline subjects={todaySubjects} now={now} assignmentCount={assignmentCount} />
+              <TodayTimeline subjects={todaySubjects} now={now} assignmentCount={assignmentCount} attendance={attendance} />
             </div>
           )}
         </div>
