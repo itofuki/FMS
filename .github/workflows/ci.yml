@@ -1,0 +1,44 @@
+# CI: 画面側（lint・テスト・ビルド）と、Supabase Edge Functions（Deno）の型チェック
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  web:
+    name: Web (lint / test / build)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - run: npm run lint
+      - run: npm test
+      - run: npm run build
+
+  functions:
+    name: Edge Functions (deno check)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: denoland/setup-deno@v2
+        with:
+          deno-version: v2.x
+      - name: Type-check each function with its own deno.json
+        run: |
+          status=0
+          for f in supabase/functions/*/index.ts; do
+            dir="$(dirname "$f")"
+            echo "::group::$dir"
+            deno check --config "$dir/deno.json" "$f" || status=1
+            echo "::endgroup::"
+          done
+          exit $status
