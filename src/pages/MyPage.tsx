@@ -1,6 +1,6 @@
 /* src/pages/Mypage.tsx */
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useCallback } from "react";
 import { supabase } from "../lib/supabaseClient";
 import { useNavigate, useSearchParams } from "react-router-dom";
 import { useSidebar, type ChapterLink } from "../contexts/SidebarContext";
@@ -17,6 +17,7 @@ import Tips from '../components/Tips';
 import { PageSkeleton, TimetableSkeleton } from '../components/Skeleton';
 import DeadlineReminderSync from '../components/DeadlineReminderSync';
 import { menuGroupLabel } from '../lib/menu';
+import { useLmsCourseSync } from '../hooks/useLmsCourseSync';
 
 const VALID_DAYS: Day[] = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri'];
 function isDay(key: unknown): key is Day {
@@ -149,9 +150,12 @@ export default function MyPage() {
   ];
   useScheduledReloader(reloadTimes, () => activeChapter === 'test-prep');
 
+  // LMS の今学期のコースを 1 日 1 回サーバーへ同期し、変わっていたら時間割を読み直す
+  useLmsCourseSync(useCallback(() => setRefreshKey(prev => prev + 1), []));
+
   useEffect(() => {
     const fetchUserTimetable = async () => {
-      setLoading(true);
+      // 読み直し（設定の保存・LMS の同期の後）では仮表示に戻さず、今の画面のまま差し替える
       const { data: { user } } = await supabase.auth.getUser();
 
       if (!user) {
@@ -159,9 +163,9 @@ export default function MyPage() {
         return;
       }
 
-      // ★ RPCを呼び出してデータを一括取得！フロントエンドのコードが超シンプルになります。
-      const [timetableRes, profileRes] = await Promise.all([
-        supabase.rpc('get_user_timetable', { p_user_id: user.id }),
+      // 時間割は get_effective_timetable（LMS のコースがあればそこから、なければ学科・クラスから）
+      const [effectiveRes, profileRes] = await Promise.all([
+        supabase.rpc('get_effective_timetable', { p_user_id: user.id }),
         supabase.from("profiles").select(`
           class_start_action,
           classes (
@@ -172,6 +176,10 @@ export default function MyPage() {
         `).eq("user_id", user.id).single()
       ]);
       
+      // サーバーの更新（マイグレーション）が済む前でも表示できるよう、従来の時間割に切り替える
+      const timetableRes = effectiveRes.error
+        ? await supabase.rpc('get_user_timetable', { p_user_id: user.id })
+        : effectiveRes;
       if (timetableRes.error) {
         console.error("RPC関数の呼び出しに失敗しました:", timetableRes.error);
         setLoading(false);
@@ -233,6 +241,8 @@ export default function MyPage() {
       });
 
       setWeeklySubjects(groupedSubjects);
+      // LMS から時間割ができていれば、学科・クラスを設定していなくても表示する
+      if ((timetableRes.data as TimetableRpcData[] | null)?.length) setIsProfileSet(true);
       setLoading(false);
     };
     fetchUserTimetable();

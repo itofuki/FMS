@@ -441,3 +441,10 @@ enabled = true
 verify_jwt = false
 import_map = "./functions/notify-scheduler/deno.json"
 entrypoint = "./functions/notify-scheduler/index.ts"
+
+[functions.calendar-feed]
+enabled = true
+# カレンダーアプリはログイン情報を送れないため JWT 検証は無効。推測できないトークン（calendar_feeds）で本人を特定する
+verify_jwt = false
+import_map = "./functions/calendar-feed/deno.json"
+entrypoint = "./functions/calendar-feed/index.ts"

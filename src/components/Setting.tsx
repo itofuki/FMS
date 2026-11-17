@@ -9,6 +9,8 @@ import RadioGroup from "./RadioGroup";
 import ChapterFrame from "../components/ChapterFrame";
 import { PageSkeleton } from "./Skeleton";
 import { useSidebar } from "../contexts/SidebarContext";
+import CalendarFeedSettings from "./CalendarFeedSettings";
+import LmsCourseSettings from "./LmsCourseSettings";
 import { ThemeSelector } from "./ThemeToggle";
 import { useQueryClient } from "@tanstack/react-query";
 import { getPushState, enablePush, disablePush, sendTestPush, type PushState } from "../lib/push";
@@ -49,6 +51,8 @@ const SECTIONS = [
   { id: 'settings-profile', label: '所属とクラス' },
   { id: 'settings-notify', label: '通知' },
   { id: 'settings-lms', label: 'LMS 連携' },
+  { id: 'settings-courses', label: '時間割（LMS）' },
+  { id: 'settings-calendar', label: 'カレンダー連携' },
   { id: 'settings-display', label: '表示' },
   { id: 'settings-account', label: 'アカウント' },
 ];
@@ -580,6 +584,16 @@ export default function Setting({ onSettingsSaved }: SettingProps) {
               </div>
             </SettingsCard>
           </div>
+
+          {/* 時間割（LMS のコース）。読み取れなかった曜日・時限や教室を手で入れる（その場で反映） */}
+          <SettingsCard id="settings-courses" title="時間割（LMS のコース）" description="LMS の今学期のコースから時間割を作ります。曜日・時限が読み取れないコースや教室はここで入れてください。">
+            <LmsCourseSettings userId={user.id} onChanged={onSettingsSaved} />
+          </SettingsCard>
+
+          {/* カレンダー連携（その場で反映） */}
+          <SettingsCard id="settings-calendar" title="カレンダー連携" description="時間割と課題の締切を、スマホやPCのカレンダーに表示します。">
+            <CalendarFeedSettings userId={user.id} />
+          </SettingsCard>
 
           {/* 表示（その場で反映） */}
           <SettingsCard id="settings-display" title="表示" description="選んだ時点で反映され、この端末にだけ保存されます。">

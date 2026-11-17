@@ -81,7 +81,7 @@ async function runClassReminders(supabase: SupabaseClient, now: Date) {
 
   let sent = 0;
   for (const { user_id } of profiles ?? []) {
-    const { data: timetable, error: ttError } = await supabase.rpc("get_user_timetable", { p_user_id: user_id });
+    const { data: timetable, error: ttError } = await supabase.rpc("get_effective_timetable", { p_user_id: user_id });
     if (ttError) {
       console.error(`時間割の取得に失敗 (${user_id}):`, ttError);
       continue;

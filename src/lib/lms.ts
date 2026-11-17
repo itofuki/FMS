@@ -50,11 +50,15 @@ export const clearLmsSession = () => {
     localStorage.removeItem(lmsEventsCacheKey(username));
     localStorage.removeItem(lmsFullRefreshKey(username));
     localStorage.removeItem(attendanceCacheKey(username));
+    localStorage.removeItem(lmsCoursesSyncKey(username));
   }
 };
 
 /** 科目ごとの出席率（LMS の出欠）のキャッシュ */
 export const attendanceCacheKey = (username: string) => `fms_attendance_${username}`;
+
+/** LMS のコースを最後にサーバーへ同期した日と内容 */
+export const lmsCoursesSyncKey = (username: string) => `fms_lms_courses_sync_${username}`;
 
 export const lmsEventsCacheKey = (username: string) => `fms_lms_events_${username}`;
 export const lmsFullRefreshKey = (username: string) => `fms_lms_full_refresh_${username}`;
