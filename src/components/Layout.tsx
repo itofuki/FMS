@@ -3,6 +3,7 @@ import { useRef, useEffect } from 'react';
 import { Outlet, Link } from "react-router-dom";
 import { ThemeToggleButton } from "./ThemeToggle";
 import { SUB_MENU_IDS } from "../lib/menu";
+import { clearDebugTime, isDebugTime } from "../lib/schedule";
 import { Toaster } from 'sonner';
 import { useSidebar, type ChapterLink } from "../contexts/SidebarContext"; 
 import { FiMenu, FiMoreHorizontal, FiSettings, FiCalendar, FiFileText, FiBookOpen, FiFolder, FiMessageSquare, FiExternalLink, FiCheckSquare } from "react-icons/fi";
@@ -92,6 +93,22 @@ const SidebarContent: React.FC<{
     </div>
   );
 };
+
+/** デバッグ用に時刻をずらしているときの帯（本当の時刻と取り違えないよう、画面の上に常に出す） */
+function DebugTimeBanner() {
+  const reset = () => {
+    clearDebugTime();
+    const url = new URL(window.location.href);
+    url.searchParams.delete('debugTime');
+    window.location.replace(url.toString());
+  };
+  return (
+    <div role="status" className="flex items-center justify-center gap-3 px-4 py-1.5 bg-amber-400 text-slate-900 text-xs sm:text-sm font-bold">
+      <span>デバッグ用の時刻で表示中</span>
+      <button type="button" onClick={reset} className="underline underline-offset-2 hover:no-underline">元に戻す</button>
+    </div>
+  );
+}
 
 export default function Layout() {
   const { isMobileMenuOpen, setIsMobileMenuOpen, chapterLinks, activeChapter, requestChapter } = useSidebar();
@@ -234,6 +251,9 @@ export default function Layout() {
 
           </div>
         </nav>
+
+        {/* デバッグ用の時刻ずらし中はヘッダーのすぐ下に帯を出す */}
+        {isDebugTime() && <div className="absolute top-15 md:top-16 left-0 w-full z-20"><DebugTimeBanner /></div>}
 
         {/* コンテンツエリア */}
         <div className="flex-1 overflow-y-auto w-full pb-20 md:pb-0 [scrollbar-gutter:stable]">

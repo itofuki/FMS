@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { periodState, minutesLeft, focusPeriod, formatMinutes, mondayOf, toYmd, weekdayOf, currentPeriodLabel } from './schedule';
+import { periodState, minutesLeft, focusPeriod, formatMinutes, mondayOf, toYmd, weekdayOf, currentPeriodLabel, parseDebugTime } from './schedule';
 
 // 2026-11-17 は火曜日
 const at = (h: number, m: number, day = 17) => new Date(2026, 10, day, h, m);
@@ -60,5 +60,17 @@ describe('currentPeriodLabel', () => {
     expect(currentPeriodLabel(at(14, 55))).toBeNull();
     expect(currentPeriodLabel(at(19, 50))).toBeNull();
     expect(currentPeriodLabel(at(10, 0, 21))).toBeNull();
+  });
+});
+
+describe('parseDebugTime', () => {
+  it('「13:30」は基準日のその時刻', () => {
+    expect(parseDebugTime('13:30', at(9, 0))).toEqual(at(13, 30));
+  });
+  it('日付つきも読める', () => {
+    expect(parseDebugTime('2026-11-24T09:20', at(9, 0))).toEqual(new Date(2026, 10, 24, 9, 20));
+  });
+  it('読めない形は null', () => {
+    expect(parseDebugTime('1330', at(9, 0))).toBeNull();
   });
 });

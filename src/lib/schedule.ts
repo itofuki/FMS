@@ -19,8 +19,59 @@ export const WEEKDAYS = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri'] as const;
 export type Weekday = (typeof WEEKDAYS)[number];
 export const WEEKDAY_LABELS: Record<Weekday, string> = { Mon: '月', Tue: '火', Wed: '水', Thu: '木', Fri: '金' };
 
-/** 日本時間の「今」を、その時刻を表すローカルの Date として返す */
-export const nowInJst = () => new Date(new Date().toLocaleString('en-US', { timeZone: 'Asia/Tokyo' }));
+const realNowInJst = () => new Date(new Date().toLocaleString('en-US', { timeZone: 'Asia/Tokyo' }));
+
+// ------------------------------------------------------------------
+// デバッグ用の時刻ずらし（この端末の画面表示だけ。サーバーの通知・LMS には影響しない）
+//   URL に ?debugTime=13:30 （今日の 13:30）または ?debugTime=2026-11-24T13:30 を付けて開くと、
+//   その時刻から時計が進む。?debugTime=off で解除。タブを閉じても解除される（sessionStorage）。
+// ------------------------------------------------------------------
+const DEBUG_KEY = 'fms_debug_time_offset_ms';
+
+/** "13:30" または "2026-11-24T13:30" を、その時刻の Date（JST の時刻をローカルとして）に */
+export function parseDebugTime(value: string, base: Date): Date | null {
+  const hm = value.match(/^(\d{1,2}):(\d{2})$/);
+  if (hm) {
+    const d = new Date(base);
+    d.setHours(Number(hm[1]), Number(hm[2]), 0, 0);
+    return d;
+  }
+  const full = value.match(/^(\d{4})-(\d{2})-(\d{2})T(\d{1,2}):(\d{2})$/);
+  if (full) return new Date(Number(full[1]), Number(full[2]) - 1, Number(full[3]), Number(full[4]), Number(full[5]));
+  return null;
+}
+
+function readDebugOffset(): number {
+  if (typeof window === 'undefined') return 0;
+  try {
+    const param = new URLSearchParams(window.location.search).get('debugTime');
+    if (param === 'off') sessionStorage.removeItem(DEBUG_KEY);
+    else if (param) {
+      const target = parseDebugTime(param, realNowInJst());
+      if (target) sessionStorage.setItem(DEBUG_KEY, String(target.getTime() - realNowInJst().getTime()));
+    }
+    return Number(sessionStorage.getItem(DEBUG_KEY)) || 0;
+  } catch {
+    return 0;
+  }
+}
+
+let debugOffsetMs = readDebugOffset();
+
+/** デバッグで時刻をずらしているか */
+export const isDebugTime = () => debugOffsetMs !== 0;
+
+/** 時刻ずらしをやめる */
+export function clearDebugTime() {
+  debugOffsetMs = 0;
+  try { sessionStorage.removeItem(DEBUG_KEY); } catch { /* noop */ }
+}
+
+/** 日本時間の「今」を、その時刻を表すローカルの Date として返す（デバッグで時刻をずらしていればその分ずらす） */
+export const nowInJst = () => {
+  const now = realNowInJst();
+  return debugOffsetMs ? new Date(now.getTime() + debugOffsetMs) : now;
+};
 
 export const formatHm = (t: { h: number; m: number }) => `${t.h}:${String(t.m).padStart(2, '0')}`;
 
