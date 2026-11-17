@@ -5,7 +5,7 @@ import { ThemeToggleButton } from "./ThemeToggle";
 import { SUB_MENU_IDS } from "../lib/menu";
 import { Toaster } from 'sonner';
 import { useSidebar, type ChapterLink } from "../contexts/SidebarContext"; 
-import { FiMenu, FiSettings, FiCalendar, FiFileText, FiBookOpen, FiFolder, FiMessageSquare, FiExternalLink, FiCheckSquare } from "react-icons/fi";
+import { FiMenu, FiMoreHorizontal, FiSettings, FiCalendar, FiFileText, FiBookOpen, FiFolder, FiMessageSquare, FiExternalLink, FiCheckSquare } from "react-icons/fi";
 
 const getChapterIcon = (id: string, size: number = 20) => {
   switch (id) {
@@ -94,7 +94,8 @@ const SidebarContent: React.FC<{
 };
 
 export default function Layout() {
-  const { isMobileMenuOpen, setIsMobileMenuOpen, chapterLinks, activeChapter, setActiveChapter } = useSidebar();
+  const { isMobileMenuOpen, setIsMobileMenuOpen, chapterLinks, activeChapter, requestChapter } = useSidebar();
+  const isSubMenuActive = SUB_MENU_IDS.includes(activeChapter);
   const containerRef = useRef<HTMLDivElement>(null);
   const touchStartRef = useRef<{ x: number, y: number } | null>(null);
   const isDraggingRef = useRef<boolean | null>(null);
@@ -147,7 +148,7 @@ export default function Layout() {
       {/* ① スマホ用サイドメニュー */}
       {chapterLinks.length > 0 && (
         <div className="md:hidden fixed inset-y-0 left-0 w-80 bg-surface z-0 p-4 border-r border-line">
-          <SidebarContent links={chapterLinks} activeId={activeChapter} onNavigate={setActiveChapter} closeMenu={() => setIsMobileMenuOpen(false)} />
+          <SidebarContent links={chapterLinks} activeId={activeChapter} onNavigate={requestChapter} closeMenu={() => setIsMobileMenuOpen(false)} />
         </div>
       )}
 
@@ -166,7 +167,7 @@ export default function Layout() {
               isMobileMenuOpen ? 'translate-x-0 shadow-xl' : '-translate-x-full'
             }`}
           >
-            <SidebarContent links={chapterLinks} activeId={activeChapter} onNavigate={setActiveChapter} closeMenu={() => setIsMobileMenuOpen(false)} />
+            <SidebarContent links={chapterLinks} activeId={activeChapter} onNavigate={requestChapter} closeMenu={() => setIsMobileMenuOpen(false)} />
           </div>
         </>
       )}
@@ -188,7 +189,7 @@ export default function Layout() {
             {/* 左側：メニューボタンとFMSロゴ */}
             <div className="flex items-center gap-4">
               {chapterLinks.length > 0 && (
-                <button onClick={() => setIsMobileMenuOpen(true)} className="lg:hidden p-2 -ml-2 text-slate-300">
+                <button onClick={() => setIsMobileMenuOpen(true)} aria-label="メニューを開く" className="lg:hidden p-2 -ml-2 text-slate-300">
                   <FiMenu size={24} />
                 </button>
               )}
@@ -239,7 +240,7 @@ export default function Layout() {
           <div className="flex w-full max-w-[1500px] mx-auto px-2 sm:px-6 lg:px-8">
             {chapterLinks.length > 0 && (
               <aside className="hidden lg:flex sticky top-0 self-start h-screen w-72 flex-shrink-0 bg-surface border-r border-line p-4 pt-16 flex-col justify-between z-10">
-                <SidebarContent links={chapterLinks} activeId={activeChapter} onNavigate={setActiveChapter} closeMenu={() => {}} />
+                <SidebarContent links={chapterLinks} activeId={activeChapter} onNavigate={requestChapter} closeMenu={() => {}} />
               </aside>
             )}
             <main className="flex-1 min-w-0 relative z-10">
@@ -255,7 +256,8 @@ export default function Layout() {
             {chapterLinks.filter(link => !SUB_MENU_IDS.includes(link.id)).map(link => (
               <li key={link.id} className="flex-1">
                 <button
-                  onClick={() => setActiveChapter(link.id)}
+                  onClick={() => requestChapter(link.id)}
+                  aria-current={activeChapter === link.id ? 'page' : undefined}
                   className={`w-full flex flex-col items-center justify-center space-y-1 transition-colors duration-200 ${
                     activeChapter === link.id ? 'text-accent' : 'text-fg-muted'
                   }`}
@@ -265,6 +267,17 @@ export default function Layout() {
                 </button>
               </li>
             ))}
+            {/* その他: サブメニュー（テスト対策・Tips・ご意見・設定）が入ったメニューを開く。サブメニューの画面にいるときは選択中にする */}
+            <li className="flex-1">
+              <button
+                onClick={() => setIsMobileMenuOpen(true)}
+                aria-label={isSubMenuActive ? `その他（${chapterLinks.find(l => l.id === activeChapter)?.label}を表示中）` : 'その他のメニューを開く'}
+                className={`w-full flex flex-col items-center justify-center space-y-1 transition-colors duration-200 ${isSubMenuActive ? 'text-accent' : 'text-fg-muted'}`}
+              >
+                <FiMoreHorizontal size={24} />
+                <span className="text-[10px] font-bold">{isSubMenuActive ? chapterLinks.find(l => l.id === activeChapter)?.label : 'その他'}</span>
+              </button>
+            </li>
           </ul>
         </nav>
         )}

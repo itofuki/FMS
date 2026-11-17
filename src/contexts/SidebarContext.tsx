@@ -1,6 +1,6 @@
 /* src/contexts/SidebarContext.tsx */
 
-import { createContext, useState, useContext, type ReactNode } from 'react';
+import { createContext, useState, useContext, useRef, useCallback, type ReactNode } from 'react';
 
 // チャプターリンクの型
 export type ChapterLink = {
@@ -16,6 +16,10 @@ type SidebarContextType = {
   setChapterLinks: (links: ChapterLink[]) => void;
   activeChapter: string;
   setActiveChapter: (id: string) => void;
+  /** メニューから画面を移るとき用。離れる前の確認（未保存の変更など）を通してから切り替える */
+  requestChapter: (id: string) => void;
+  /** 今の画面を離れてよいかを返す関数を登録する（null で解除）。false を返すと移動しない */
+  setLeaveGuard: (guard: (() => boolean) | null) => void;
 };
 
 // Contextを作成（初期値を設定）
@@ -26,6 +30,13 @@ export const SidebarProvider = ({ children }: { children: ReactNode }) => {
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
   const [chapterLinks, setChapterLinks] = useState<ChapterLink[]>([]);
   const [activeChapter, setActiveChapter] = useState<string>('');
+  const leaveGuardRef = useRef<(() => boolean) | null>(null);
+  const setLeaveGuard = useCallback((guard: (() => boolean) | null) => { leaveGuardRef.current = guard; }, []);
+  const requestChapter = useCallback((id: string) => {
+    if (id === activeChapter) return;
+    if (leaveGuardRef.current && !leaveGuardRef.current()) return;
+    setActiveChapter(id);
+  }, [activeChapter]);
 
   const value = {
     isMobileMenuOpen,
@@ -34,6 +45,8 @@ export const SidebarProvider = ({ children }: { children: ReactNode }) => {
     setChapterLinks,
     activeChapter,
     setActiveChapter,
+    requestChapter,
+    setLeaveGuard,
   };
 
   return <SidebarContext.Provider value={value}>{children}</SidebarContext.Provider>;

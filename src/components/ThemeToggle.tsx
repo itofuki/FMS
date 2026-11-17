@@ -18,12 +18,16 @@ export function ThemeColorSync() {
   return null;
 }
 
-/** ヘッダー用: ライト ⇔ ダーク を切り替えるボタン */
+// ヘッダーのボタンは 端末に合わせる → ライト → ダーク → 端末に合わせる… の順に切り替える（設定画面の3択と同じ並び）
+const NEXT_SCHEME: Record<MantineColorScheme, MantineColorScheme> = { auto: 'light', light: 'dark', dark: 'auto' };
+const SCHEME_LABEL: Record<MantineColorScheme, string> = { auto: '端末に合わせる', light: 'ライト', dark: 'ダーク' };
+
+/** ヘッダー用: 押すたびにテーマを切り替えるボタン。アイコンは今のテーマを表す */
 export function ThemeToggleButton({ className = '' }: { className?: string }) {
-  const { setColorScheme } = useMantineColorScheme();
-  const computed = useComputedColorScheme('light');
-  const next = computed === 'dark' ? 'light' : 'dark';
-  const label = next === 'dark' ? 'ダークモードにする' : 'ライトモードにする';
+  const { colorScheme, setColorScheme } = useMantineColorScheme();
+  const next = NEXT_SCHEME[colorScheme];
+  const label = `テーマ: ${SCHEME_LABEL[colorScheme]}（押すと${SCHEME_LABEL[next]}）`;
+  const Icon = colorScheme === 'auto' ? FiMonitor : colorScheme === 'dark' ? FiMoon : FiSun;
   return (
     <button
       type="button"
@@ -32,7 +36,7 @@ export function ThemeToggleButton({ className = '' }: { className?: string }) {
       aria-label={label}
       className={`p-2 rounded-md text-fg-muted hover:text-fg hover:bg-surface-3 transition-colors ${className}`}
     >
-      {computed === 'dark' ? <FiSun size={18} /> : <FiMoon size={18} />}
+      <Icon size={18} />
     </button>
   );
 }

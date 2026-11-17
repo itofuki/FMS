@@ -5,10 +5,10 @@ import { supabase } from "../lib/supabaseClient";
 import { useNavigate, useSearchParams } from "react-router-dom";
 import type { User } from "@supabase/supabase-js";
 import { toast } from 'sonner';
-import { FiSettings } from "react-icons/fi";
 import RadioGroup from "./RadioGroup";
 import ChapterFrame from "../components/ChapterFrame";
-import Loading from "./Loading";
+import { PageSkeleton } from "./Skeleton";
+import { useSidebar } from "../contexts/SidebarContext";
 import { ThemeSelector } from "./ThemeToggle";
 import { useQueryClient } from "@tanstack/react-query";
 import { getPushState, enablePush, disablePush, sendTestPush, type PushState } from "../lib/push";
@@ -44,6 +44,17 @@ const PUSH_STATE_MESSAGES: Record<PushState, string> = {
   enabled: 'この端末で通知を受け取ります。',
 };
 
+// 右の列の目次に並べる項目（id は各カードの id）
+const SECTIONS = [
+  { id: 'settings-profile', label: '所属とクラス' },
+  { id: 'settings-notify', label: '通知' },
+  { id: 'settings-lms', label: 'LMS 連携' },
+  { id: 'settings-display', label: '表示' },
+  { id: 'settings-account', label: 'アカウント' },
+];
+
+const LEAVE_CONFIRM = '保存していない変更があります。変更を破棄して移動しますか？';
+
 type SettingProps = {
   onSettingsSaved?: () => void;
 };
@@ -74,6 +85,57 @@ export default function Setting({ onSettingsSaved }: SettingProps) {
   const [isLmsLoading, setIsLmsLoading] = useState(false);
   const [lmsStatus, setLmsStatus] = useState<{ ok: boolean; message: string } | null>(null);
   const [lmsCredentialsSaved, setLmsCredentialsSaved] = useState(() => !!getLmsSession());
+
+  // 保存が必要な項目（所属とクラス・通知）の、最後に保存した内容。null はまだ一度も保存していない
+  const [savedSnapshot, setSavedSnapshot] = useState<string | null>(null);
+  const snapshot = JSON.stringify([courseClass, englishID, classStartAction, deadlineHours]);
+  const isDirty = user !== null && snapshot !== savedSnapshot;
+  const dirtyRef = useRef(false);
+  useEffect(() => { dirtyRef.current = isDirty; }, [isDirty]);
+
+  // 未保存のままメニューで別の画面へ移る・ページを閉じるときは確認する
+  const { setLeaveGuard } = useSidebar();
+  useEffect(() => {
+    setLeaveGuard(() => !dirtyRef.current || window.confirm(LEAVE_CONFIRM));
+    const onBeforeUnload = (e: BeforeUnloadEvent) => {
+      if (!dirtyRef.current) return;
+      e.preventDefault();
+      e.returnValue = '';
+    };
+    window.addEventListener('beforeunload', onBeforeUnload);
+    return () => {
+      setLeaveGuard(null);
+      window.removeEventListener('beforeunload', onBeforeUnload);
+    };
+  }, [setLeaveGuard]);
+
+  // 目次: いま画面のどの項目を見ているか
+  const [activeSection, setActiveSection] = useState(SECTIONS[0].id);
+  // 目次を押した直後は、スクロールの途中経過で表示が揺れないよう少しの間だけ追従を止める
+  const followPausedUntilRef = useRef(0);
+  useEffect(() => {
+    if (!user) return;
+    const onScroll = () => {
+      if (Date.now() < followPausedUntilRef.current) return;
+      let current = SECTIONS[0].id;
+      for (const { id } of SECTIONS) {
+        const el = document.getElementById(id);
+        if (el && el.getBoundingClientRect().top <= 160) current = id;
+      }
+      // いちばん下まで来たら、最後の項目（短くて上まで届かないため）
+      const last = document.getElementById(SECTIONS[SECTIONS.length - 1].id);
+      if (last && last.getBoundingClientRect().bottom <= window.innerHeight - 8) current = SECTIONS[SECTIONS.length - 1].id;
+      setActiveSection(current);
+    };
+    onScroll();
+    // スクロールするのはページ全体ではなく中身の領域なので、capture で拾う
+    document.addEventListener('scroll', onScroll, { capture: true, passive: true });
+    window.addEventListener('resize', onScroll);
+    return () => {
+      document.removeEventListener('scroll', onScroll, { capture: true });
+      window.removeEventListener('resize', onScroll);
+    };
+  }, [user]);
 
   const advancedRef = useRef<HTMLDivElement>(null);
   const isAdvancedFocused = searchParams.get("focus") === "advanced";
@@ -122,6 +184,12 @@ export default function Setting({ onSettingsSaved }: SettingProps) {
         setEnglishID(profile.english_id || null);
         setClassStartAction((profile.class_start_action as ClassStartAction) ?? 'notify');
         setDeadlineHours(profile.deadline_reminder_hours ?? null);
+        setSavedSnapshot(JSON.stringify([
+          myClass ? myClass.id : null,
+          profile.english_id || null,
+          (profile.class_start_action as ClassStartAction) ?? 'notify',
+          profile.deadline_reminder_hours ?? null,
+        ]));
       } else if (depts.length > 0 && crses.length > 0 && clses.length > 0) {
         const firstDept = depts[0];
         const firstCourse = crses.find(c => c.department_id === firstDept.id);
@@ -227,6 +295,9 @@ export default function Setting({ onSettingsSaved }: SettingProps) {
 
       if (error) throw error;
       toast.success("設定を更新しました！");
+      // 保存済みにしてから移動する（移動時の「未保存」確認を出さない）
+      dirtyRef.current = false;
+      setSavedSnapshot(snapshot);
 
       if (onSettingsSaved) {
         onSettingsSaved();
@@ -287,8 +358,8 @@ export default function Setting({ onSettingsSaved }: SettingProps) {
 
   if (!user) {
     return (
-      <ChapterFrame icon={FiSettings} title="設定">
-        <Loading />
+      <ChapterFrame title="設定" bare>
+        <PageSkeleton cards={3} cardHeight="h-40" />
       </ChapterFrame>
     );
   }
@@ -301,14 +372,11 @@ export default function Setting({ onSettingsSaved }: SettingProps) {
     .filter(c => String(c.course_id) === String(baseCourse))
     .map(c => ({ value: String(c.id), label: c.name }));
 
-  const SECTIONS = [
-    { id: 'settings-profile', label: '所属とクラス' },
-    { id: 'settings-notify', label: '通知' },
-    { id: 'settings-lms', label: 'LMS 連携' },
-    { id: 'settings-display', label: '表示' },
-    { id: 'settings-account', label: 'アカウント' },
-  ];
-  const scrollTo = (id: string) => document.getElementById(id)?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  const scrollTo = (id: string) => {
+    setActiveSection(id);
+    followPausedUntilRef.current = Date.now() + 1000;
+    document.getElementById(id)?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  };
 
   return (
     <ChapterFrame title="設定" bare>
@@ -320,7 +388,14 @@ export default function Setting({ onSettingsSaved }: SettingProps) {
             <ul className="mt-2 space-y-1">
               {SECTIONS.map(sec => (
                 <li key={sec.id}>
-                  <button type="button" onClick={() => scrollTo(sec.id)} className="w-full text-left px-2 py-1.5 -mx-2 rounded-md text-fg hover:bg-surface-3 transition-colors">
+                  <button
+                    type="button"
+                    onClick={() => scrollTo(sec.id)}
+                    aria-current={activeSection === sec.id ? 'location' : undefined}
+                    className={`w-full text-left px-2 py-1.5 -mx-2 rounded-md transition-colors ${
+                      activeSection === sec.id ? 'bg-accent-soft text-accent font-semibold' : 'text-fg hover:bg-surface-3'
+                    }`}
+                  >
                     <span className="text-sm">{sec.label}</span>
                   </button>
                 </li>
@@ -435,13 +510,18 @@ export default function Setting({ onSettingsSaved }: SettingProps) {
               </div>
             </SettingsCard>
 
-            {/* 保存ボタン（画面の下に付いてくる。所属とクラス・通知の変更だけが対象） */}
-            <div className="sticky bottom-20 md:bottom-4 z-10 flex items-center justify-between gap-3 rounded-xl bg-surface shadow-md border border-line px-4 sm:px-5 py-3">
-              <p className="text-sm text-fg-muted">「所属とクラス」「通知」の変更を保存します</p>
+            {/* 保存ボタン（変更があるときだけ画面の下に付いてくる。所属とクラス・通知の変更だけが対象） */}
+            {isDirty && (
+            <div role="status" className="sticky bottom-20 md:bottom-4 z-10 flex items-center justify-between gap-3 rounded-xl bg-surface shadow-md border border-warn px-4 sm:px-5 py-3 animate-in fade-in slide-in-from-bottom-2 duration-200">
+              <p className="text-sm text-fg">
+                <span className="inline-block w-2 h-2 rounded-full bg-warn mr-2 align-middle" aria-hidden="true" />
+                {savedSnapshot === null ? '所属とクラスが未保存です' : '未保存の変更があります'}
+              </p>
               <button type="submit" disabled={loading} className="flex-shrink-0 h-10 px-6 rounded-md bg-accent-solid hover:bg-accent-solid-hover text-on-accent transition-colors disabled:opacity-50">
                 <span className="text-sm font-bold">{loading ? '保存中...' : '変更を保存'}</span>
               </button>
             </div>
+            )}
           </form>
 
           {/* LMS 連携（その場で反映）。課題ページの「再ログイン」から来たときは強調する */}

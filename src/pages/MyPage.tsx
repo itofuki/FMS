@@ -3,7 +3,6 @@
 import { useState, useEffect } from "react";
 import { supabase } from "../lib/supabaseClient";
 import { useNavigate, useSearchParams } from "react-router-dom";
-import type { User } from "@supabase/supabase-js";
 import { useSidebar, type ChapterLink } from "../contexts/SidebarContext";
 import { useScheduledReloader } from "../hooks/useScheduledReloader";
 import { type IconType } from 'react-icons';
@@ -15,7 +14,7 @@ import TestPrep from '../components/TestPrep';
 import Setting from '../components/Setting';
 import Feedback from '../components/Feedback';
 import Tips from '../components/Tips';
-import Loading from '../components/Loading';
+import { PageSkeleton, TimetableSkeleton } from '../components/Skeleton';
 import DeadlineReminderSync from '../components/DeadlineReminderSync';
 import { menuGroupLabel } from '../lib/menu';
 
@@ -122,7 +121,7 @@ export default function MyPage() {
   }, [activeChapter]);
 
   const navigate = useNavigate();
-  const [user, setUser] = useState<User | null>(null);
+  // （ログイン中のユーザー自体は保持しない。メールアドレスは設定の「アカウント」に表示する）
   const [courseName, setCourseName] = useState<string>("");
   const [isWeeklyView, setIsWeeklyView] = useState(false);
   const [weeklySubjects, setWeeklySubjects] = useState<Record<Day, Subject[]>>({ Mon: [], Tue: [], Wed: [], Thu: [], Fri: [] });
@@ -160,8 +159,6 @@ export default function MyPage() {
         return;
       }
 
-      setUser(user);
-      
       // ★ RPCを呼び出してデータを一括取得！フロントエンドのコードが超シンプルになります。
       const [timetableRes, profileRes] = await Promise.all([
         supabase.rpc('get_user_timetable', { p_user_id: user.id }),
@@ -277,9 +274,6 @@ export default function MyPage() {
     });
   }, [loading, autoOpenEnabled, weeklySubjects, openedSubjects]);
 
-  if (loading) {
-    return <Loading fullScreen />;
-  }
 
   const courseStyle = getCourseStyle(courseName);
 
@@ -316,7 +310,8 @@ export default function MyPage() {
   return (
     <div className="px-1 py-4 md:p-6 lg:py-8 lg:pl-8 lg:pr-0">
       {/* 広い画面では右側の内側の余白をなくし、右の列の外側の余白をメニューの左側（32px）にそろえる */}
-      <DeadlineReminderSync subjects={uniqueSubjects} />
+      {/* 時間割（科目）の読み込みが終わってから同期する（途中の空の科目一覧で同期しない） */}
+      {!loading && <DeadlineReminderSync subjects={uniqueSubjects} />}
       <div className="w-full max-w-5xl mx-auto lg:max-w-none pt-16">
         {/* パンくずリスト: 現在地を小さく示し、大きな見出しで場所を取らない */}
         <div className="flex items-center justify-between gap-3 mb-3 px-1 text-xs sm:text-sm">
@@ -326,9 +321,11 @@ export default function MyPage() {
             <span aria-hidden="true" className="text-fg-subtle">›</span>
             <span className="font-semibold text-fg truncate">{myPageChapters.find(c => c.id === activeChapter)?.label ?? ''}</span>
           </nav>
-          {user && <span className="hidden sm:inline text-fg-muted truncate">{user.email}</span>}
         </div>
-        {renderMainContent()}
+        {/* 読み込み中も画面の枠（メニュー・パンくず）は出したまま、中身だけ形の合った灰色の仮表示にする */}
+        {loading
+          ? (activeChapter === 'timetable' || !activeChapter ? <TimetableSkeleton /> : <PageSkeleton />)
+          : renderMainContent()}
       </div>
     </div>
   );

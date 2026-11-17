@@ -3,7 +3,7 @@
 import React, { useState, useMemo } from 'react';
 import { supabase } from '../lib/supabaseClient';
 import ChapterFrame from './ChapterFrame';
-import Loading from './Loading';
+import { PageSkeleton } from './Skeleton';
 import { FiCheckSquare, FiCheck, FiX, FiPlus, FiEdit2, FiTrash2, FiTool, FiArrowLeft, FiRefreshCw, FiHelpCircle, FiInbox, FiChevronRight, FiCheckCircle, FiXCircle, FiImage } from 'react-icons/fi';
 import { Textarea, TextInput, Select, SegmentedControl, Radio, Button, Group, FileInput } from '@mantine/core';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
@@ -358,7 +358,7 @@ const TestPrep: React.FC<TestPrepProps> = ({ subject }) => {
     markAnswer(correct);
   };
 
-  if (loading) return <Loading />;
+  if (loading) return <PageSkeleton cards={3} cardHeight="h-28" />;
 
   const selectedDeck = decks.find(d => d.key === selectedDeckKey);
   const selectedSubjectName = selectedDeck
@@ -593,7 +593,7 @@ const TestPrep: React.FC<TestPrepProps> = ({ subject }) => {
               {view === 'subjects' && (
                 // 課題ページと同じく「科目ごとの小見出し＋1件ずつのカード」、広い画面では右に概要の列
                 <div className="xl:grid xl:grid-cols-[minmax(0,1fr)_18rem] xl:gap-8 xl:items-start">
-                  <aside className="mb-6 xl:mb-0 xl:mt-[52px] xl:order-2 xl:sticky xl:top-4 bg-surface border border-line">
+                  <aside className="mb-6 xl:mb-0 xl:order-2 xl:sticky xl:top-4 bg-surface border border-line">
                     <div className="px-4 sm:px-5 py-4 border-b border-line">
                       <p className="text-sm font-bold text-fg-muted">問題集の概要</p>
                       <dl className="mt-2 grid grid-cols-[1fr_auto] gap-y-1.5 text-sm">
