@@ -103,8 +103,8 @@ Deno.serve(async (req) => {
   }
   const userId = link.data.user?.id;
   if (userId && !created.data?.user) {
-    // 2 回目以降は、LMS 側で変わったかもしれない名前などを更新しておく
-    await admin.auth.admin.updateUserById(userId, { user_metadata: metadata });
+    // 2 回目以降は、LMS 側で変わったかもしれない名前などを更新しておく（アイコンなど FMS で設定した値は残す）
+    await admin.auth.admin.updateUserById(userId, { user_metadata: { ...(link.data.user?.user_metadata ?? {}), ...metadata } });
   }
 
   const anon = createClient(supabaseUrl, anonKey, { auth: { persistSession: false } });
