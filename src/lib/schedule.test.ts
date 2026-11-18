@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { periodState, minutesLeft, focusPeriod, formatMinutes, mondayOf, toYmd, weekdayOf, currentPeriodLabel, parseDebugTime } from './schedule';
+import { periodState, minutesLeft, focusPeriod, formatMinutes, mondayOf, toYmd, weekdayOf, currentPeriodLabel, parseDebugTime, jstYmd } from './schedule';
 
 // 2026-11-17 は火曜日
 const at = (h: number, m: number, day = 17) => new Date(2026, 10, day, h, m);
@@ -72,5 +72,12 @@ describe('parseDebugTime', () => {
   });
   it('読めない形は null', () => {
     expect(parseDebugTime('1330', at(9, 0))).toBeNull();
+  });
+});
+
+describe('jstYmd', () => {
+  it('日本時間の日付で数える（UTC の 15 時以降は翌日）', () => {
+    expect(jstYmd('2026-11-19T14:59:00Z')).toBe('2026-11-19');
+    expect(jstYmd('2026-11-19T15:00:00Z')).toBe('2026-11-20');
   });
 });

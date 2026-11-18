@@ -3,6 +3,8 @@
 import React, { useState, useMemo, useRef, useEffect } from 'react';
 import { supabase } from '../lib/supabaseClient';
 import ChapterFrame, { CENTER_PANEL, PAGE_GRID, SIDE_TITLE, SIDE_WIDGET } from './ChapterFrame';
+import AssignmentCalendar from './AssignmentCalendar';
+import { jstYmd } from '../lib/schedule';
 import { PageSkeleton } from './Skeleton';
 import { FiPlus, FiTrash2, FiInbox, FiTool, FiLink, FiEdit2, FiX, FiInfo, FiRefreshCw, FiPaperclip, FiPlay, FiExternalLink, FiMoreVertical, FiAlertTriangle } from 'react-icons/fi';
 import { format, formatDistanceToNowStrict } from 'date-fns';
@@ -128,6 +130,9 @@ const Assignments: React.FC<AssignmentsProps> = ({ subject }) => {
   }, []);
   // 完了した課題は普段は畳んでおく
   const [showDone, setShowDone] = useState(false);
+  // 見出しのタブ: 一覧 / カレンダー。カレンダーで選んでいる日（日本時間の YYYY-MM-DD）
+  const [view, setView] = useState<'list' | 'calendar'>('list');
+  const [calendarDay, setCalendarDay] = useState(() => jstYmd(new Date()));
 
   // 添付の音声ファイル再生用（tokenクエリ付きURLはRangeリクエストに対応していないため、Blobで一括取得して再生する）
   const [audioBlobUrls, setAudioBlobUrls] = useState<Record<string, string>>({});
@@ -673,11 +678,16 @@ const Assignments: React.FC<AssignmentsProps> = ({ subject }) => {
           <span className="hidden sm:inline text-sm font-bold">{isAdminMode ? '終了' : '管理者モード'}</span>
         </button>
       )}
-      <Button onClick={() => openNewForm()} leftSection={<FiPlus size={16} />} radius="xl" className="!hidden md:!inline-flex">
+      <Button onClick={() => openNewFormForView()} leftSection={<FiPlus size={16} />} radius="xl" className="!hidden md:!inline-flex">
         {isOfficialMode ? '公式課題を追加' : '課題を追加'}
       </Button>
     </>
   );
+
+  const openNewFormForView = () => {
+    openNewForm();
+    if (view === 'calendar') setNewDate(new Date(`${calendarDay}T00:00:00`));
+  };
 
   const openNewForm = () => {
     resetForm();
@@ -692,6 +702,10 @@ const Assignments: React.FC<AssignmentsProps> = ({ subject }) => {
         ? <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded bg-amber-400 text-slate-900 text-xs font-bold whitespace-nowrap"><FiTool size={12} />管理者モード</span>
         : <span>未完了 <span className="font-bold text-fg">{pendingCount}</span>件</span>}
       actions={headerActions}
+      tabs={[
+        { key: 'list', label: '一覧', active: view === 'list', onSelect: () => setView('list') },
+        { key: 'calendar', label: 'カレンダー', active: view === 'calendar', onSelect: () => setView('calendar') },
+      ]}
       bare
       notice={lmsNotice}
     >
@@ -786,8 +800,37 @@ const Assignments: React.FC<AssignmentsProps> = ({ subject }) => {
         </div>
       )}
 
+      {view === 'calendar' ? (
+        // カレンダー: 月のマスに締切の点。日を押すと、その日の締切を下に一覧と同じ行で並べる
+        <>
+          <AssignmentCalendar items={unifiedAssignments} selected={calendarDay} onSelect={setCalendarDay} />
+          {(() => {
+            const dayItems = unifiedAssignments.filter(a => jstYmd(a.deadline) === calendarDay);
+            const [, m, d] = calendarDay.split('-').map(Number);
+            const wd = ['日', '月', '火', '水', '木', '金', '土'][new Date(`${calendarDay}T00:00:00`).getDay()];
+            return (
+              <section>
+                <h3 className="flex items-center gap-2 px-4 sm:px-5 py-3 border-b border-line text-base font-bold text-fg">
+                  {m}/{d}（{wd}）の締切
+                  <span className="text-sm font-normal text-fg-muted">{dayItems.length}件</span>
+                </h3>
+                {dayItems.length === 0 ? (
+                  <p className="px-4 sm:px-5 py-10 text-center text-sm text-fg-muted">この日の締切はありません</p>
+                ) : (
+                  <MotionConfig reducedMotion="user">
+                    <ul className="flex flex-col">
+                      <AnimatePresence initial={false}>{dayItems.map(renderRow)}</AnimatePresence>
+                    </ul>
+                  </MotionConfig>
+                )}
+              </section>
+            );
+          })()}
+        </>
+      ) : null}
+
       {/* 一覧: 期限の近さで小見出しを付けて区切る */}
-      {unifiedAssignments.length === 0 ? (
+      {view === 'calendar' ? null : unifiedAssignments.length === 0 ? (
         <div className="text-center py-16 px-4">
           <FiInbox size={28} className="mx-auto text-fg-subtle mb-2" />
           <p className="text-fg-muted text-sm">{isAdminMode ? '表示できる公式課題はありません' : '直近2週間の課題はありません 🎉'}</p>
@@ -830,7 +873,7 @@ const Assignments: React.FC<AssignmentsProps> = ({ subject }) => {
       {/* スマホ: 右下の丸い「＋」で課題を追加（X の投稿ボタンと同じ位置） */}
       <button
         type="button"
-        onClick={() => openNewForm()}
+        onClick={() => openNewFormForView()}
         aria-label={isOfficialMode ? '公式課題を追加' : '課題を追加'}
         className="md:hidden fixed right-4 bottom-[calc(5.5rem+env(safe-area-inset-bottom))] z-30 w-14 h-14 rounded-full bg-accent-solid hover:bg-accent-solid-hover text-on-accent shadow-lg flex items-center justify-center"
       >

@@ -149,3 +149,6 @@ export function currentPeriodLabel(now: Date): string | null {
   const current = PERIODS.find((p) => n >= toMin(p.start) && n < toMin(p.end));
   return current ? `${current.period}限` : null;
 }
+
+/** ある時刻の日付を、日本時間の YYYY-MM-DD で（締切がどの日に入るかの判定に使う） */
+export const jstYmd = (iso: string | Date) => toYmd(new Date(new Date(iso).toLocaleString('en-US', { timeZone: 'Asia/Tokyo' })));
