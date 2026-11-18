@@ -33,6 +33,14 @@ export default function QrScanner({ onClose }: Props) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const [error, setError] = useState<string | null>(null);
   const [result, setResult] = useState<string | null>(null);
+  const closeRef = useRef<HTMLButtonElement>(null);
+
+  // 開いたら選択中の位置をダイアログの中（閉じるボタン）へ移し、閉じたら元のボタンへ戻す（キーボード操作用）
+  useEffect(() => {
+    const previous = document.activeElement as HTMLElement | null;
+    closeRef.current?.focus();
+    return () => previous?.focus?.();
+  }, []);
 
   useEffect(() => {
     let stream: MediaStream | null = null;
@@ -95,7 +103,19 @@ export default function QrScanner({ onClose }: Props) {
       }
     })();
 
-    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') onClose(); };
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') return onClose();
+      // Tab でダイアログの外へ出ないよう、最後の要素の次は最初へ戻す
+      if (e.key === 'Tab') {
+        const dialog = closeRef.current?.closest('[role="dialog"]');
+        const items = dialog ? Array.from(dialog.querySelectorAll<HTMLElement>('button, a[href]')) : [];
+        if (items.length === 0) return;
+        const first = items[0];
+        const last = items[items.length - 1];
+        if (e.shiftKey && document.activeElement === first) { e.preventDefault(); last.focus(); }
+        else if (!e.shiftKey && document.activeElement === last) { e.preventDefault(); first.focus(); }
+      }
+    };
     window.addEventListener('keydown', onKey);
     return () => {
       stopped = true;
@@ -112,7 +132,7 @@ export default function QrScanner({ onClose }: Props) {
       <div className="w-full max-w-sm rounded-xl bg-surface overflow-hidden shadow-xl">
         <div className="flex items-center justify-between px-4 py-3 border-b border-line">
           <p className="text-[15px] font-bold text-fg">QR コードを読み取る</p>
-          <button type="button" onClick={onClose} aria-label="閉じる" className="p-1.5 -mr-1.5 rounded-md text-fg-muted hover:text-fg hover:bg-surface-3">
+          <button ref={closeRef} type="button" onClick={onClose} aria-label="閉じる" className="p-1.5 -mr-1.5 rounded-md text-fg-muted hover:text-fg hover:bg-surface-3">
             <FiX size={20} />
           </button>
         </div>

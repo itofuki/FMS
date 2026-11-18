@@ -16,8 +16,6 @@ import { useQueryClient } from "@tanstack/react-query";
 import { getPushState, enablePush, disablePush, sendTestPush, type PushState } from "../lib/push";
 import { getLmsSession, saveLmsSession, clearLmsSession, invokeFetchLms, LmsError, purgeLegacyLmsSecrets } from "../lib/lms";
 
-type CourseDB = { id: number; department_id: number; name: string; code: string };
-type ClassDB = { id: number; course_id: number; name: string };
 type ClassStartAction = 'auto_open' | 'notify' | 'none';
 
 const DEADLINE_HOUR_OPTIONS: { value: string; label: string }[] = [
@@ -67,14 +65,8 @@ export default function Setting({ onSettingsSaved }: SettingProps) {
   const queryClient = useQueryClient();
   const [user, setUser] = useState<User | null>(null);
   
-  const [coursesDB, setCoursesDB] = useState<CourseDB[]>([]);
-  const [classesDB, setClassesDB] = useState<ClassDB[]>([]);
 
-  const [department, setDepartment] = useState<number | null>(null);
-  const [baseCourse, setBaseCourse] = useState<number | null>(null);
-  const [courseClass, setCourseClass] = useState<number | null>(null);
   
-  const [englishID, setEnglishID] = useState<number | null>(null);
   const [classStartAction, setClassStartAction] = useState<ClassStartAction>('notify');
   const [deadlineHours, setDeadlineHours] = useState<number | null>(24);
   const [pushState, setPushState] = useState<PushState | null>(null);
@@ -87,9 +79,9 @@ export default function Setting({ onSettingsSaved }: SettingProps) {
   const [lmsStatus, setLmsStatus] = useState<{ ok: boolean; message: string } | null>(null);
   const [lmsCredentialsSaved, setLmsCredentialsSaved] = useState(() => !!getLmsSession());
 
-  // 保存が必要な項目（所属とクラス・通知）の、最後に保存した内容。null はまだ一度も保存していない
+  // 保存が必要な項目（通知）の、最後に保存した内容。null はまだ一度も保存していない
   const [savedSnapshot, setSavedSnapshot] = useState<string | null>(null);
-  const snapshot = JSON.stringify([courseClass, englishID, classStartAction, deadlineHours]);
+  const snapshot = JSON.stringify([classStartAction, deadlineHours]);
   const isDirty = user !== null && snapshot !== savedSnapshot;
   const dirtyRef = useRef(false);
   useEffect(() => { dirtyRef.current = isDirty; }, [isDirty]);
@@ -150,77 +142,29 @@ export default function Setting({ onSettingsSaved }: SettingProps) {
         return;
       }
 
-      const [resDept, resCourse, resClass, resProfile] = await Promise.all([
-        supabase.from('departments').select('*').order('id'),
-        supabase.from('courses').select('*').order('id'),
-        supabase.from('classes').select('*').order('id'),
-        supabase.from('profiles').select('class_id, english_id, auto_open, class_start_action, deadline_reminder_hours').eq('user_id', user.id).single(),
-      ]);
+      // 学科・コース・クラスは設定画面で選ばなくなったので、通知の設定だけを読む
+      const { data: profile } = await supabase
+        .from('profiles')
+        .select('class_start_action, deadline_reminder_hours')
+        .eq('user_id', user.id)
+        .maybeSingle();
 
-      const depts = resDept.data || [];
-      const crses = resCourse.data || [];
-      const clses = resClass.data || [];
-
-      setCoursesDB(crses);
-      setClassesDB(clses);
-
-      const profile = resProfile.data;
-
-      if (profile?.class_id) {
-        const myClass = clses.find(c => c.id === profile.class_id);
-        if (myClass) {
-          setCourseClass(myClass.id);
-          const myCourse = crses.find(c => c.id === myClass.course_id);
-          if (myCourse) {
-            setBaseCourse(myCourse.id);
-            setDepartment(myCourse.department_id);
-          }
-        }
-        setEnglishID(profile.english_id || null);
-        setClassStartAction((profile.class_start_action as ClassStartAction) ?? 'notify');
-        setDeadlineHours(profile.deadline_reminder_hours ?? null);
-        setSavedSnapshot(JSON.stringify([
-          myClass ? myClass.id : null,
-          profile.english_id || null,
-          (profile.class_start_action as ClassStartAction) ?? 'notify',
-          profile.deadline_reminder_hours ?? null,
-        ]));
-      } else if (depts.length > 0 && crses.length > 0 && clses.length > 0) {
-        const firstDept = depts[0];
-        const firstCourse = crses.find(c => c.department_id === firstDept.id);
-        if (firstCourse) {
-          const firstClass = clses.find(c => c.course_id === firstCourse.id);
-          setDepartment(firstDept.id);
-          setBaseCourse(firstCourse.id);
-          if (firstClass) setCourseClass(firstClass.id);
-        }
+      if (profile) {
+        const action = (profile.class_start_action as ClassStartAction) ?? 'notify';
+        const hours = profile.deadline_reminder_hours ?? null;
+        setClassStartAction(action);
+        setDeadlineHours(hours);
+        setSavedSnapshot(JSON.stringify([action, hours]));
       }
+      // プロフィールがまだない人は savedSnapshot が null のまま → 「未保存」として保存を促す（通知に必要なため）
 
-      // 学科・コース・クラスのデータが揃ってから最後に user をセットし、フォームを1回で描画する
-      // （先にセットすると、選択肢が後から段階的に現れてページが乱れる）
+      // 設定を読み込んでから user をセットし、フォームを1回で描画する
       setUser(user);
     };
     fetchAllData();
   }, [navigate]);
 
 
-  useEffect(() => {
-    if (department && coursesDB.length > 0) {
-      const availableCourses = coursesDB.filter(c => c.department_id === department);
-      if (availableCourses.length > 0 && !availableCourses.find(c => c.id === baseCourse)) {
-        setBaseCourse(availableCourses[0].id);
-      }
-    }
-  }, [department, coursesDB, baseCourse]);
-
-  useEffect(() => {
-    if (baseCourse && classesDB.length > 0) {
-      const availableClasses = classesDB.filter(c => c.course_id === baseCourse);
-      if (availableClasses.length > 0 && !availableClasses.find(c => c.id === courseClass)) {
-        setCourseClass(availableClasses[0].id);
-      }
-    }
-  }, [baseCourse, classesDB, courseClass]);
 
   useEffect(() => {
     getPushState().then(setPushState).catch(() => setPushState('unsupported'));
@@ -265,7 +209,7 @@ export default function Setting({ onSettingsSaved }: SettingProps) {
       }, 150);
       return () => clearTimeout(timer);
     }
-  }, [isAdvancedFocused, department, baseCourse]);
+  }, [isAdvancedFocused]);
 
   const handleSubmit = async (event: FormEvent) => {
     event.preventDefault();
@@ -275,8 +219,7 @@ export default function Setting({ onSettingsSaved }: SettingProps) {
     try {
       const { error } = await supabase.from("profiles").upsert({
         user_id: user.id,
-        // 学科・クラスは設定画面では選ばない（時間割は LMS から作る）。以前の値があればそのまま残す
-        ...(courseClass ? { class_id: courseClass, english_id: englishID } : {}),
+        // 学科・クラスは設定画面では扱わない（時間割は LMS から作る）。以前の値は送らずにそのまま残す
         class_start_action: classStartAction,
         deadline_reminder_hours: deadlineHours,
         // 旧バージョンのクライアント向けに auto_open も同期しておく
@@ -517,7 +460,7 @@ export default function Setting({ onSettingsSaved }: SettingProps) {
               </div>
             </SettingsCard>
 
-            {/* 保存ボタン（変更があるときだけ画面の下に付いてくる。所属とクラス・通知の変更だけが対象） */}
+            {/* 保存ボタン（変更があるときだけ画面の下に付いてくる。通知の変更だけが対象） */}
             {isDirty && (
             <div role="status" className="sticky bottom-20 md:bottom-4 z-10 flex items-center justify-between gap-3 rounded-xl bg-surface shadow-md border border-warn px-4 sm:px-5 py-3 animate-in fade-in slide-in-from-bottom-2 duration-200">
               <p className="text-sm text-fg">
