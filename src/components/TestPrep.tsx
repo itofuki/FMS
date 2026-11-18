@@ -2,7 +2,7 @@
 
 import React, { useState, useMemo } from 'react';
 import { supabase } from '../lib/supabaseClient';
-import ChapterFrame from './ChapterFrame';
+import ChapterFrame, { CENTER_PANEL, PAGE_GRID, SIDE_TITLE, SIDE_WIDGET } from './ChapterFrame';
 import { PageSkeleton } from './Skeleton';
 import { FiCheckSquare, FiCheck, FiX, FiPlus, FiEdit2, FiTrash2, FiTool, FiArrowLeft, FiRefreshCw, FiHelpCircle, FiInbox, FiChevronRight, FiCheckCircle, FiXCircle, FiImage } from 'react-icons/fi';
 import { Textarea, TextInput, Select, SegmentedControl, Radio, Button, Group, FileInput } from '@mantine/core';
@@ -358,7 +358,7 @@ const TestPrep: React.FC<TestPrepProps> = ({ subject }) => {
     markAnswer(correct);
   };
 
-  if (loading) return <PageSkeleton cards={3} cardHeight="h-28" />;
+  if (loading) return <PageSkeleton rows={3} />;
 
   const selectedDeck = decks.find(d => d.key === selectedDeckKey);
   const selectedSubjectName = selectedDeck
@@ -392,11 +392,12 @@ const TestPrep: React.FC<TestPrepProps> = ({ subject }) => {
   return (
     <div>
       <ChapterFrame
-        icon={FiCheckSquare}
         title="テスト対策"
         bare={isSubjectList}
-        meta={isAdminMode && <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded bg-amber-400 text-slate-900 text-xs font-bold"><FiTool size={12} />管理者モード</span>}
-        actions={userRole === 'admin' && !isSubjectList && adminToggle}
+        meta={isAdminMode
+          ? <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded bg-amber-400 text-slate-900 text-xs font-bold"><FiTool size={12} />管理者モード</span>
+          : isSubjectList ? <span>問題集 <span className="font-bold text-fg">{decks.length}</span>セット</span> : undefined}
+        actions={userRole === 'admin' && adminToggle}
       >
         <div className="w-full flex flex-col gap-6">
 
@@ -592,10 +593,10 @@ const TestPrep: React.FC<TestPrepProps> = ({ subject }) => {
             <>
               {view === 'subjects' && (
                 // 課題ページと同じく「科目ごとの小見出し＋1件ずつのカード」、広い画面では右に概要の列
-                <div className="xl:grid xl:grid-cols-[minmax(0,1fr)_18rem] xl:gap-8 xl:items-start">
-                  <aside className="mb-6 xl:mb-0 xl:order-2 xl:sticky xl:top-4 bg-surface border border-line">
+                <div className={PAGE_GRID}>
+                  <aside className={SIDE_WIDGET}>
                     <div className="px-4 sm:px-5 py-4 border-b border-line">
-                      <p className="text-sm font-bold text-fg-muted">問題集の概要</p>
+                      <p className={SIDE_TITLE}>問題集の概要</p>
                       <dl className="mt-2 grid grid-cols-[1fr_auto] gap-y-1.5 text-sm">
                         <dt className="text-fg-muted">科目</dt>
                         <dd className="font-bold text-fg text-right">{new Set(decks.map(d => d.subjectId)).size}</dd>
@@ -608,14 +609,10 @@ const TestPrep: React.FC<TestPrepProps> = ({ subject }) => {
                     </p>
                   </aside>
 
-                  <div className="xl:order-1 min-w-0 xl:px-6">
-                    {/* 一覧の見出し行: 左に件数、右に管理者モード（課題ページと同じ位置） */}
-                    <div className="flex items-center justify-between gap-3 mb-4 min-h-9">
-                      <span className="text-sm text-fg-muted">問題集 <span className="text-base font-bold text-fg">{decks.length}</span>セット</span>
-                      {userRole === 'admin' && adminToggle}
-                    </div>
+                  {/* 真ん中の列: 白い 1 枚の面に、科目ごとの小見出しと問題集の行 */}
+                  <div className={CENTER_PANEL}>
                     {decks.length === 0 ? (
-                      <div className="text-center py-12 px-4 bg-surface border border-line rounded-lg">
+                      <div className="text-center py-16 px-4">
                         <FiInbox size={28} className="mx-auto text-fg-subtle mb-2" />
                         <p className="text-fg-muted text-sm">まだ出題できる科目はありません</p>
                       </div>
@@ -623,18 +620,18 @@ const TestPrep: React.FC<TestPrepProps> = ({ subject }) => {
                       Array.from(new Map(decks.map(d => [d.subjectId, d.subjectName])).entries()).map(([subjectId, subjectName]) => {
                         const subjectDecks = decks.filter(d => d.subjectId === subjectId);
                         return (
-                          <section key={subjectId} className="mb-6 last:mb-0">
-                            <h3 className="flex items-center gap-2 mb-3 px-1 text-base font-bold text-fg">
+                          <section key={subjectId}>
+                            <h3 className="flex items-center gap-2 px-4 sm:px-5 py-3 border-b border-line text-base font-bold text-fg">
                               <span className="w-1 h-4 rounded-full bg-accent" aria-hidden="true" />
                               {subjectName}
                               <span className="text-sm font-normal text-fg-muted">{subjectDecks.length}セット</span>
                             </h3>
-                            <ul className="flex flex-col gap-3">
+                            <ul className="flex flex-col">
                               {subjectDecks.map(deck => (
                                 <li key={deck.key}>
                                   <button
                                     onClick={() => startSession(deck.key)}
-                                    className="group w-full flex items-center gap-4 px-4 sm:px-5 py-4 rounded-xl shadow-sm bg-surface hover:shadow-md transition-shadow text-left"
+                                    className="group w-full flex items-center gap-4 px-4 sm:px-5 py-4 border-b border-line hover:bg-surface-2 transition-colors text-left"
                                   >
                                     <FiHelpCircle className="text-accent flex-shrink-0" size={22} />
                                     <span className="flex-1 min-w-0">

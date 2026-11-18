@@ -6,10 +6,11 @@ import { useNavigate, useSearchParams } from "react-router-dom";
 import type { User } from "@supabase/supabase-js";
 import { toast } from 'sonner';
 import RadioGroup from "./RadioGroup";
-import ChapterFrame from "../components/ChapterFrame";
+import ChapterFrame, { CENTER_PANEL, PAGE_GRID, SIDE_TITLE, SIDE_WIDGET } from "../components/ChapterFrame";
 import { PageSkeleton } from "./Skeleton";
 import CalendarFeedSettings from "./CalendarFeedSettings";
 import LmsCourseSettings from "./LmsCourseSettings";
+import AvatarSettings from "./AvatarSettings";
 import { ThemeSelector } from "./ThemeToggle";
 import { useQueryClient } from "@tanstack/react-query";
 import { getPushState, enablePush, disablePush, sendTestPush, type PushState } from "../lib/push";
@@ -267,9 +268,8 @@ export default function Setting({ onSettingsSaved }: SettingProps) {
 
   if (!user) {
     return (
-      <ChapterFrame title="設定" bare>
-        <PageSkeleton cards={3} cardHeight="h-40" />
-      </ChapterFrame>
+      // 仮表示も列の見出しの形を持っているので、そのまま出す
+      <PageSkeleton rows={4} />
     );
   }
 
@@ -281,11 +281,11 @@ export default function Setting({ onSettingsSaved }: SettingProps) {
 
   return (
     <ChapterFrame title="設定" bare>
-      <div className="xl:grid xl:grid-cols-[minmax(0,1fr)_18rem] xl:gap-8 xl:items-start animate-in fade-in duration-300">
+      <div className={`${PAGE_GRID} animate-in fade-in duration-300`}>
         {/* 右の列（広い画面）: 項目の目次と、保存が必要な項目の説明 */}
-        <aside className="hidden xl:block xl:order-2 xl:sticky xl:top-4 bg-surface border border-line">
+        <aside className={`hidden lg:block ${SIDE_WIDGET}`}>
           <nav aria-label="設定の項目" className="px-5 py-4 border-b border-line">
-            <p className="text-sm font-bold text-fg-muted">この画面の項目</p>
+            <p className={SIDE_TITLE}>この画面の項目</p>
             <ul className="mt-2 space-y-1">
               {SECTIONS.map(sec => (
                 <li key={sec.id}>
@@ -308,7 +308,8 @@ export default function Setting({ onSettingsSaved }: SettingProps) {
           </p>
         </aside>
 
-        <div className="xl:order-1 min-w-0 xl:px-6 flex flex-col gap-5">
+        {/* 真ん中の列: 白い 1 枚の面に、項目を区切り線で並べる */}
+        <div className={`${CENTER_PANEL} flex flex-col`}>
           {/* LMS 連携（その場で反映）。課題ページの「再ログイン」から来たときは強調する */}
           <div ref={advancedRef}>
             <SettingsCard
@@ -456,6 +457,8 @@ export default function Setting({ onSettingsSaved }: SettingProps) {
 
           {/* アカウント */}
           <SettingsCard id="settings-account" title="アカウント">
+            {/* アイコン（画像を選ぶとすぐ保存） */}
+            <div className="mb-5"><AvatarSettings /></div>
             <div className="flex flex-wrap items-center justify-between gap-3">
               {/* LMS の ID でログインしたアカウントは、内部用のメールアドレスではなく LMS の名前と ID を出す */}
               <p className="text-sm text-fg-muted">
@@ -484,7 +487,7 @@ function SettingsCard({ id, title, description, badge, highlight = false, childr
   children: React.ReactNode;
 }) {
   return (
-    <section id={id} className={`scroll-mt-4 rounded-xl shadow-sm bg-surface px-5 sm:px-6 py-5 transition-shadow duration-700 ${highlight ? 'ring-2 ring-accent' : ''}`}>
+    <section id={id} className={`scroll-mt-16 px-4 sm:px-5 py-5 border-b border-line transition-colors duration-700 ${highlight ? 'bg-accent-soft/60' : ''}`}>
       <div className="flex items-center gap-2">
         <h3 className="text-lg font-bold text-fg">{title}</h3>
         {badge}

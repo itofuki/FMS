@@ -9,7 +9,7 @@
 import React, { Suspense, lazy, useCallback, useEffect, useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { FiArrowRight, FiExternalLink, FiFileText, FiClock, FiCoffee, FiCheckCircle, FiAlertTriangle } from 'react-icons/fi';
-import ChapterFrame from './ChapterFrame';
+import ChapterFrame, { CENTER_PANEL, PAGE_GRID, SIDE_TITLE, SIDE_WIDGET } from './ChapterFrame';
 import { BsQrCodeScan } from 'react-icons/bs';
 
 // QR の読み取り（カメラと jsQR）は、押したときだけ読み込む
@@ -92,20 +92,24 @@ function StateBadge({ state, minutes }: { state: 'current' | 'next' | 'after' | 
     after: { label: '終了', cls: 'bg-surface text-fg-subtle border-line', dot: 'bg-fg-subtle' },
   }[state];
   return (
-    <span data-state-badge className={`absolute -top-2.5 right-2 inline-flex items-center gap-1 px-2 py-0.5 rounded-full border text-xs font-bold whitespace-nowrap ${map.cls}`}>
+    <span className={`flex-shrink-0 inline-flex items-center gap-1 px-2 py-0.5 rounded-full border text-xs font-bold whitespace-nowrap ${map.cls}`}>
       <span className={`w-1.5 h-1.5 rounded-full ${map.dot}`} aria-hidden="true" />
       {map.label}
     </span>
   );
 }
 
+/**
+ * 今日の授業を、X のタイムラインのように区切り線で並べる（箱で囲まない）。
+ * 左に時刻、右に時限・教室・先生、授業名、出席率と課題。授業中の行は淡く色付けし、終わった授業は薄くする。
+ */
 function TodayTimeline({ subjects, now, assignmentCount, attendance }: { subjects: Subject[]; now: Date; assignmentCount: (name: string) => number; attendance: AttendanceMap }) {
   const focus = focusPeriod(subjects.map(s => s.period), now);
   const items = buildTimeline(subjects);
 
   if (subjects.length === 0) {
     return (
-      <div className="text-center py-12 px-4 bg-surface border border-line rounded-lg">
+      <div className="text-center py-16 px-4">
         <FiCoffee size={28} className="mx-auto text-fg-subtle mb-2" />
         <p className="text-fg-muted text-sm">{weekdayOf(now) ? '今日の授業はありません' : '今日は授業がありません（週の表示で一週間分を確認できます）'}</p>
       </div>
@@ -113,16 +117,12 @@ function TodayTimeline({ subjects, now, assignmentCount, attendance }: { subject
   }
 
   return (
-    <ol className="relative">
+    <ol className="divide-y divide-line">
       {items.map((item, i) => {
         if (item.kind === 'gap') {
           return (
-            <li key={`gap-${i}`} className="flex gap-3 sm:gap-4">
-              <div className="w-12 sm:w-14 flex-shrink-0" />
-              <div className="relative flex-1 pl-5 sm:pl-6 py-2.5">
-                <span className="absolute left-0 top-0 bottom-0 border-l-2 border-dashed border-line" aria-hidden="true" />
-                <p className="text-sm text-fg-subtle">{item.label}<span className="ml-3">{item.from}〜{item.to}</span></p>
-              </div>
+            <li key={`gap-${i}`} className="px-4 sm:px-5 py-2 bg-bg/50 text-sm text-fg-subtle">
+              {item.label}<span className="ml-3 tabular-nums">{item.from}〜{item.to}</span>
             </li>
           );
         }
@@ -133,62 +133,54 @@ function TodayTimeline({ subjects, now, assignmentCount, attendance }: { subject
         const badgeState = state === 'current' ? 'current' : state === 'after' ? 'after' : isFocus ? 'next' : 'before';
         const count = assignmentCount(s.name);
         return (
-          <li key={s.id} className="flex gap-3 sm:gap-4">
+          <li
+            key={s.id}
+            aria-current={state === 'current' ? 'time' : undefined}
+            className={`relative flex gap-4 px-4 sm:px-5 py-4 transition-colors ${
+              state === 'current'
+                ? 'bg-accent-soft/60 before:absolute before:left-0 before:inset-y-0 before:w-1 before:bg-accent'
+                : 'hover:bg-surface-2'
+            } ${state === 'after' ? 'opacity-55' : ''}`}
+          >
             {/* 左: 時刻 */}
-            <div className={`w-12 sm:w-14 flex-shrink-0 pt-4 text-right ${state === 'after' ? 'text-fg-subtle' : 'text-fg'}`}>
-              <p className="text-base sm:text-lg font-bold leading-none">{formatHm(t.start)}</p>
+            <div className="w-12 flex-shrink-0 text-right tabular-nums">
+              <p className="text-base sm:text-lg font-bold leading-none text-fg">{formatHm(t.start)}</p>
               <p className="mt-1 text-xs text-fg-muted">{formatHm(t.end)}</p>
             </div>
-            {/* 中: 線と点 */}
-            <div className="relative flex-1 pl-5 sm:pl-6 pb-5">
-              <span className="absolute left-0 top-0 bottom-0 border-l-2 border-line" aria-hidden="true" />
-              <span
-                className={`absolute -left-[7px] top-5 w-3 h-3 rounded-full border-2 ${
-                  state === 'current' ? 'bg-accent border-accent ring-4 ring-accent/20' : state === 'after' ? 'bg-surface border-line-strong' : 'bg-surface border-accent'
-                }`}
-                aria-hidden="true"
-              />
-              {/* 右: カード */}
-              <div className={`relative rounded-xl px-4 sm:px-5 py-4 transition-opacity ${
-                // 課題カードと同じ色（ライトは白、ダークは元の配色の slate-700/80）
-                state === 'current' ? 'shadow-sm bg-surface dark:bg-slate-700/80 ring-2 ring-accent'
-                // 終わった授業: ライトは背景より一段濃い灰色の地と枠（背景に溶け込まないよう地は不透明）にし、中身だけ薄くする。
-                // 右上の状態バッジはカードの縁にまたがるので薄くしない（透けて枠線が見えるため）。
-                // ダークは課題の完了と同じ slate-800/60
-                : state === 'after' ? 'bg-[#d5dce5] border border-[#bcc6d3] [&>*:not([data-state-badge])]:opacity-55 dark:border-0 dark:bg-slate-800/60 dark:[&>*:not([data-state-badge])]:opacity-100 dark:opacity-60 dark:shadow-sm'
-                : 'shadow-sm bg-surface dark:bg-slate-700/80'
-              }`}>
-                <StateBadge state={badgeState} minutes={minutesLeft(s.period, now)} />
-                <p className="text-sm text-fg-muted">
+            {/* 右: 授業 */}
+            <div className="flex-1 min-w-0">
+              <div className="flex items-start justify-between gap-2">
+                <p className="text-sm text-fg-muted min-w-0">
                   <span className="font-semibold text-accent">{s.period}限</span>
                   <span className="mx-1.5 text-fg-subtle">·</span>
                   {s.classroom || '教室未定'}
                   <span className="mx-1.5 text-fg-subtle">·</span>
                   {s.teacher}
                 </p>
-                {/* 授業名を押すと出席ページ（なければコースページ）が開く。課題カードと同じく右に ↗ だけ付ける */}
-                <a
-                  href={attendanceUrl(s)}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  title={s.attendanceId ? '出席ページを開く' : 'コースページを開く'}
-                  className="mt-1.5 inline-flex items-start gap-1.5 text-[17px] sm:text-lg font-bold text-fg leading-snug break-words hover:text-link hover:underline"
-                >
-                  <span>{s.name}</span>
-                  <FiExternalLink size={15} className="mt-1.5 flex-shrink-0 text-fg-subtle" aria-hidden="true" />
-                </a>
-                {(count > 0 || (s.attendanceId && attendance[s.attendanceId])) && (
-                  <div className="mt-3 flex flex-wrap items-center gap-2">
-                    {s.attendanceId && attendance[s.attendanceId] && <AttendanceChip summary={attendance[s.attendanceId]} periodsPerDay={periodsPerDay(subjects, s)} />}
-                    {count > 0 && (
-                    <Link to="?tab=assignments" className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-md border border-line-strong text-fg hover:bg-surface-2 transition-colors">
+                <StateBadge state={badgeState} minutes={minutesLeft(s.period, now)} />
+              </div>
+              {/* 授業名を押すと出席ページ（なければコースページ）が開く */}
+              <a
+                href={attendanceUrl(s)}
+                target="_blank"
+                rel="noopener noreferrer"
+                title={s.attendanceId ? '出席ページを開く' : 'コースページを開く'}
+                className="mt-1 inline-flex items-start gap-1.5 text-[17px] font-bold text-fg leading-snug break-words hover:text-link hover:underline"
+              >
+                <span>{s.name}</span>
+                <FiExternalLink size={15} className="mt-1 flex-shrink-0 text-fg-subtle" aria-hidden="true" />
+              </a>
+              {(count > 0 || (s.attendanceId && attendance[s.attendanceId])) && (
+                <div className="mt-2.5 flex flex-wrap items-center gap-2">
+                  {s.attendanceId && attendance[s.attendanceId] && <AttendanceChip summary={attendance[s.attendanceId]} periodsPerDay={periodsPerDay(subjects, s)} />}
+                  {count > 0 && (
+                    <Link to="?tab=assignments" className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full border border-line-strong text-fg hover:bg-surface-3 transition-colors">
                       <FiFileText size={13} className="text-warn" />
                       <span className="text-xs font-bold">課題 {count}件</span>
                     </Link>
-                    )}
-                  </div>
-                )}
-              </div>
+                  )}
+                </div>
+              )}
             </div>
           </li>
         );
@@ -204,8 +196,7 @@ function TodayTimeline({ subjects, now, assignmentCount, attendance }: { subject
 function WeekGrid({ weeklySubjects, now }: { weeklySubjects: Record<Day, Subject[]>; now: Date }) {
   const today = weekdayOf(now);
   return (
-    <div className="bg-bg dark:bg-surface border border-line rounded-lg p-2 sm:p-4">
-      {/* ライトは灰色の地に白いマス（課題ページと同じ見え方）、ダークは元の地の色 */}
+    <div className="p-2 sm:p-4">
       {/* スマホでも5日分が1画面に収まるよう、最小幅は付けない。科目名は2行まで出し、超える分は「…」で省く（全文はマスの title で見られる） */}
       <div className="grid gap-1 sm:gap-2" style={{ gridTemplateColumns: 'auto repeat(5, minmax(0, 1fr))' }}>
         <div />
@@ -235,7 +226,7 @@ function WeekGrid({ weeklySubjects, now }: { weeklySubjects: Record<Day, Subject
                   title={`${s.name}（${s.classroom} / ${s.teacher}）`}
                   className={`min-h-16 rounded-md sm:rounded-lg px-1 sm:px-2 py-1 sm:py-1.5 flex flex-col justify-center gap-0.5 shadow-sm transition-colors ${
                     // 授業のマスも課題カードと同じ色
-                    isNow ? 'bg-accent-soft ring-2 ring-accent' : 'bg-surface dark:bg-slate-700/80 hover:bg-surface-2 dark:hover:bg-slate-700'
+                    isNow ? 'bg-accent-soft ring-2 ring-accent' : 'bg-surface-2 dark:bg-slate-700/80 hover:bg-surface-3 dark:hover:bg-slate-700'
                   }`}
                 >
                   <span className="text-[11px] sm:text-[13px] font-bold text-fg leading-tight line-clamp-2 break-all sm:break-normal text-center">{s.name}</span>
@@ -329,7 +320,7 @@ function NextClassCard({ subjects, now, attendance }: { subjects: Subject[]; now
   const t = s ? periodTime(s.period) : undefined;
   return (
     <div className="px-4 sm:px-5 py-4">
-      <p className="text-sm font-bold text-fg-muted flex items-center gap-1.5"><FiClock size={14} />{focus?.state === 'current' ? '授業中' : '次の授業'}</p>
+      <p className={`${SIDE_TITLE} flex items-center gap-1.5`}><FiClock size={16} />{focus?.state === 'current' ? '授業中' : '次の授業'}</p>
       {s && t ? (
         <>
           <p className="mt-2 text-sm text-fg-muted"><span className="font-semibold text-accent mr-2">{s.period}限</span>{s.classroom} · {s.teacher}</p>
@@ -413,31 +404,19 @@ export const TimetableContainer: React.FC<TimetableContainerProps> = ({
   const wd = ['日', '月', '火', '水', '木', '金', '土'][now.getDay()];
   // 今が何限か（1〜6限の授業時間中だけ出す）
   const periodLabel = currentPeriodLabel(now);
+  // 列の見出しの補足: 日付・時刻・何限か
   const meta = (
-    // パンくずより一段大きくして、この画面の見出しとして読めるようにする（自習室の日付と同じ大きさ）
-    <span className="text-base sm:text-lg font-bold text-fg tabular-nums">
+    <span className="text-[15px] font-bold text-fg tabular-nums">
       {now.getMonth() + 1}/{now.getDate()}（{wd}）
       <span className="ml-2 text-fg-muted">{String(now.getHours()).padStart(2, '0')}:{String(now.getMinutes()).padStart(2, '0')}</span>
       {periodLabel && <span className="ml-2 text-accent">{periodLabel}</span>}
     </span>
   );
-
-  const viewSwitch = (
-    <div role="tablist" aria-label="表示" className="inline-flex rounded-lg border border-line bg-surface p-0.5">
-      {[{ v: false, label: '今日' }, { v: true, label: '週' }].map(o => (
-        <button
-          key={o.label}
-          type="button"
-          role="tab"
-          aria-selected={isWeeklyView === o.v}
-          onClick={() => onChangeView(o.v)}
-          className={`px-3.5 h-8 rounded-md transition-colors ${isWeeklyView === o.v ? 'bg-accent-solid text-on-accent' : 'text-fg-muted hover:text-fg'}`}
-        >
-          <span className="text-sm font-bold">{o.label}</span>
-        </button>
-      ))}
-    </div>
-  );
+  // 列の見出しの下線タブ: 今日 / 週
+  const tabs = [
+    { key: 'today', label: '今日', active: !isWeeklyView, onSelect: () => onChangeView(false) },
+    { key: 'week', label: '週', active: isWeeklyView, onSelect: () => onChangeView(true) },
+  ];
 
   if (!isProfileSet) {
     return (
@@ -455,25 +434,19 @@ export const TimetableContainer: React.FC<TimetableContainerProps> = ({
   }
 
   return (
-    <ChapterFrame title="時間割" bare>
-      {/* 今日・週のどちらでも右の列を出し、切り替えボタンの位置が動かないようにする */}
-      <div className="xl:grid xl:grid-cols-[minmax(0,1fr)_18rem] xl:gap-8 xl:items-start">
-        <aside className="mb-6 xl:mb-0 xl:order-2 xl:sticky xl:top-4 bg-surface border border-line">
+    <ChapterFrame title="時間割" meta={meta} tabs={tabs} bare>
+      <div className={PAGE_GRID}>
+        {/* 右の列（スマホでは見出しのすぐ下）: 授業中・次の授業 */}
+        <aside className={SIDE_WIDGET}>
           <NextClassCard subjects={todaySubjects} now={now} attendance={attendance} />
         </aside>
-        <div className="xl:order-1 min-w-0 xl:px-6">
-          {/* 見出し行: 左に日付、右に今日・週の切り替え（課題の「追加」と同じく真ん中の列の右上） */}
-          <div className="flex items-center justify-between gap-3 mb-4 px-1 xl:px-0">
-            <div className="flex items-center gap-2 min-w-0 text-sm text-fg-muted">{meta}</div>
-            <div className="flex-shrink-0">{viewSwitch}</div>
-          </div>
-          {lmsIssue && <LmsIssueNotice issue={lmsIssue} />}
+        {/* 真ん中の列: 白い 1 枚の面に、今日の授業（区切り線）または週の表 */}
+        <div className={CENTER_PANEL}>
+          {lmsIssue && <div className="px-3 pt-3"><LmsIssueNotice issue={lmsIssue} /></div>}
           {isWeeklyView ? (
             <WeekGrid weeklySubjects={weeklySubjects} now={now} />
           ) : (
-            <div className="pt-3">
-              <TodayTimeline subjects={todaySubjects} now={now} assignmentCount={assignmentCount} attendance={attendance} />
-            </div>
+            <TodayTimeline subjects={todaySubjects} now={now} assignmentCount={assignmentCount} attendance={attendance} />
           )}
         </div>
       </div>

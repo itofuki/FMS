@@ -6,8 +6,8 @@ import { useEffect } from 'react';
 import { useComputedColorScheme, useMantineColorScheme } from '@mantine/core';
 import { FiMoon, FiSun } from 'react-icons/fi';
 
-// 最上部の帯（slate-800 固定）と揃える
-const THEME_COLOR = { light: '#1e293b', dark: '#1e293b' } as const;
+// ブラウザのアドレスバーの色。上の細いバー（ライトは白、ダークは slate-800）と揃える
+const THEME_COLOR = { light: '#ffffff', dark: '#1e293b' } as const;
 
 /** ブラウザのアドレスバー等の色（meta theme-color）を現在のテーマに合わせる */
 export function ThemeColorSync() {

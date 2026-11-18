@@ -8,7 +8,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { FiExternalLink, FiCalendar, FiMapPin } from 'react-icons/fi';
-import ChapterFrame from './ChapterFrame';
+import ChapterFrame, { CENTER_PANEL, PAGE_GRID, SIDE_TITLE, SIDE_WIDGET } from './ChapterFrame';
 import { SkeletonBar, TableSkeleton } from './Skeleton';
 import { supabase } from '../lib/supabaseClient';
 import {
@@ -115,34 +115,29 @@ const StudyRoom = () => {
   const periodLabel = weekdayOf(now) ? ROOM_SLOTS.find(p => slotState(p.period, now) === 'current')?.label ?? null : null;
   const fmtDate = (ymd: string) => { const [, m, d] = ymd.split('-'); return `${Number(m)}/${Number(d)}`; };
 
-  const daySwitch = (
-    <div role="tablist" aria-label="曜日" className="inline-flex rounded-lg border border-line bg-surface p-0.5">
-      {WEEKDAYS.map(d => {
-        const active = selected === d;
-        return (
-          <button
-            key={d}
-            type="button"
-            role="tab"
-            aria-selected={active}
-            onClick={() => setSelected(d)}
-            className={`relative w-9 sm:w-10 h-8 rounded-md transition-colors ${active ? 'bg-accent-solid text-on-accent' : 'text-fg-muted hover:text-fg'}`}
-          >
-            <span className="text-sm font-bold">{WEEKDAY_LABELS[d]}</span>
-            {d === todayKey && !active && <span className="absolute bottom-1 left-1/2 -translate-x-1/2 w-1 h-1 rounded-full bg-accent" aria-label="今日" />}
-          </button>
-        );
-      })}
-    </div>
+  // 列の見出しの下線タブ: 曜日（今日の曜日には小さな点）
+  const dayTabs = WEEKDAYS.map(d => ({
+    key: d,
+    label: <span className="relative">{WEEKDAY_LABELS[d]}{d === todayKey && <span className="absolute -right-2 top-0 w-1.5 h-1.5 rounded-full bg-accent" aria-label="今日" />}</span>,
+    active: selected === d,
+    onSelect: () => setSelected(d),
+  }));
+  // 列の見出しの補足: 表示中の日付（今日なら時刻と何限かも）
+  const headerMeta = (
+    <span className="text-[15px] font-bold text-fg tabular-nums whitespace-nowrap">
+      {fmtDate(toYmd(dateOf(selected)))}（{WEEKDAY_LABELS[selected]}）
+      {isTodaySelected && <span className="ml-2 text-fg-muted">{String(now.getHours()).padStart(2, '0')}:{String(now.getMinutes()).padStart(2, '0')}</span>}
+      {isTodaySelected && periodLabel && <span className="ml-2 text-accent">{periodLabel}</span>}
+    </span>
   );
 
   return (
-    <ChapterFrame title="自習室" bare>
-      <div className="xl:grid xl:grid-cols-[minmax(0,1fr)_18rem] xl:gap-8 xl:items-start">
+    <ChapterFrame title="自習室" meta={headerMeta} tabs={dayTabs} bare>
+      <div className={PAGE_GRID}>
         {/* 右の列: 今使える部屋・掲載期間と PDF */}
-        <aside className="mb-6 xl:mb-0 xl:order-2 xl:sticky xl:top-4 bg-surface border border-line">
+        <aside className={SIDE_WIDGET}>
           <div className="px-4 sm:px-5 py-4 border-b border-line">
-            <p className="text-sm font-bold text-fg-muted flex items-center gap-1.5"><FiMapPin size={14} />{current ? '今使える部屋' : '次に開く部屋'}</p>
+            <p className={`${SIDE_TITLE} flex items-center gap-1.5`}><FiMapPin size={16} />{current ? '今使える部屋' : '次に開く部屋'}</p>
             {isLoading ? (
               <div className="mt-3 space-y-2" aria-label="読み込み中"><SkeletonBar className="h-3 w-24" /><SkeletonBar className="h-6 w-32" /><SkeletonBar className="h-6 w-32" /></div>
             ) : todayRooms && focus ? (
@@ -167,7 +162,7 @@ const StudyRoom = () => {
             )}
           </div>
           <div className="px-4 sm:px-5 py-4">
-            <p className="text-sm font-bold text-fg-muted flex items-center gap-1.5"><FiCalendar size={14} />掲載期間</p>
+            <p className={`${SIDE_TITLE} flex items-center gap-1.5`}><FiCalendar size={16} />掲載期間</p>
             {meta ? (
               <>
                 <p className="mt-1.5 text-sm text-fg">{fmtDate(meta.start)} 〜 {fmtDate(meta.end)}</p>
@@ -182,22 +177,9 @@ const StudyRoom = () => {
         </aside>
 
         {/* 左: 1日分の一覧表 */}
-        <div className="xl:order-1 min-w-0 xl:px-6">
-          {/* 見出し行: 左に表示中の日付、右に曜日の切り替え（課題の「追加」と同じく真ん中の列の右上） */}
-          <div className="flex items-center justify-between gap-3 mb-4 px-1 xl:px-0">
-            <div className="flex flex-wrap items-center gap-x-2 gap-y-0.5 min-w-0">
-              <h3 className="text-base sm:text-lg font-bold text-fg whitespace-nowrap">{fmtDate(toYmd(dateOf(selected)))}（{WEEKDAY_LABELS[selected]}）</h3>
-              {/* 今日を表示しているときは、今の時刻と何限かも出す（時間割と同じ） */}
-              {isTodaySelected && (
-                <span className="text-base sm:text-lg font-bold tabular-nums whitespace-nowrap">
-                  <span className="text-fg-muted">{String(now.getHours()).padStart(2, '0')}:{String(now.getMinutes()).padStart(2, '0')}</span>
-                  {periodLabel && <span className="ml-2 text-accent">{periodLabel}</span>}
-                </span>
-              )}
-            </div>
-            <div className="flex-shrink-0">{daySwitch}</div>
-          </div>
-          <div className="bg-surface border border-line rounded-lg overflow-hidden">
+        {/* 真ん中の列: 白い 1 枚の面に、選んだ曜日の表 */}
+        <div className={CENTER_PANEL}>
+          <div>
             {isLoading ? (
               <TableSkeleton />
             ) : !rooms ? (
@@ -240,7 +222,7 @@ const StudyRoom = () => {
             )}
           </div>
           {isTodaySelected && rooms && (
-            <p className="mt-2 px-1 text-xs text-fg-subtle">今の時限は色付き、終わった時限は薄く表示しています。</p>
+            <p className="px-4 sm:px-5 py-3 text-xs text-fg-subtle border-t border-line">今の時限は色付き、終わった時限は薄く表示しています。</p>
           )}
         </div>
       </div>

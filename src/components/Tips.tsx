@@ -4,7 +4,7 @@
  */
 import { Link } from 'react-router-dom';
 import { FiDownload, FiArrowRight, FiInfo } from 'react-icons/fi';
-import ChapterFrame from './ChapterFrame';
+import ChapterFrame, { CENTER_PANEL, PAGE_GRID, SIDE_TITLE, SIDE_WIDGET } from './ChapterFrame';
 
 type Tip = {
   title: string;
@@ -28,10 +28,10 @@ const TIPS: Tip[] = [
 export default function Tips() {
   return (
     <ChapterFrame title="Tips" meta={<span>ガイド <span className="font-semibold text-fg">{TIPS.length}</span>件</span>} bare>
-      <div className="xl:grid xl:grid-cols-[minmax(0,1fr)_18rem] xl:gap-8 xl:items-start">
+      <div className={PAGE_GRID}>
         {/* 右の列: Tips について */}
-        <aside className="mb-6 xl:mb-0 xl:order-2 xl:sticky xl:top-4 bg-surface border border-line px-4 sm:px-5 py-4">
-          <p className="text-sm font-bold text-fg-muted flex items-center gap-1.5"><FiInfo size={14} />Tips について</p>
+        <aside className={`${SIDE_WIDGET} px-4 sm:px-5 py-4`}>
+          <p className={`${SIDE_TITLE} flex items-center gap-1.5`}><FiInfo size={16} />Tips について</p>
           <p className="mt-2 text-sm text-fg-muted leading-relaxed">
             FMS や LMS をもっと便利に使うための手順をまとめています。
           </p>
@@ -41,9 +41,9 @@ export default function Tips() {
         </aside>
 
         {/* 左: ガイドの一覧 */}
-        <ul className="xl:order-1 min-w-0 xl:px-6 flex flex-col gap-5">
+        <ul className={`${CENTER_PANEL} flex flex-col`}>
           {TIPS.map(tip => (
-            <li key={tip.title} className="rounded-xl shadow-sm bg-surface px-5 sm:px-6 py-5">
+            <li key={tip.title} className="px-4 sm:px-5 py-5 border-b border-line">
               <div className="flex flex-wrap items-center gap-2 text-sm">
                 {tip.isNew && <span className="px-2 py-0.5 rounded-full bg-accent-soft text-accent text-xs font-bold">NEW</span>}
                 <span className="text-fg-muted">{tip.meta}</span>

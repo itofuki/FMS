@@ -74,18 +74,6 @@
 
 }
 
-/* 最上部の帯（テーマに関係なく濃いスレート固定）の中では、文字やアイコンのトークンを白系に置き換える。
-   中のコンポーネントは text-accent / text-fg-muted などをそのまま使えば読める色になる */
-.on-header {
-  --fg: #ffffff;
-  --fg-muted: rgba(255, 255, 255, 0.85);
-  --fg-subtle: rgba(255, 255, 255, 0.65);
-  --line: rgba(255, 255, 255, 0.2);
-  --surface-3: rgba(255, 255, 255, 0.14);
-  --link: #ffffff;
-  --accent: #ffffff;
-}
-
 @theme inline {
   --color-bg: var(--bg);
   --color-surface: var(--surface);

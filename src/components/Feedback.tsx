@@ -2,7 +2,7 @@
 
 import React, { useState } from 'react';
 import { supabase } from '../lib/supabaseClient';
-import ChapterFrame from './ChapterFrame';
+import ChapterFrame, { CENTER_PANEL, PAGE_GRID, SIDE_TITLE, SIDE_WIDGET } from './ChapterFrame';
 import { FiMessageSquare, FiSend, FiInfo } from 'react-icons/fi';
 import { Textarea, Button } from '@mantine/core';
 
@@ -42,10 +42,10 @@ const Feedback = () => {
 
   return (
     <ChapterFrame title="ご意見・ご要望" bare>
-      <div className="xl:grid xl:grid-cols-[minmax(0,1fr)_18rem] xl:gap-8 xl:items-start">
+      <div className={PAGE_GRID}>
         {/* 右の列: 送信について */}
-        <aside className="mb-6 xl:mb-0 xl:order-2 xl:sticky xl:top-4 bg-surface border border-line px-4 sm:px-5 py-4">
-          <p className="text-sm font-bold text-fg-muted flex items-center gap-1.5"><FiInfo size={14} />送信について</p>
+        <aside className={`${SIDE_WIDGET} px-4 sm:px-5 py-4`}>
+          <p className={`${SIDE_TITLE} flex items-center gap-1.5`}><FiInfo size={16} />送信について</p>
           <ul className="mt-2 space-y-2 text-sm text-fg-muted leading-relaxed list-disc pl-4">
             <li>内容は開発者だけが確認します。</li>
             <li>ログイン中のアカウントと一緒に送信されます。</li>
@@ -54,9 +54,9 @@ const Feedback = () => {
           </ul>
         </aside>
 
-        {/* 左: 入力フォーム（1枚のカード） */}
-        <div className="xl:order-1 min-w-0 xl:px-6">
-          <form onSubmit={handleSubmit} className="rounded-xl shadow-sm bg-surface px-5 sm:px-6 py-5">
+        {/* 真ん中の列: 白い 1 枚の面に入力フォーム */}
+        <div className={CENTER_PANEL}>
+          <form onSubmit={handleSubmit} className="px-4 sm:px-5 py-5">
             <h3 className="text-lg font-bold text-fg flex items-center gap-2">
               <FiMessageSquare className="text-accent" size={18} />
               ご意見・ご要望を送る

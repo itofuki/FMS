@@ -1,6 +1,6 @@
 /* src/pages/Mypage.tsx */
 
-import { useState, useEffect, useCallback, lazy, Suspense } from "react";
+import { useState, useEffect, useCallback, useLayoutEffect, useRef, lazy, Suspense } from "react";
 import { supabase } from "../lib/supabaseClient";
 import { useNavigate, useSearchParams } from "react-router-dom";
 import { useSidebar, type ChapterLink } from "../contexts/SidebarContext";
@@ -18,7 +18,6 @@ const Feedback = lazy(() => import('../components/Feedback'));
 const Tips = lazy(() => import('../components/Tips'));
 import { PageSkeleton, TimetableSkeleton } from '../components/Skeleton';
 import DeadlineReminderSync from '../components/DeadlineReminderSync';
-import { menuGroupLabel } from '../lib/menu';
 import { PERIODS, nowInJst, weekdayOf } from '../lib/schedule';
 import { useLmsCourseSync } from '../hooks/useLmsCourseSync';
 
@@ -109,6 +108,22 @@ export default function MyPage() {
     { hour: 19, minute: 55 },
   ];
   useScheduledReloader(reloadTimes, () => activeChapter === 'test-prep');
+
+  // タブごとのスクロール位置を覚えておき、戻ったときに元の位置から続けられるようにする（X と同じ）
+  const scrollPositions = useRef<Record<string, number>>({});
+  const prevChapterRef = useRef(activeChapter);
+  useLayoutEffect(() => {
+    const root = document.querySelector<HTMLElement>('[data-scroll-root]');
+    if (!root) return;
+    const prev = prevChapterRef.current;
+    if (prev === activeChapter) return;
+    scrollPositions.current[prev] = root.scrollTop;
+    prevChapterRef.current = activeChapter;
+    const target = scrollPositions.current[activeChapter] ?? 0;
+    // 中身（遅れて読み込むタブなど）の描画を待ってから戻す
+    root.scrollTop = target;
+    requestAnimationFrame(() => requestAnimationFrame(() => { root.scrollTop = target; }));
+  }, [activeChapter]);
 
   // 最初の表示が終わったら、よく使うタブ（課題・自習室）を裏で読み込んでおく
   useEffect(() => {
@@ -288,25 +303,14 @@ export default function MyPage() {
   };
 
   return (
-    <div className="px-1 py-4 md:p-6 lg:py-8 lg:pl-8 lg:pr-0">
-      {/* 広い画面では右側の内側の余白をなくし、右の列の外側の余白をメニューの左側（32px）にそろえる */}
+    <div className="w-full">
       {/* 時間割（科目）の読み込みが終わってから同期する（途中の空の科目一覧で同期しない） */}
       {!loading && <DeadlineReminderSync subjects={uniqueSubjects} />}
-      <div className="w-full max-w-5xl mx-auto lg:max-w-none pt-16">
-        {/* パンくずリスト: 現在地を小さく示し、大きな見出しで場所を取らない */}
-        <div className="flex items-center justify-between gap-3 mb-3 px-1 text-xs sm:text-sm">
-          <nav aria-label="現在地" className="flex items-center gap-1.5 text-fg-muted min-w-0">
-            {/* 先頭は、サイドメニューのどちらのグループ（メニュー／サブメニュー）にいるか */}
-            <span>{menuGroupLabel(activeChapter)}</span>
-            <span aria-hidden="true" className="text-fg-subtle">›</span>
-            <span className="font-semibold text-fg truncate">{myPageChapters.find(c => c.id === activeChapter)?.label ?? ''}</span>
-          </nav>
-        </div>
-        {/* 読み込み中も画面の枠（メニュー・パンくず）は出したまま、中身だけ形の合った灰色の仮表示にする */}
-        {loading
-          ? (activeChapter === 'timetable' || !activeChapter ? <TimetableSkeleton /> : <PageSkeleton />)
-          : <Suspense fallback={<PageSkeleton />}>{renderMainContent()}</Suspense>}
-      </div>
+      {/* 各ページが列の見出し（ページ名・タブ）を貼り付けるので、パンくずリストは置かない。
+          読み込み中も左のナビは出したまま、中身だけ形の合った灰色の仮表示にする */}
+      {loading
+        ? (activeChapter === 'timetable' || !activeChapter ? <TimetableSkeleton /> : <PageSkeleton />)
+        : <Suspense fallback={<PageSkeleton />}>{renderMainContent()}</Suspense>}
     </div>
   );
 }

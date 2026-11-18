@@ -2,9 +2,9 @@
 
 import React, { useState, useMemo, useRef, useEffect } from 'react';
 import { supabase } from '../lib/supabaseClient';
-import ChapterFrame from './ChapterFrame';
+import ChapterFrame, { CENTER_PANEL, PAGE_GRID, SIDE_TITLE, SIDE_WIDGET } from './ChapterFrame';
 import { PageSkeleton } from './Skeleton';
-import { FiPlus, FiTrash2, FiInbox, FiFileText, FiTool, FiLink, FiEdit2, FiX, FiInfo, FiRefreshCw, FiPaperclip, FiPlay, FiExternalLink, FiMoreVertical, FiAlertTriangle } from 'react-icons/fi';
+import { FiPlus, FiTrash2, FiInbox, FiTool, FiLink, FiEdit2, FiX, FiInfo, FiRefreshCw, FiPaperclip, FiPlay, FiExternalLink, FiMoreVertical, FiAlertTriangle } from 'react-icons/fi';
 import { format, formatDistanceToNowStrict } from 'date-fns';
 import { ja } from 'date-fns/locale';
 import { TextInput, Select, Button, Group, SimpleGrid, Menu, ActionIcon } from '@mantine/core';
@@ -56,12 +56,6 @@ const deadlineTag = (deadline: string) => {
   if (remaining <= 3 * 24 * 60 * 60 * 1000) return { label: text, className: 'bg-warn-soft text-warn border-warn/40', dot: 'bg-warn' };
   return { label: text, className: 'bg-surface text-fg-muted border-line-strong', dot: 'bg-fg-subtle' };
 };
-
-// ダークモードの課題カードの色（配色変更前の元の課題カードの色: 通常 slate-700/80・公式 slate-800・完了 slate-800/60）
-const rowDarkBg = (a: UnifiedAssignment) =>
-  a.done ? 'dark:bg-slate-800/60'
-  : a.classification === 'official' && !a.isLms ? 'dark:bg-slate-800'
-  : 'dark:bg-slate-700/80';
 
 // お知らせの帯（左に色の線とアイコン、要点と補足、右端に操作）
 const NOTICE_STYLE = {
@@ -428,7 +422,7 @@ const Assignments: React.FC<AssignmentsProps> = ({ subject }) => {
     officialOnly: isAdminMode && userRole === 'admin',
   }), [assignments, lmsEvents, dbSubjects, subject, isAdminMode, userRole, lmsStatuses]);
 
-  if (loading) return <PageSkeleton cards={4} />;
+  if (loading) return <PageSkeleton rows={4} />;
 
   const isOfficialMode = isAdminMode && userRole === 'admin';
   const cleanTitle = (title: string) => title.replace(/[「」]|の提出期限/g, '');
@@ -522,20 +516,13 @@ const Assignments: React.FC<AssignmentsProps> = ({ subject }) => {
         layout="position"
         exit={{ opacity: 0, scale: 0.96, transition: { duration: 0.25 } }}
         transition={{ layout: { duration: 0.3, ease: 'easeOut' } }}
-        className={`relative flex items-start gap-3.5 px-4 sm:px-5 py-4 rounded-xl shadow-sm transition-[box-shadow,background-color] duration-300 ${
-          editingId === assignment.id ? 'bg-accent-soft ring-2 ring-accent'
-          : isLingering ? 'bg-up-soft ring-1 ring-up/30'
-          : `bg-surface hover:shadow-md ${rowDarkBg(assignment)}`
+        // X のタイムラインと同じく、箱で囲まずに区切り線で並べる（編集中・チェック直後だけ色を付ける）
+        className={`relative flex items-start gap-3.5 px-4 sm:px-5 py-4 border-b border-line transition-colors duration-300 ${
+          editingId === assignment.id ? 'bg-accent-soft'
+          : isLingering ? 'bg-up-soft'
+          : 'hover:bg-surface-2'
         }`}
       >
-        {/* 残り時間のバッジは、カードの右上の角に上の縁にまたがるように載せる。
-            右端は「⋮」と同じ right-2 にそろえ、角の丸み（12px）の内側に収める */}
-        {tag && (
-          <span className={`absolute -top-2.5 right-2 inline-flex items-center gap-1 px-2 py-0.5 rounded-full border text-xs font-bold whitespace-nowrap ${tag.className}`}>
-            <span className={`w-1.5 h-1.5 rounded-full ${tag.dot}`} aria-hidden="true" />
-            {tag.label}
-          </span>
-        )}
 
         {/* 「⋮」はカードの右端・上下中央に */}
         {moreMenu && <div className="absolute right-2 top-1/2 -translate-y-1/2">{moreMenu}</div>}
@@ -556,6 +543,13 @@ const Assignments: React.FC<AssignmentsProps> = ({ subject }) => {
               <span className="text-xs px-1.5 rounded bg-accent-soft text-accent font-semibold">下書き</span>
             )}
             <span className="text-fg-muted whitespace-nowrap">締切 {formatDateTime(assignment.deadline)}</span>
+            {/* 残り時間は 1 行目の右端に */}
+            {tag && (
+              <span className={`ml-auto inline-flex items-center gap-1 px-2 py-0.5 rounded-full border text-xs font-bold whitespace-nowrap ${tag.className}`}>
+                <span className={`w-1.5 h-1.5 rounded-full ${tag.dot}`} aria-hidden="true" />
+                {tag.label}
+              </span>
+            )}
           </div>
 
           {/* 2行目: 課題名（リンクがあれば押すと開く） */}
@@ -657,6 +651,34 @@ const Assignments: React.FC<AssignmentsProps> = ({ subject }) => {
     )
   ) : null;
 
+  // 列の見出しの右端: 管理者モードの切り替えと「追加」（スマホでは「追加」は右下の丸いボタン）
+  const headerActions = (
+    <>
+      {/* 管理者モード: 切り替えると一覧と「追加」の動きが変わるので、そのすぐ隣に置く（管理者にだけ表示） */}
+      {userRole === 'admin' && (
+        <button
+          type="button"
+          onClick={() => { setIsAdminMode(prev => !prev); resetForm(); }}
+          aria-pressed={isAdminMode}
+          aria-label={isAdminMode ? '管理者モードを終了' : '管理者モード'}
+          title={isAdminMode ? '管理者モードを終了' : '管理者モード'}
+          className={`inline-flex items-center gap-1.5 h-9 px-2.5 sm:px-3 rounded-md border text-sm font-bold transition-colors ${
+            isAdminMode
+              ? 'bg-amber-400 border-amber-400 text-slate-900 hover:bg-amber-300'
+              : 'bg-amber-50 border-amber-300 text-amber-800 hover:bg-amber-100 dark:bg-amber-400/10 dark:border-amber-400/40 dark:text-amber-300 dark:hover:bg-amber-400/20'
+          }`}
+        >
+          <FiTool size={15} />
+          {/* Mantine の CSS が button の文字指定を上書きするため、文字は span 側で指定する */}
+          <span className="hidden sm:inline text-sm font-bold">{isAdminMode ? '終了' : '管理者モード'}</span>
+        </button>
+      )}
+      <Button onClick={() => openNewForm()} leftSection={<FiPlus size={16} />} radius="xl" className="!hidden md:!inline-flex">
+        {isOfficialMode ? '公式課題を追加' : '課題を追加'}
+      </Button>
+    </>
+  );
+
   const openNewForm = () => {
     resetForm();
     setIsFormOpen(true);
@@ -665,17 +687,19 @@ const Assignments: React.FC<AssignmentsProps> = ({ subject }) => {
 
   return (
     <ChapterFrame
-      icon={FiFileText}
       title="課題"
+      meta={isAdminMode
+        ? <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded bg-amber-400 text-slate-900 text-xs font-bold whitespace-nowrap"><FiTool size={12} />管理者モード</span>
+        : <span>未完了 <span className="font-bold text-fg">{pendingCount}</span>件</span>}
+      actions={headerActions}
       bare
       notice={lmsNotice}
     >
       {/* 画面が広い（xl 以上）ときは、ヤフーファイナンスの掲示板のように「左に一覧・右に補足」の2列にする。
           課題カードが横に間延びしないようにし、進み具合はスクロールしても右に残す */}
-      <div className="xl:grid xl:grid-cols-[minmax(0,1fr)_18rem] xl:gap-8 xl:items-start">
-        {/* 右の列の上端は、どのページでも真ん中の列の上端にそろえる */}
-        <aside className="mb-6 xl:mb-0 xl:order-2 xl:sticky xl:top-4">
-          <div className="bg-surface border border-line">
+      <div className={PAGE_GRID}>
+        <aside className={SIDE_WIDGET}>
+          <div>
             {/* 上段: LMS の同期状態と更新 */}
             <div className="px-4 sm:px-6 xl:px-5 py-3 flex flex-col gap-2 text-sm border-b border-line">
               {hasLmsSession ? (
@@ -708,7 +732,7 @@ const Assignments: React.FC<AssignmentsProps> = ({ subject }) => {
             {unifiedAssignments.length > 0 && (
               <div className="px-4 sm:px-6 xl:px-5 py-5">
                 <div className="flex items-baseline justify-between gap-3 mb-3">
-                  <span className="text-base font-bold text-fg">進み具合</span>
+                  <span className={SIDE_TITLE}>進み具合</span>
                   <span className="text-sm text-fg-muted">
                     完了 <span className="text-2xl font-bold text-up">{doneCount}</span> / {unifiedAssignments.length}件
                   </span>
@@ -732,48 +756,11 @@ const Assignments: React.FC<AssignmentsProps> = ({ subject }) => {
             )}
           </div>
         </aside>
-        {/* xl:px-6: 真ん中の列の左右に余白を取り、メニュー・進み具合の列との間に余裕を持たせる */}
-        <div className="xl:order-1 min-w-0 xl:px-6">
-          {/* 一覧の見出し行: 左に件数、右に追加（どこに追加されるかが分かるよう一覧のすぐ上に置く） */}
-          <div className="flex items-center justify-between gap-3 mb-4 px-3 sm:px-8 xl:px-0">
-            <div className="flex items-center gap-2 min-w-0 text-sm text-fg-muted">
-              {isAdminMode ? (
-                <>
-                  <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded bg-amber-400 text-slate-900 text-xs font-bold whitespace-nowrap"><FiTool size={12} />管理者モード</span>
-                  <span className="hidden sm:inline">公式課題のみ表示中</span>
-                </>
-              ) : (
-                <span>未完了 <span className="text-base font-bold text-fg">{pendingCount}</span>件</span>
-              )}
-            </div>
-            <div className="flex items-center gap-2 flex-shrink-0">
-              {/* 管理者モード: 切り替えると一覧と「追加」の動きが変わるので、そのすぐ隣に置く（管理者にだけ表示） */}
-              {userRole === 'admin' && (
-                <button
-                  type="button"
-                  onClick={() => { setIsAdminMode(prev => !prev); resetForm(); }}
-                  aria-pressed={isAdminMode}
-                  aria-label={isAdminMode ? '管理者モードを終了' : '管理者モード'}
-                  title={isAdminMode ? '管理者モードを終了' : '管理者モード'}
-                  className={`inline-flex items-center gap-1.5 h-9 px-2.5 sm:px-3 rounded-md border text-sm font-bold transition-colors ${
-                    isAdminMode
-                      ? 'bg-amber-400 border-amber-400 text-slate-900 hover:bg-amber-300'
-                      : 'bg-amber-50 border-amber-300 text-amber-800 hover:bg-amber-100 dark:bg-amber-400/10 dark:border-amber-400/40 dark:text-amber-300 dark:hover:bg-amber-400/20'
-                  }`}
-                >
-                  <FiTool size={15} />
-                  {/* Mantine の CSS が button の文字指定を上書きするため、文字は span 側で指定する */}
-                  <span className="hidden sm:inline text-sm font-bold">{isAdminMode ? '終了' : '管理者モード'}</span>
-                </button>
-              )}
-              <Button onClick={openNewForm} leftSection={<FiPlus size={16} />}>
-                {isOfficialMode ? '公式課題を追加' : '課題を追加'}
-              </Button>
-            </div>
-          </div>
+        {/* 真ん中の列: 白い 1 枚の面 */}
+        <div className={CENTER_PANEL}>
       {/* 追加・編集フォーム（一覧の上に開く） */}
       {showForm && (
-        <div ref={formRef} className="mb-5 p-4 sm:p-5 bg-surface border border-line rounded-xl">
+        <div ref={formRef} className="p-4 sm:p-5 bg-surface-2 border-b border-line">
           <div className="flex items-center justify-between mb-2">
             <h3 className="font-bold text-sm text-fg flex items-center gap-2">
               {editingId ? <><FiEdit2 className="text-accent" /> 課題を編集</> : <><FiPlus className="text-accent" /> {isOfficialMode ? '新しい[公式]課題' : '新しい個人課題'}</>}
@@ -801,7 +788,7 @@ const Assignments: React.FC<AssignmentsProps> = ({ subject }) => {
 
       {/* 一覧: 期限の近さで小見出しを付けて区切る */}
       {unifiedAssignments.length === 0 ? (
-        <div className="text-center py-12 px-4 bg-surface border border-line rounded-lg">
+        <div className="text-center py-16 px-4">
           <FiInbox size={28} className="mx-auto text-fg-subtle mb-2" />
           <p className="text-fg-muted text-sm">{isAdminMode ? '表示できる公式課題はありません' : '直近2週間の課題はありません 🎉'}</p>
         </div>
@@ -809,8 +796,9 @@ const Assignments: React.FC<AssignmentsProps> = ({ subject }) => {
         displayGroups.map(group => {
           const collapsed = group.key === 'done' && !showDone;
           return (
-            <section key={group.key} className="mb-6 last:mb-0 px-3 sm:px-8 xl:px-0">
-              <h3 className="flex items-center gap-2 mb-4 px-1 text-base font-bold text-fg">
+            <section key={group.key}>
+              {/* グループの小見出し（区切り線の行） */}
+              <h3 className="flex items-center gap-2 px-4 sm:px-5 py-3 border-b border-line text-base font-bold text-fg">
                 <span className={`w-1 h-4 rounded-full ${GROUP_STYLE[group.key].bar}`} aria-hidden="true" />
                 {group.label}
                 <span className="text-sm font-normal text-fg-muted">{group.items.length}件</span>
@@ -826,7 +814,7 @@ const Assignments: React.FC<AssignmentsProps> = ({ subject }) => {
               </h3>
               {!collapsed && (
                 <MotionConfig reducedMotion="user">
-                  <ul className="flex flex-col gap-5">
+                  <ul className="flex flex-col">
                     <AnimatePresence initial={false}>
                       {group.items.map(renderRow)}
                     </AnimatePresence>
@@ -839,6 +827,15 @@ const Assignments: React.FC<AssignmentsProps> = ({ subject }) => {
       )}
         </div>
       </div>
+      {/* スマホ: 右下の丸い「＋」で課題を追加（X の投稿ボタンと同じ位置） */}
+      <button
+        type="button"
+        onClick={() => openNewForm()}
+        aria-label={isOfficialMode ? '公式課題を追加' : '課題を追加'}
+        className="md:hidden fixed right-4 bottom-[calc(5.5rem+env(safe-area-inset-bottom))] z-30 w-14 h-14 rounded-full bg-accent-solid hover:bg-accent-solid-hover text-on-accent shadow-lg flex items-center justify-center"
+      >
+        <FiPlus size={26} />
+      </button>
     </ChapterFrame>
   );
 };
