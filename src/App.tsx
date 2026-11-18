@@ -3,9 +3,8 @@ import { SidebarProvider } from "./contexts/SidebarContext";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query"; // 🌟 追加
 import { ReactQueryDevtools } from "@tanstack/react-query-devtools"; // 🌟 デバッグ用に推奨（開発時のみ）
 import Layout from './components/Layout';
-import HomePage from "./pages/HomePage";
+import RootRedirect from "./components/RootRedirect";
 import LoginForm from './pages/LoginForm';
-import RegisterForm from './pages/RegisterForm';
 import MyPage from "./pages/MyPage";
 import { ThemeColorSync } from "./components/ThemeToggle";
 
@@ -30,16 +29,13 @@ const router = createBrowserRouter([
     element: <Layout />,
     children: [
       {
+        // トップの画面はなく、ログイン画面（ログイン済みならマイページ）へすぐ移る
         index: true,
-        element: <HomePage />,
+        element: <RootRedirect />,
       },
       {
         path: "login",
         element: <LoginForm />,
-      },
-      {
-        path: "register",
-        element: <RegisterForm />,
       },
       {
         path: "mypage",

@@ -448,3 +448,10 @@ enabled = true
 verify_jwt = false
 import_map = "./functions/calendar-feed/deno.json"
 entrypoint = "./functions/calendar-feed/index.ts"
+
+[functions.lms-login]
+enabled = true
+# ログイン前に呼ばれるため JWT 検証は無効。LMS の ID とパスワードで本人確認する
+verify_jwt = false
+import_map = "./functions/lms-login/deno.json"
+entrypoint = "./functions/lms-login/index.ts"

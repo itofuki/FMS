@@ -7,6 +7,10 @@ FMSは、学内の施設開放スケジュール（自習室・談話室）、�
 
 ## ✨ 主な機能 (Features)
 
+### 🔑 ログイン
+* **LMS の ID とパスワードでログインします**（Open LMS アプリと同じ `login/token.php` で本人確認。パスワードは保存しません）。新規登録の画面はなく、LMS のユーザーごとに FMS のアカウントが自動で作られます（内部の識別子は `lms-<LMSのユーザーID>@users.fms.invalid`）。
+* ログインと同時に LMS 連携も済みます。ログアウトすると、この端末の LMS のトークンとキャッシュも消えます。
+
 ### 👤 ユーザー（学生）向け機能
 * **📅 スケジュール＆時間割確認機能**
   * 自習室・談話室の開放時間をカレンダー形式で一目で確認できます。
@@ -151,7 +155,7 @@ deno check supabase/functions/*/index.ts   # Edge Functions の型チェック�
 
 #### データベース（マイグレーション）
 ```bash
-npx supabase db push   # supabase/migrations の未適用分を本番に反映
+npx supabase db push --linked   # supabase/migrations の未適用分を本番に反映（--linked を付けて本番を指定）
 ```
 
 #### 4. Edge Functions
@@ -162,6 +166,7 @@ npx supabase db push   # supabase/migrations の未適用分を本番に反映
 | `notify-scheduler` | 締切リマインダー・授業前通知（pg_cron から毎分） | なし（`x-scheduler-secret` で検証） | `NOTIFY_SCHEDULER_SECRET`, VAPID 3種 |
 | `slack-schedule-receiver` | Slack から時間割PDFを取り込み | なし（Slack署名で検証） | `SLACK_USER_TOKEN`, `SLACK_SIGNING_SECRET`, `GEMINI_API_KEY`, `GEMINI_MODEL`(任意) |
 | `calendar-feed` | カレンダー購読用の .ics を返す | なし（`calendar_feeds` のトークンで本人を特定） | なし |
+| `lms-login` | LMS の ID とパスワードでログイン（アカウント作成・セッション発行） | なし（LMS で本人確認） | なし |
 
 ```bash
 npx supabase secrets set SLACK_SIGNING_SECRET=... GEMINI_API_KEY=...
@@ -170,6 +175,7 @@ npx supabase functions deploy send-push
 npx supabase functions deploy slack-schedule-receiver   # JWT 検証の有無は supabase/config.toml に記載
 npx supabase functions deploy notify-scheduler
 npx supabase functions deploy calendar-feed
+npx supabase functions deploy lms-login
 ```
 
 #### 5. 通知の定期実行（pg_cron）

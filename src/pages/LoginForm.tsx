@@ -1,89 +1,143 @@
-/* src/pages/LoginForm.tsx */
-
-import { useState } from "react";
-import { supabase } from "../lib/supabaseClient";
-import { Link, useNavigate } from "react-router-dom";
+/* src/pages/LoginForm.tsx
+ * LMS の ID とパスワードでログインする（Open LMS アプリと同じ）。
+ * サーバーの lms-login が LMS で本人確認し、FMS のログイン状態と LMS のトークンを返す。
+ * パスワードはどこにも保存しない。ログインと同時に「LMS 連携」も済む。
+ */
+import { Suspense, lazy, useEffect, useState } from "react";
+import { useNavigate } from "react-router-dom";
 import { toast } from 'sonner';
+import { supabase } from "../lib/supabaseClient";
+import { clearLmsSession, getLmsSession, saveLmsSession } from "../lib/lms";
+
+// 背景のアニメーション（元のトップページと同じ）。ログイン画面を開いたときだけ読み込む
+const ParticlesBackground = lazy(() => import("../components/ParticlesBackground"));
+
+type LoginResponse = {
+  session?: { access_token: string; refresh_token: string };
+  lms?: { token: string; userId: number; username: string };
+  error?: string;
+};
+
+const FUNCTION_URL = `${import.meta.env.VITE_SUPABASE_URL as string}/functions/v1/lms-login`;
+// LMS のサイト。今は東京キャンパスだけ対応（サーバーの lms-login も同じサイトだけを受け付ける）
+const DEFAULT_SITE = 'lms-tokyo.iput.ac.jp';
 
 export default function LoginForm() {
-  const [email, setEmail] = useState("");
+  const [site, setSite] = useState(DEFAULT_SITE);
+  const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
   const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
   const navigate = useNavigate();
+
+  // すでにログインしていれば、ログイン画面は飛ばしてマイページへ
+  useEffect(() => {
+    supabase.auth.getSession().then(({ data }) => { if (data.session) navigate('/mypage', { replace: true }); });
+  }, [navigate]);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setLoading(true);
-
+    setError(null);
     try {
-      // SupabaseのsignInWithPasswordメソッドを呼び出す
-      const { error } = await supabase.auth.signInWithPassword({
-        email: email,
-        password: password,
+      const res = await fetch(FUNCTION_URL, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", apikey: import.meta.env.VITE_SUPABASE_ANON_KEY as string },
+        body: JSON.stringify({ site: site.trim(), username: username.trim(), password }),
       });
-      if (error) throw error;
-      toast.success("ログインしました！");
-      navigate("/mypage");
-    } catch (error) {
-      if (error instanceof Error) {
-        toast.error(error.message);
+      const data = (await res.json().catch(() => ({}))) as LoginResponse;
+      if (!res.ok || !data.session || !data.lms) {
+        setError(data.error ?? "ログインに失敗しました");
+        return;
       }
+
+      // 別の人の LMS の情報（課題・出席率のキャッシュなど）が残っていれば消してから保存する
+      if (getLmsSession()?.username !== data.lms.username) clearLmsSession();
+      saveLmsSession(data.lms);
+
+      const { error: sessionError } = await supabase.auth.setSession(data.session);
+      if (sessionError) throw sessionError;
+
+      setPassword("");
+      toast.success("ログインしました");
+      navigate("/mypage");
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "ログインに失敗しました");
     } finally {
       setLoading(false);
     }
   };
 
+  const inputClass = "w-full px-4 py-3 rounded-xl bg-surface-2 text-fg placeholder-fg-subtle focus:ring-2 focus:ring-accent focus:outline-none border border-line";
+
   return (
-    <div className="min-h-screen flex items-center justify-center text-fg mx-2">
-      <div className="w-full max-w-md p-8 rounded-2xl bg-surface shadow-sm border border-line">
-        <h2 className="text-3xl font-bold text-center mb-6 text-accent">
-          🔮 Login Form
-        </h2>
+    <div className="relative min-h-screen flex items-center justify-center text-fg px-2">
+      <Suspense fallback={null}>
+        <ParticlesBackground />
+      </Suspense>
+      <div className="relative z-10 w-full max-w-md p-8 rounded-2xl bg-surface shadow-sm border border-line">
+        <h2 className="text-2xl font-bold text-center text-fg">ログイン</h2>
+        <p className="mt-2 mb-6 text-sm text-center text-fg-muted">LMS の ID とパスワードでログインします</p>
+
         <form onSubmit={handleSubmit} className="space-y-5">
-          {/* Email */}
           <div>
-            <label className="block text-sm mb-2 text-fg-muted">Email</label>
+            <label htmlFor="lms-site" className="block text-sm font-semibold mb-2 text-fg">LMS のサイト</label>
             <input
-              type="email"
-              value={email}
-              onChange={(e) => setEmail(e.target.value)}
-              className="w-full px-4 py-3 rounded-xl bg-surface-2 text-fg placeholder-fg-subtle focus:ring-2 focus:ring-accent focus:outline-none border border-line"
-              placeholder="you@example.com"
+              id="lms-site"
+              type="text"
+              inputMode="url"
+              autoCapitalize="none"
+              autoCorrect="off"
+              spellCheck={false}
+              value={site}
+              onChange={(e) => setSite(e.target.value)}
+              className={inputClass}
               required
             />
           </div>
 
-          {/* Password */}
           <div>
-            <label className="block text-sm mb-2 text-fg-muted">Password</label>
+            <label htmlFor="lms-id" className="block text-sm font-semibold mb-2 text-fg">LMS の ID</label>
             <input
+              id="lms-id"
+              type="text"
+              autoComplete="username"
+              autoCapitalize="none"
+              autoCorrect="off"
+              spellCheck={false}
+              value={username}
+              onChange={(e) => setUsername(e.target.value)}
+              className={inputClass}
+              required
+            />
+          </div>
+
+          <div>
+            <label htmlFor="lms-password" className="block text-sm font-semibold mb-2 text-fg">パスワード</label>
+            <input
+              id="lms-password"
               type="password"
+              autoComplete="current-password"
               value={password}
               onChange={(e) => setPassword(e.target.value)}
-              className="w-full px-4 py-3 rounded-xl bg-surface-2 text-fg placeholder-fg-subtle focus:ring-2 focus:ring-accent focus:outline-none border border-line"
-              placeholder="********"
+              className={inputClass}
               required
             />
           </div>
 
-          {/* Submit Button */}
+          {error && <p role="alert" className="text-sm text-down font-semibold">{error}</p>}
+
           <button
             type="submit"
-            // ✨ 変更点: ローディング中はボタンを無効化し、スタイルも変更
             disabled={loading}
-            className="w-full py-3 rounded-xl bg-accent-solid hover:bg-accent-solid-hover font-semibold text-lg text-on-accent transition-colors duration-200 disabled:opacity-50 disabled:cursor-not-allowed"
+            className="w-full py-3 rounded-xl bg-accent-solid hover:bg-accent-solid-hover text-on-accent transition-colors duration-200 disabled:opacity-50 disabled:cursor-not-allowed"
           >
-            {/* ✨ 変更点: ローディング状態に応じてボタンのテキストを変更 */}
-            {loading ? 'ログイン中...' : 'Login'}
+            <span className="font-semibold text-lg">{loading ? 'ログイン中...' : 'ログイン'}</span>
           </button>
         </form>
 
-        {/* Register link */}
-        <p className="text-center mt-6 text-sm text-fg-muted">
-          Don't have an account?{" "}
-          <Link to="/register" className="text-accent hover:underline">
-            Register here
-          </Link>
+        <p className="mt-6 text-xs text-fg-subtle leading-relaxed">
+          パスワードは FMS に保存されません。LMS で本人確認したあと、LMS のアクセストークンだけをこの端末に保存します（課題・出席率・時間割の取り込みに使います）。
         </p>
       </div>
     </div>
