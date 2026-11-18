@@ -53,12 +53,14 @@ function Logo({ withText = true }: { withText?: boolean }) {
  * ナビの中身。compact = アイコンだけ（タブレットの細い列）。
  * 選択中は X と同じく「文字を太く・アイコンを強調」するだけで、色付きの箱にはしない。
  */
-function SidebarContent({ links, activeId, onNavigate, closeMenu, compact = false }: {
+function SidebarContent({ links, activeId, onNavigate, closeMenu, compact = false, drawer = false }: {
   links: ChapterLink[];
   activeId: string;
   onNavigate: (id: string) => void;
   closeMenu: () => void;
   compact?: boolean;
+  /** スマホで引き出すナビ。X と同じく、いちばん上にアイコン（40px）・名前・@ID を出し、下のアカウント欄は出さない */
+  drawer?: boolean;
 }) {
   const handleNavigate = (id: string) => {
     onNavigate(id);
@@ -67,6 +69,8 @@ function SidebarContent({ links, activeId, onNavigate, closeMenu, compact = fals
   const topLinks = links.filter(link => !SUB_MENU_IDS.includes(link.id));
   const bottomLinks = links.filter(link => SUB_MENU_IDS.includes(link.id));
   const user = useCurrentUser();
+  // X の @ID にあたるもの（LMS の ID）
+  const handle = (user?.user_metadata?.lms_username as string | undefined) ?? '';
 
   const item = (link: ChapterLink, sub: boolean) => {
     const active = activeId === link.id;
@@ -92,9 +96,18 @@ function SidebarContent({ links, activeId, onNavigate, closeMenu, compact = fals
 
   return (
     <div className="flex flex-col h-full overflow-y-auto">
-      <div className={`pt-3 pb-4 ${compact ? 'flex justify-center' : 'px-4'}`}>
-        <Logo withText={!compact} />
-      </div>
+      {drawer ? (
+        // X のスマホのナビ: いちばん上に自分のアイコンと名前・@ID（押すと設定のアカウントへ）
+        <button type="button" onClick={() => handleNavigate('setting')} className="px-4 pt-4 pb-3 text-left">
+          <Avatar user={user} size={40} />
+          <span className="block mt-2 text-[17px] font-bold text-fg leading-tight truncate">{displayName(user)}</span>
+          {handle && <span className="block text-[15px] text-fg-muted truncate">@{handle}</span>}
+        </button>
+      ) : (
+        <div className={`pt-3 pb-4 ${compact ? 'flex justify-center' : 'px-4'}`}>
+          <Logo withText={!compact} />
+        </div>
+      )}
 
       <ul className={`space-y-1 ${compact ? '' : 'px-1'}`}>{topLinks.map(l => item(l, false))}</ul>
 
@@ -128,19 +141,30 @@ function SidebarContent({ links, activeId, onNavigate, closeMenu, compact = fals
         </ul>
       </div>
 
-      {/* X の左下のアカウント欄: 自分のアイコンと名前（押すと設定のアカウントへ） */}
-      <div className="mt-auto pt-4 pb-3">
-        <button
-          type="button"
-          onClick={() => handleNavigate('setting')}
-          title={compact ? displayName(user) : undefined}
-          aria-label={`${displayName(user)}（アカウントの設定）`}
-          className={`flex items-center rounded-full hover:bg-surface-3 transition-colors ${compact ? 'mx-auto p-1.5' : 'w-full gap-3 px-3 py-2.5 text-left'}`}
-        >
-          <Avatar user={user} size={40} />
-          {!compact && <span className="min-w-0 text-[15px] font-bold text-fg truncate">{displayName(user)}</span>}
-        </button>
-      </div>
+      {/* X の左下のアカウント欄: アイコン 40px・名前（太字）と @ID の 2 段・右端に「…」（押すと設定のアカウントへ）。
+          スマホのナビでは上に出すので、ここには出さない */}
+      {!drawer && (
+        <div className="mt-auto pt-4 pb-3">
+          <button
+            type="button"
+            onClick={() => handleNavigate('setting')}
+            title={compact ? displayName(user) : undefined}
+            aria-label={`${displayName(user)}（アカウントの設定）`}
+            className={`flex items-center rounded-full hover:bg-surface-3 transition-colors ${compact ? 'mx-auto p-1.5' : 'w-full gap-3 p-3 text-left'}`}
+          >
+            <Avatar user={user} size={40} />
+            {!compact && (
+              <>
+                <span className="flex-1 min-w-0 leading-tight">
+                  <span className="block text-[15px] font-bold text-fg truncate">{displayName(user)}</span>
+                  {handle && <span className="block text-[15px] text-fg-muted truncate">@{handle}</span>}
+                </span>
+                <FiMoreHorizontal size={18} className="flex-shrink-0 text-fg" aria-hidden="true" />
+              </>
+            )}
+          </button>
+        </div>
+      )}
 
     </div>
   );
@@ -151,19 +175,27 @@ function SidebarContent({ links, activeId, onNavigate, closeMenu, compact = fals
  * onOpenMenu があるとき（マイページ）は左のアイコンでナビ全体を開く。Portal・Career はナビの中にある。
  * hidden のときは上に隠す（下にスクロール中）。
  */
-function TopBar({ onOpenMenu, hidden = false, className = '' }: { onOpenMenu?: () => void; hidden?: boolean; className?: string }) {
+function TopBar({ onOpenMenu, onOpenSettings, hidden = false, className = '' }: { onOpenMenu?: () => void; onOpenSettings?: () => void; hidden?: boolean; className?: string }) {
   const user = useCurrentUser();
   return (
-    <div className={`sticky top-0 z-30 grid grid-cols-[3rem_1fr_3rem] items-center h-12 px-2 bg-surface/85 backdrop-blur-md transition-transform duration-200 ${hidden ? '-translate-y-full pointer-events-none' : ''} ${className}`}>
+    <div className={`sticky top-0 z-30 grid grid-cols-[3.5rem_1fr_3.5rem] items-center h-[53px] px-4 bg-surface/85 backdrop-blur-md transition-transform duration-200 ${hidden ? '-translate-y-full pointer-events-none' : ''} ${className}`}>
       <div>
         {onOpenMenu && (
-          <button type="button" onClick={onOpenMenu} aria-label="メニューを開く" className="rounded-full hover:opacity-80 transition-opacity">
+          <button type="button" onClick={onOpenMenu} aria-label="メニューを開く" className="flex rounded-full hover:opacity-80 transition-opacity">
             <Avatar user={user} size={32} />
           </button>
         )}
       </div>
-      <div className="flex justify-center"><Logo /></div>
-      <div className="flex justify-end">{!onOpenMenu && <ThemeToggleButton />}</div>
+      {/* X と同じく、真ん中はロゴのマークだけ（ナビのない画面では文字も出す） */}
+      <div className="flex justify-center"><Logo withText={!onOpenMenu} /></div>
+      {/* 右上: X と同じく設定（ナビのない画面ではテーマの切り替え） */}
+      <div className="flex justify-end">
+        {onOpenSettings ? (
+          <button type="button" onClick={onOpenSettings} aria-label="設定" className="w-9 h-9 -mr-1.5 rounded-full flex items-center justify-center text-fg hover:bg-surface-3 transition-colors">
+            <FiSettings size={20} />
+          </button>
+        ) : !onOpenMenu && <ThemeToggleButton />}
+      </div>
     </div>
   );
 }
@@ -258,7 +290,7 @@ export default function Layout() {
       {/* スマホ: スワイプや「その他」で引き出すナビ（メイン画面の下に置き、メイン画面を右にずらして見せる） */}
       {hasNav && (
         <div className="md:hidden fixed inset-y-0 left-0 w-80 bg-surface z-0 px-3 border-r border-line">
-          <SidebarContent links={chapterLinks} activeId={activeChapter} onNavigate={requestChapter} closeMenu={() => setIsMobileMenuOpen(false)} />
+          <SidebarContent drawer links={chapterLinks} activeId={activeChapter} onNavigate={requestChapter} closeMenu={() => setIsMobileMenuOpen(false)} />
         </div>
       )}
 
@@ -277,7 +309,7 @@ export default function Layout() {
           ref={scrollRootRef}
           data-scroll-root
           // 列の見出しを貼り付ける位置（スマホで上のバーが出ている間はその下、隠れたら画面の上端）
-          style={{ ['--chrome-top' as string]: chromeHidden ? '0px' : '3rem' }}
+          style={{ ['--chrome-top' as string]: chromeHidden ? '0px' : '53px' }}
           className="flex-1 overflow-y-auto w-full pb-16 md:pb-0 [scrollbar-gutter:stable]"
         >
           {isDebugTime() && <DebugTimeBanner />}
@@ -285,6 +317,7 @@ export default function Layout() {
           <TopBar
             className={hasNav ? 'md:hidden' : ''}
             onOpenMenu={hasNav ? () => setIsMobileMenuOpen(true) : undefined}
+            onOpenSettings={hasNav ? () => requestChapter('setting') : undefined}
             hidden={hasNav && chromeHidden}
           />
 

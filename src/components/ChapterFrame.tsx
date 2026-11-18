@@ -14,9 +14,10 @@ import type { IconType } from 'react-icons';
 /** 真ん中の列の幅（見出し・お知らせ・一覧で共通） */
 export const CENTER_WIDTH = 'md:max-w-[600px]';
 /** 真ん中の列と右の列の並び */
-export const PAGE_GRID = `${CENTER_WIDTH} lg:max-w-none lg:grid lg:grid-cols-[600px_300px] xl:grid-cols-[600px_350px] lg:gap-6 xl:gap-8 lg:items-start`;
+// タブレット（md〜lg）では補足の箱が真ん中の列の中に入るので、列の左右の線はこの並び全体に引く（途切れないように）
+export const PAGE_GRID = `${CENTER_WIDTH} md:border-x lg:border-x-0 border-line lg:max-w-none lg:grid lg:grid-cols-[600px_300px] xl:grid-cols-[600px_350px] lg:gap-6 xl:gap-8 lg:items-start`;
 /** 真ん中の列: 1 枚の面（地と同じ色）。左右の線で列を区切り、中の一覧は箱で囲まずに区切り線で並べる */
-export const CENTER_PANEL = 'lg:order-1 min-w-0 bg-surface md:border-x border-line min-h-dvh';
+export const CENTER_PANEL = 'lg:order-1 min-w-0 bg-surface lg:border-x border-line min-h-dvh';
 /** 右の列の補足: 角の丸い淡い灰色の箱（X の右の列の「おすすめ」などと同じ見え方） */
 export const SIDE_WIDGET = 'mx-3 my-3 md:mx-4 lg:mx-0 lg:my-0 lg:mt-3 lg:order-2 lg:sticky lg:top-3 rounded-2xl bg-surface-2 dark:bg-bg overflow-hidden';
 /** 右の列の補足の見出し */
@@ -47,7 +48,7 @@ interface ChapterFrameProps {
 const ChapterFrame: React.FC<ChapterFrameProps> = ({ title, meta, actions, tabs, notice, bare = false, flush = false, children }) => (
   <section className="w-full">
     {/* 列の見出し（スマホは上の細いバーの下に、広い画面は画面の上に貼り付く）。右の列の幅だけ右をあける */}
-    <header className={`sticky top-[var(--chrome-top,3rem)] md:top-0 z-20 bg-surface/85 backdrop-blur-md md:border-x border-b border-line transition-[top] duration-200 ${CENTER_WIDTH}`}>
+    <header className={`sticky top-[var(--chrome-top,53px)] md:top-0 z-20 bg-surface/85 backdrop-blur-md md:border-x border-b border-line transition-[top] duration-200 ${CENTER_WIDTH}`}>
       <div className="flex items-center justify-between gap-3 px-4 sm:px-5 min-h-[3.25rem] py-2">
         <div className="flex items-baseline gap-x-3 gap-y-0.5 flex-wrap min-w-0">
           <h1 className="text-xl font-extrabold text-fg whitespace-nowrap">{title}</h1>
@@ -79,7 +80,7 @@ const ChapterFrame: React.FC<ChapterFrameProps> = ({ title, meta, actions, tabs,
     {bare ? (
       <div className="flex flex-col">{children}</div>
     ) : (
-      <div className={`${CENTER_PANEL} ${CENTER_WIDTH} ${flush ? '' : 'p-4 sm:p-5'}`}>{children}</div>
+      <div className={`${CENTER_PANEL} ${CENTER_WIDTH} md:border-x ${flush ? '' : 'p-4 sm:p-5'}`}>{children}</div>
     )}
   </section>
 );

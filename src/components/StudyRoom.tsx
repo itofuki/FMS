@@ -2,12 +2,12 @@
  * 自習室・談話室。課題ページと同じ考え方で作る:
  *   - 1日分（1〜6限 × 自習室・談話室）の一覧表。今の時限を強調し、終わった時限は薄く
  *   - 曜日のボタンでほかの日も見られる（土日は次の週を表示）
- *   - 右の列（広い画面）に「今使える部屋」（時間外は次に開く部屋）と、掲載期間・元の PDF へのリンク
+ *   - 右の列（広い画面）に「今使える部屋」（時間外は次に開く部屋）と、元の時間割 PDF へのリンク
  *   - PDF の大きな埋め込み表示はやめ、リンクにする
  */
 import { useEffect, useMemo, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
-import { FiExternalLink, FiCalendar, FiMapPin } from 'react-icons/fi';
+import { FiExternalLink, FiMapPin } from 'react-icons/fi';
 import ChapterFrame, { CENTER_PANEL, PAGE_GRID, SIDE_TITLE, SIDE_WIDGET } from './ChapterFrame';
 import { SkeletonBar, TableSkeleton } from './Skeleton';
 import { supabase } from '../lib/supabaseClient';
@@ -80,26 +80,6 @@ const StudyRoom = () => {
     staleTime: 1000 * 60 * 60,
   });
 
-  // 掲載期間と元の PDF
-  const { data: meta } = useQuery({
-    queryKey: ['studyRoomMeta', toYmd(now)],
-    queryFn: async () => {
-      const today = toYmd(now);
-      const { data, error } = await supabase
-        .from('schedule_metadata')
-        .select('filename, start_date, end_date')
-        .lte('start_date', today)
-        .gte('end_date', today)
-        .order('created_at', { ascending: false })
-        .limit(1)
-        .maybeSingle();
-      if (error || !data) return null;
-      const { data: url } = supabase.storage.from('images').getPublicUrl(`studyroom/${data.filename}`);
-      return { url: url.publicUrl, start: data.start_date as string, end: data.end_date as string };
-    },
-    staleTime: 1000 * 60 * 55,
-  });
-
   const rooms = week?.[toYmd(dateOf(selected))];
   const todayRooms = todayKey ? week?.[toYmd(dateOf(todayKey))] : undefined;
 
@@ -110,6 +90,25 @@ const StudyRoom = () => {
   const current = openPeriods.find(p => slotState(p, now) === 'current');
   const next = openPeriods.find(p => slotState(p, now) === 'before');
   const focus = current ?? next;
+
+  // 元の時間割 PDF（今日が掲載期間に入っているもの）。リンクだけ出す
+  const { data: pdfUrl } = useQuery({
+    queryKey: ['studyRoomPdf', toYmd(now)],
+    queryFn: async () => {
+      const today = toYmd(now);
+      const { data, error } = await supabase
+        .from('schedule_metadata')
+        .select('filename')
+        .lte('start_date', today)
+        .gte('end_date', today)
+        .order('created_at', { ascending: false })
+        .limit(1)
+        .maybeSingle();
+      if (error || !data) return null;
+      return supabase.storage.from('images').getPublicUrl(`studyroom/${data.filename}`).data.publicUrl;
+    },
+    staleTime: 1000 * 60 * 55,
+  });
 
   // 見出しの「何限」も自習室の枠で数える（19:50〜21:30 は「6限～」）
   const periodLabel = weekdayOf(now) ? ROOM_SLOTS.find(p => slotState(p.period, now) === 'current')?.label ?? null : null;
@@ -134,9 +133,9 @@ const StudyRoom = () => {
   return (
     <ChapterFrame title="自習室" meta={headerMeta} tabs={dayTabs} bare>
       <div className={PAGE_GRID}>
-        {/* 右の列: 今使える部屋・掲載期間と PDF */}
+        {/* 右の列: 今使える部屋（時間外は次に開く部屋） */}
         <aside className={SIDE_WIDGET}>
-          <div className="px-4 sm:px-5 py-4 border-b border-line">
+          <div className="px-4 sm:px-5 py-4">
             <p className={`${SIDE_TITLE} flex items-center gap-1.5`}><FiMapPin size={16} />{current ? '今使える部屋' : '次に開く部屋'}</p>
             {isLoading ? (
               <div className="mt-3 space-y-2" aria-label="読み込み中"><SkeletonBar className="h-3 w-24" /><SkeletonBar className="h-6 w-32" /><SkeletonBar className="h-6 w-32" /></div>
@@ -161,19 +160,11 @@ const StudyRoom = () => {
               </p>
             )}
           </div>
-          <div className="px-4 sm:px-5 py-4">
-            <p className={`${SIDE_TITLE} flex items-center gap-1.5`}><FiCalendar size={16} />掲載期間</p>
-            {meta ? (
-              <>
-                <p className="mt-1.5 text-sm text-fg">{fmtDate(meta.start)} 〜 {fmtDate(meta.end)}</p>
-                <a href={meta.url} target="_blank" rel="noopener noreferrer" className="mt-2 inline-flex items-center gap-1 text-sm font-semibold text-link hover:underline">
-                  元の時間割 PDF を開く <FiExternalLink size={13} />
-                </a>
-              </>
-            ) : (
-              <p className="mt-1.5 text-sm text-fg-muted">今週のスケジュールはまだありません</p>
-            )}
-          </div>
+          {pdfUrl && (
+            <a href={pdfUrl} target="_blank" rel="noopener noreferrer" className="flex items-center gap-1 px-4 sm:px-5 py-3 border-t border-line text-sm font-semibold text-link hover:bg-surface-3 transition-colors">
+              元の時間割 PDF を開く <FiExternalLink size={13} aria-hidden="true" />
+            </a>
+          )}
         </aside>
 
         {/* 左: 1日分の一覧表 */}
