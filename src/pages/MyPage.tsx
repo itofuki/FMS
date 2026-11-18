@@ -1,21 +1,25 @@
 /* src/pages/Mypage.tsx */
 
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, lazy, Suspense } from "react";
 import { supabase } from "../lib/supabaseClient";
 import { useNavigate, useSearchParams } from "react-router-dom";
 import { useSidebar, type ChapterLink } from "../contexts/SidebarContext";
 import { useScheduledReloader } from "../hooks/useScheduledReloader";
 import { TimetableContainer, type Day, type Subject } from '../components/Timetable';
-import StudyRoom from '../components/StudyRoom';
-import Assignments from '../components/Assignments';
-import TestPrep from '../components/TestPrep';
-import Setting from '../components/Setting';
-import Feedback from '../components/Feedback';
-import Tips from '../components/Tips';
+// 最初に開く時間割以外のタブは、開いたときに読み込む（最初の表示を軽くするため）。
+// 課題と自習室は毎日使うので、最初の表示が終わったら裏で先に読み込んでおく（切り替えを待たせない）
+const loadAssignments = () => import('../components/Assignments');
+const loadStudyRoom = () => import('../components/StudyRoom');
+const Assignments = lazy(loadAssignments);
+const StudyRoom = lazy(loadStudyRoom);
+const TestPrep = lazy(() => import('../components/TestPrep'));
+const Setting = lazy(() => import('../components/Setting'));
+const Feedback = lazy(() => import('../components/Feedback'));
+const Tips = lazy(() => import('../components/Tips'));
 import { PageSkeleton, TimetableSkeleton } from '../components/Skeleton';
 import DeadlineReminderSync from '../components/DeadlineReminderSync';
 import { menuGroupLabel } from '../lib/menu';
-import { PERIODS } from '../lib/schedule';
+import { PERIODS, nowInJst, weekdayOf } from '../lib/schedule';
 import { useLmsCourseSync } from '../hooks/useLmsCourseSync';
 
 const VALID_DAYS: Day[] = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri'];
@@ -105,6 +109,15 @@ export default function MyPage() {
     { hour: 19, minute: 55 },
   ];
   useScheduledReloader(reloadTimes, () => activeChapter === 'test-prep');
+
+  // 最初の表示が終わったら、よく使うタブ（課題・自習室）を裏で読み込んでおく
+  useEffect(() => {
+    if (loading) return;
+    const run = () => { loadAssignments(); loadStudyRoom(); };
+    const w = window as Window & { requestIdleCallback?: (cb: () => void) => number };
+    if (w.requestIdleCallback) w.requestIdleCallback(run);
+    else setTimeout(run, 1500);
+  }, [loading]);
 
   // LMS の今学期のコースを 1 日 1 回サーバーへ同期し、変わっていたら時間割を読み直す
   useLmsCourseSync(useCallback(() => setRefreshKey(prev => prev + 1), []));
@@ -199,15 +212,24 @@ export default function MyPage() {
     fetchUserTimetable();
   }, [navigate, refreshKey]);
 
+  // 「自動で開く」: 開いたままでも時間の経過で判定できるよう、30 秒ごとに見直す
+  const [clockTick, setClockTick] = useState(0);
   useEffect(() => {
-    const todayKey = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri'][new Date().getDay() - 1];
-    const todaySubjects = weeklySubjects[todayKey as Day] || [];
+    if (!autoOpenEnabled) return;
+    const t = window.setInterval(() => setClockTick(n => n + 1), 30_000);
+    return () => window.clearInterval(t);
+  }, [autoOpenEnabled]);
+
+  useEffect(() => {
+    // 曜日も時刻も日本時間で数える（端末のタイムゾーンに左右されない。デバッグ用の時刻ずらしにも従う）
+    const now = nowInJst();
+    const todayKey = weekdayOf(now);
+    const todaySubjects = todayKey ? weeklySubjects[todayKey] || [] : [];
 
     if (!autoOpenEnabled || loading || todaySubjects.length === 0) {
       return;
     }
 
-    const now = new Date(new Date().toLocaleString("en-US", { timeZone: "Asia/Tokyo" }));
     todaySubjects.forEach(subject => {
       const timeInfo = PERIODS.find(p => p.period === subject.period);
       if (!timeInfo) return;
@@ -233,7 +255,7 @@ export default function MyPage() {
         setOpenedSubjects(prev => [...prev, subject.id]);
       }
     });
-  }, [loading, autoOpenEnabled, weeklySubjects, openedSubjects]);
+  }, [loading, autoOpenEnabled, weeklySubjects, openedSubjects, clockTick]);
 
 
   const renderMainContent = () => {
@@ -283,7 +305,7 @@ export default function MyPage() {
         {/* 読み込み中も画面の枠（メニュー・パンくず）は出したまま、中身だけ形の合った灰色の仮表示にする */}
         {loading
           ? (activeChapter === 'timetable' || !activeChapter ? <TimetableSkeleton /> : <PageSkeleton />)
-          : renderMainContent()}
+          : <Suspense fallback={<PageSkeleton />}>{renderMainContent()}</Suspense>}
       </div>
     </div>
   );
