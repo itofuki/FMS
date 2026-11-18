@@ -1,6 +1,6 @@
 /* src/pages/Setting.tsx */
 
-import { useState, useEffect, useRef, type FormEvent } from "react";
+import { useState, useEffect, useRef } from "react";
 import { supabase } from "../lib/supabaseClient";
 import { useNavigate, useSearchParams } from "react-router-dom";
 import type { User } from "@supabase/supabase-js";
@@ -8,7 +8,6 @@ import { toast } from 'sonner';
 import RadioGroup from "./RadioGroup";
 import ChapterFrame from "../components/ChapterFrame";
 import { PageSkeleton } from "./Skeleton";
-import { useSidebar } from "../contexts/SidebarContext";
 import CalendarFeedSettings from "./CalendarFeedSettings";
 import LmsCourseSettings from "./LmsCourseSettings";
 import { ThemeSelector } from "./ThemeToggle";
@@ -53,7 +52,6 @@ const SECTIONS = [
   { id: 'settings-account', label: 'アカウント' },
 ];
 
-const LEAVE_CONFIRM = '保存していない変更があります。変更を破棄して移動しますか？';
 
 type SettingProps = {
   onSettingsSaved?: () => void;
@@ -71,36 +69,14 @@ export default function Setting({ onSettingsSaved }: SettingProps) {
   const [deadlineHours, setDeadlineHours] = useState<number | null>(24);
   const [pushState, setPushState] = useState<PushState | null>(null);
   const [isPushBusy, setIsPushBusy] = useState(false);
-  const [loading, setLoading] = useState<boolean>(false);
+  // 通知の設定を保存している間は、選択肢を押せないようにする
+  const [savingNotify, setSavingNotify] = useState(false);
 
   const [lmsUsername, setLmsUsername] = useState('');
   const [lmsPassword, setLmsPassword] = useState('');
   const [isLmsLoading, setIsLmsLoading] = useState(false);
   const [lmsStatus, setLmsStatus] = useState<{ ok: boolean; message: string } | null>(null);
   const [lmsCredentialsSaved, setLmsCredentialsSaved] = useState(() => !!getLmsSession());
-
-  // 保存が必要な項目（通知）の、最後に保存した内容。null はまだ一度も保存していない
-  const [savedSnapshot, setSavedSnapshot] = useState<string | null>(null);
-  const snapshot = JSON.stringify([classStartAction, deadlineHours]);
-  const isDirty = user !== null && snapshot !== savedSnapshot;
-  const dirtyRef = useRef(false);
-  useEffect(() => { dirtyRef.current = isDirty; }, [isDirty]);
-
-  // 未保存のままメニューで別の画面へ移る・ページを閉じるときは確認する
-  const { setLeaveGuard } = useSidebar();
-  useEffect(() => {
-    setLeaveGuard(() => !dirtyRef.current || window.confirm(LEAVE_CONFIRM));
-    const onBeforeUnload = (e: BeforeUnloadEvent) => {
-      if (!dirtyRef.current) return;
-      e.preventDefault();
-      e.returnValue = '';
-    };
-    window.addEventListener('beforeunload', onBeforeUnload);
-    return () => {
-      setLeaveGuard(null);
-      window.removeEventListener('beforeunload', onBeforeUnload);
-    };
-  }, [setLeaveGuard]);
 
   // 目次: いま画面のどの項目を見ているか
   const [activeSection, setActiveSection] = useState(SECTIONS[0].id);
@@ -149,14 +125,9 @@ export default function Setting({ onSettingsSaved }: SettingProps) {
         .eq('user_id', user.id)
         .maybeSingle();
 
-      if (profile) {
-        const action = (profile.class_start_action as ClassStartAction) ?? 'notify';
-        const hours = profile.deadline_reminder_hours ?? null;
-        setClassStartAction(action);
-        setDeadlineHours(hours);
-        setSavedSnapshot(JSON.stringify([action, hours]));
-      }
-      // プロフィールがまだない人は savedSnapshot が null のまま → 「未保存」として保存を促す（通知に必要なため）
+      // プロフィールの行がまだない人は、画面の初期値（授業開始5分前は通知・締切は24時間前）を出す
+      setClassStartAction((profile?.class_start_action as ClassStartAction | null | undefined) ?? 'notify');
+      setDeadlineHours(profile ? profile.deadline_reminder_hours ?? null : 24);
 
       // 設定を読み込んでから user をセットし、フォームを1回で描画する
       setUser(user);
@@ -211,35 +182,38 @@ export default function Setting({ onSettingsSaved }: SettingProps) {
     }
   }, [isAdvancedFocused]);
 
-  const handleSubmit = async (event: FormEvent) => {
-    event.preventDefault();
+  // 通知の設定は、選んだ瞬間に保存する（保存ボタンはない）。失敗したら元の値に戻す
+  const saveNotify = async (next: { classStartAction?: ClassStartAction; deadlineHours?: number | null }) => {
     if (!user) return;
-
-    setLoading(true);
+    const prev = { classStartAction, deadlineHours };
+    const action = next.classStartAction ?? classStartAction;
+    const hours = next.deadlineHours !== undefined ? next.deadlineHours : deadlineHours;
+    setClassStartAction(action);
+    setDeadlineHours(hours);
+    setSavingNotify(true);
     try {
       const { error } = await supabase.from("profiles").upsert({
         user_id: user.id,
         // 学科・クラスは設定画面では扱わない（時間割は LMS から作る）。以前の値は送らずにそのまま残す
-        class_start_action: classStartAction,
-        deadline_reminder_hours: deadlineHours,
+        class_start_action: action,
+        deadline_reminder_hours: hours,
         // 旧バージョンのクライアント向けに auto_open も同期しておく
-        auto_open: classStartAction === 'auto_open',
+        auto_open: action === 'auto_open',
         updated_at: new Date().toISOString(),
       });
-
       if (error) throw error;
-      toast.success("設定を更新しました！");
-      // 保存済みにしてから移動する（移動時の「未保存」確認を出さない）
-      dirtyRef.current = false;
-      setSavedSnapshot(snapshot);
-
-      if (onSettingsSaved) {
-        onSettingsSaved();
-      }
+      // 成功したときは知らせない（選んだ表示がそのまま残ることが合図）。失敗したときだけ元に戻して知らせる
+      // 「自動で開く」の切り替えなどをマイページに反映する
+      onSettingsSaved?.();
     } catch (error) {
-      toast.error(`エラーが発生しました: ${error instanceof Error ? error.message : String(error)}`);
+      setClassStartAction(prev.classStartAction);
+      setDeadlineHours(prev.deadlineHours);
+      // Supabase のエラーは Error ではなく { message, details, hint, code } の形なので、中身を取り出して見せる
+      const e = error as { message?: string; details?: string; hint?: string; code?: string };
+      const text = [e?.message, e?.details, e?.hint, e?.code && `(${e.code})`].filter(Boolean).join(' ') || String(error);
+      toast.error(`保存できませんでした: ${text}`, { duration: 15000 });
     } finally {
-      setLoading(false);
+      setSavingNotify(false);
     }
   };
 
@@ -281,8 +255,11 @@ export default function Setting({ onSettingsSaved }: SettingProps) {
   };
 
   const handleLogout = async () => {
-    toast.success("ログアウトしました。");
+    // ログインは LMS の ID で行うので、ログアウトしたら LMS のトークンとキャッシュも消す（共用の端末で残さないため）
+    clearLmsSession();
+    queryClient.clear();
     await supabase.auth.signOut();
+    toast.success("ログアウトしました。");
     navigate("/");
   };
 
@@ -327,7 +304,7 @@ export default function Setting({ onSettingsSaved }: SettingProps) {
             </ul>
           </nav>
           <p className="px-5 py-4 text-sm text-fg-muted leading-relaxed">
-            「通知」は［変更を保存］で保存されます。そのほかはその場で反映されます。
+            変更は、選んだ時点でその場で保存されます。
           </p>
         </aside>
 
@@ -389,8 +366,7 @@ export default function Setting({ onSettingsSaved }: SettingProps) {
             </SettingsCard>
           </div>
 
-          {/* 保存が必要な項目（通知） */}
-          <form onSubmit={handleSubmit} className="flex flex-col gap-5">
+          {/* 通知（選んだ瞬間に保存） */}
 
 
             <SettingsCard id="settings-notify" title="通知" description="締切が近い課題や、授業の開始前にお知らせします。">
@@ -434,7 +410,8 @@ export default function Setting({ onSettingsSaved }: SettingProps) {
                   <select
                     id="deadline-reminder"
                     value={deadlineHours === null ? 'off' : String(deadlineHours)}
-                    onChange={(e) => setDeadlineHours(e.target.value === 'off' ? null : Number(e.target.value))}
+                    onChange={(e) => saveNotify({ deadlineHours: e.target.value === 'off' ? null : Number(e.target.value) })}
+                    disabled={savingNotify}
                     className="w-full sm:w-64 h-10 bg-surface border border-line-strong rounded-md px-3 text-fg outline-none text-sm focus:border-accent transition-colors"
                   >
                     {DEADLINE_HOUR_OPTIONS.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
@@ -449,7 +426,7 @@ export default function Setting({ onSettingsSaved }: SettingProps) {
                     legend="授業開始5分前"
                     options={CLASS_START_OPTIONS}
                     selectedValue={classStartAction}
-                    onChange={(val) => setClassStartAction(val as ClassStartAction)}
+                    onChange={(val) => { if (!savingNotify) saveNotify({ classStartAction: val as ClassStartAction }); }}
                   />
                   <p className="text-sm text-fg-muted mt-2">
                     {classStartAction === 'notify' && '出席ページを開くか選べる通知を送ります（アプリを閉じていても届きます）。'}
@@ -460,19 +437,6 @@ export default function Setting({ onSettingsSaved }: SettingProps) {
               </div>
             </SettingsCard>
 
-            {/* 保存ボタン（変更があるときだけ画面の下に付いてくる。通知の変更だけが対象） */}
-            {isDirty && (
-            <div role="status" className="sticky bottom-20 md:bottom-4 z-10 flex items-center justify-between gap-3 rounded-xl bg-surface shadow-md border border-warn px-4 sm:px-5 py-3 animate-in fade-in slide-in-from-bottom-2 duration-200">
-              <p className="text-sm text-fg">
-                <span className="inline-block w-2 h-2 rounded-full bg-warn mr-2 align-middle" aria-hidden="true" />
-                未保存の変更があります
-              </p>
-              <button type="submit" disabled={loading} className="flex-shrink-0 h-10 px-6 rounded-md bg-accent-solid hover:bg-accent-solid-hover text-on-accent transition-colors disabled:opacity-50">
-                <span className="text-sm font-bold">{loading ? '保存中...' : '変更を保存'}</span>
-              </button>
-            </div>
-            )}
-          </form>
 
           {/* 時間割（LMS のコース）。読み取れなかった曜日・時限や教室を手で入れる（その場で反映） */}
           <SettingsCard id="settings-courses" title="時間割（LMS のコース）" description="LMS の今学期のコースから時間割を作ります。曜日・時限が読み取れないコースや教室はここで入れてください。">
@@ -493,7 +457,12 @@ export default function Setting({ onSettingsSaved }: SettingProps) {
           {/* アカウント */}
           <SettingsCard id="settings-account" title="アカウント">
             <div className="flex flex-wrap items-center justify-between gap-3">
-              <p className="text-sm text-fg-muted">{user.email} でログイン中</p>
+              {/* LMS の ID でログインしたアカウントは、内部用のメールアドレスではなく LMS の名前と ID を出す */}
+              <p className="text-sm text-fg-muted">
+                {user.user_metadata?.lms_username
+                  ? <>{user.user_metadata.full_name ? `${user.user_metadata.full_name}（${user.user_metadata.lms_username}）` : user.user_metadata.lms_username} でログイン中</>
+                  : <>{user.email} でログイン中</>}
+              </p>
               <button onClick={handleLogout} className="h-9 px-4 rounded-md border border-down/50 text-down hover:bg-down-soft transition-colors">
                 <span className="text-sm font-bold">ログアウト</span>
               </button>
