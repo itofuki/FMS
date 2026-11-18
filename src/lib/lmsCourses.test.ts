@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { parseCourseName, cleanTeacherName } from './lmsCourses';
+import { parseCourseName, cleanTeacherName, detectCourseCode } from './lmsCourses';
 
 describe('parseCourseName', () => {
   it('曜日と連続した時限を読み取る', () => {
@@ -23,5 +23,25 @@ describe('cleanTeacherName', () => {
   });
   it('ローマ字だけの名前はそのまま', () => {
     expect(cleanTeacherName('Tabara Shizuka')).toBe('Tabara Shizuka');
+  });
+});
+
+describe('detectCourseCode', () => {
+  const names = [
+    '3年生共通3（2026）',
+    '英語コミュニケーションⅢbB（2026_火曜1・2限_3年）',
+    '企業経営論A（2026_木曜3・4限_IA3A/IA3B）',
+    'グローバル市場化戦略A（2026_火曜3・4限_IA3A/IA3B）',
+    '人工知能応用A（2026_金曜1・2・3・4限_IA3A/IA3B）',
+    'ソリューション開発ⅠB（2026_三宅）',
+  ];
+  it('コース名にいちばん多く出てくる記号を返す', () => {
+    expect(detectCourseCode(names)).toBe('IA');
+  });
+  it('known にない記号は数えない', () => {
+    expect(detectCourseCode(names, ['IS', 'IR'])).toBeNull();
+  });
+  it('記号がなければ null', () => {
+    expect(detectCourseCode(['3年生共通3（2026）'])).toBeNull();
   });
 });

@@ -28,23 +28,26 @@ export function useUserProfile() {
       if (!currentUser) return null;
       const { data, error } = await supabase
         .from('profiles')
-        .select('role')
+        .select('role, is_root')
         .eq('user_id', currentUser.id)
-        .single();
+        .maybeSingle();
       if (error) {
         console.error('Profile fetch error:', error);
         return null;
       }
-      return data as { role: string | null };
+      return data as { role: string | null; is_root: boolean | null } | null;
     },
     enabled: !!currentUser?.id,
   });
 
-  const userRole: UserRole = userProfile?.role === 'admin' ? 'admin' : 'user';
+  // root は admin の権限も持つ（公式課題の追加・コースの既定値）。さらにほかのアカウントに admin を付けられる
+  const isRoot = !!userProfile?.is_root;
+  const userRole: UserRole = userProfile?.role === 'admin' || isRoot ? 'admin' : 'user';
 
   return {
     currentUser: currentUser ?? null,
     userRole,
+    isRoot,
     isLoading: isLoadingUser || isLoadingProfile,
   };
 }

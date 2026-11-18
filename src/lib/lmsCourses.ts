@@ -83,3 +83,28 @@ export async function fetchLmsCourses(token: string, userId: number, now = new D
     attendance_id: attendanceIds[i],
   }));
 }
+
+/**
+ * LMS のコース名から、ユーザーのコースの記号（IA・IS など）を推測する。
+ * 「…（2026_火曜3・4限_IA3A/IA3B）」の「IA3A」のような「英大文字2つ＋学年＋クラス」を数え、いちばん多いものを返す。
+ * known を渡すと、その記号だけを数える（courses.code の一覧）。
+ */
+export function detectCourseCode(fullnames: string[], known?: string[]): string | null {
+  const counts = new Map<string, number>();
+  for (const name of fullnames) {
+    const seen = new Set<string>();
+    for (const m of name.matchAll(/(?:^|[_/／\s（(])([A-Z]{2})\d[A-Z]?(?=$|[_/／\s）)])/g)) {
+      const code = m[1];
+      if (known && !known.includes(code)) continue;
+      seen.add(code);
+    }
+    // 1 つのコース名に同じ記号が何度出ても 1 回と数える（「IA3A/IA3B」）
+    for (const code of seen) counts.set(code, (counts.get(code) ?? 0) + 1);
+  }
+  let best: string | null = null;
+  let bestCount = 0;
+  for (const [code, n] of counts) {
+    if (n > bestCount) { best = code; bestCount = n; }
+  }
+  return best;
+}

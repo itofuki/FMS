@@ -6,7 +6,7 @@
 import { useEffect, useRef } from 'react';
 import { supabase } from '../lib/supabaseClient';
 import { getLmsSession, lmsCoursesSyncKey } from '../lib/lms';
-import { fetchLmsCourses } from '../lib/lmsCourses';
+import { detectCourseCode, fetchLmsCourses } from '../lib/lmsCourses';
 import { nowInJst, toYmd } from '../lib/schedule';
 import { clearLmsIssue, reportLmsIssue } from '../lib/lmsStatus';
 
@@ -30,9 +30,25 @@ export async function syncLmsCoursesNow(): Promise<boolean> {
   clearLmsIssue();
   const { error } = await supabase.rpc('sync_user_lms_courses', { p_items: courses });
   if (error) throw error;
+
+  // コース（IA・IS など）がまだ決まっていなければ、LMS のコース名から推測して入れる（設定で変えた値は上書きしない）
+  let courseChanged = false;
+  const { data: { user } } = await supabase.auth.getUser();
+  if (user) {
+    const { data: profile } = await supabase.from('profiles').select('course_code').eq('user_id', user.id).maybeSingle();
+    if (!profile?.course_code) {
+      // courses 表の name 列にコースの記号（IA・IS など）が入っている
+      const { data: known } = await supabase.from('courses').select('name');
+      const code = detectCourseCode(courses.map((c) => c.fullname), (known ?? []).map((k: { name: string }) => k.name));
+      if (code) {
+        const { error: pError } = await supabase.from('profiles').upsert({ user_id: user.id, course_code: code }, { onConflict: 'user_id' });
+        courseChanged = !pError;
+      }
+    }
+  }
   const sig = JSON.stringify(courses);
   try { localStorage.setItem(key, JSON.stringify({ day: toYmd(nowInJst()), sig })); } catch { /* 次回また取るだけ */ }
-  return sig !== prev?.sig;
+  return sig !== prev?.sig || courseChanged;
 }
 
 export function useLmsCourseSync(onChanged: () => void) {

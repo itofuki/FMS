@@ -11,6 +11,9 @@ import { PageSkeleton } from "./Skeleton";
 import CalendarFeedSettings from "./CalendarFeedSettings";
 import LmsCourseSettings from "./LmsCourseSettings";
 import AvatarSettings from "./AvatarSettings";
+import AdminCourseDefaults from "./AdminCourseDefaults";
+import RootRoles from "./RootRoles";
+import { useUserProfile } from "../hooks/useUserProfile";
 import { ThemeSelector } from "./ThemeToggle";
 import { useQueryClient } from "@tanstack/react-query";
 import { getPushState, enablePush, disablePush, sendTestPush, type PushState } from "../lib/push";
@@ -48,6 +51,8 @@ const SECTIONS = [
   { id: 'settings-lms', label: 'LMS 連携' },
   { id: 'settings-notify', label: '通知' },
   { id: 'settings-courses', label: '時間割（LMS）' },
+  { id: 'settings-admin-defaults', label: 'コースの既定値（管理者）', adminOnly: true },
+  { id: 'settings-root-roles', label: '権限の管理（root）', rootOnly: true },
   { id: 'settings-calendar', label: 'カレンダー連携' },
   { id: 'settings-display', label: '表示' },
   { id: 'settings-account', label: 'アカウント' },
@@ -62,6 +67,8 @@ export default function Setting({ onSettingsSaved }: SettingProps) {
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
   const queryClient = useQueryClient();
+  const { userRole, isRoot } = useUserProfile();
+  const isAdmin = userRole === 'admin';
   const [user, setUser] = useState<User | null>(null);
   
 
@@ -287,7 +294,7 @@ export default function Setting({ onSettingsSaved }: SettingProps) {
           <nav aria-label="設定の項目" className="px-5 py-4 border-b border-line">
             <p className={SIDE_TITLE}>この画面の項目</p>
             <ul className="mt-2 space-y-1">
-              {SECTIONS.map(sec => (
+              {SECTIONS.filter(sec => (!('adminOnly' in sec) || isAdmin) && (!('rootOnly' in sec) || isRoot)).map(sec => (
                 <li key={sec.id}>
                   <button
                     type="button"
@@ -443,6 +450,20 @@ export default function Setting({ onSettingsSaved }: SettingProps) {
           <SettingsCard id="settings-courses" title="時間割（LMS のコース）" description="LMS の今学期のコースから時間割を作ります。曜日・時限が読み取れないコースや教室はここで入れてください。">
             <LmsCourseSettings userId={user.id} onChanged={onSettingsSaved} />
           </SettingsCard>
+
+          {/* コースの既定値（管理者だけ）。LMS のコースごとに曜日・時限・教室の既定値を決める */}
+          {isAdmin && (
+            <SettingsCard id="settings-admin-defaults" title="コースの既定値（管理者）" description="LMS のコースごとに、曜日・時限・教室・担当の先生の既定値を決めます。全コース共通か、特定のコースのユーザーだけかを選べます。曜日・時限・教室は本人が設定した値が優先されます。">
+              <AdminCourseDefaults onChanged={onSettingsSaved} />
+            </SettingsCard>
+          )}
+
+          {/* 権限の管理（root だけ）。ほかのアカウントに admin を付ける・外す */}
+          {isRoot && (
+            <SettingsCard id="settings-root-roles" title="権限の管理（root）" description="アカウントに admin の権限を付けたり外したりします。">
+              <RootRoles />
+            </SettingsCard>
+          )}
 
           {/* カレンダー連携（その場で反映） */}
           <SettingsCard id="settings-calendar" title="カレンダー連携" description="時間割と課題の締切を、スマホやPCのカレンダーに表示します。">
