@@ -269,9 +269,20 @@ function WeekGrid({ weeklySubjects, now, dates }: { weeklySubjects: Record<Day, 
                     isNow ? 'bg-accent-soft ring-2 ring-accent' : 'bg-surface-2 dark:bg-slate-700/80 hover:bg-surface-3 dark:hover:bg-slate-700'
                   } ${cancelled ? 'opacity-55' : ''}`}
                 >
-                  {s.status && <span className="flex justify-center"><ExceptionBadge status={s.status} compact /></span>}
+                  {/* いちばん上: 休講・変更・補講のしるしと、本来の時限とずれている授業の時刻（同じ行に並べて段を増やさない）。
+                      時刻はスマホでは開始だけ、広い画面では開始〜終了 */}
+                  {(s.status || (shifted && st)) && (
+                    <span className="flex flex-wrap items-center justify-center gap-x-1 gap-y-0.5">
+                      {s.status && <ExceptionBadge status={s.status} compact />}
+                      {shifted && st && (
+                        <span className="inline-flex items-center gap-0.5 text-[10px] sm:text-[11px] font-semibold text-warn leading-tight tabular-nums">
+                          <FiClock size={10} aria-hidden="true" className="flex-shrink-0" />
+                          {formatHm(st.start)}〜<span className="hidden sm:inline">{formatHm(st.end)}</span>
+                        </span>
+                      )}
+                    </span>
+                  )}
                   <span className={`text-[11px] sm:text-[13px] font-bold text-fg leading-tight line-clamp-2 break-all sm:break-normal text-center ${cancelled ? 'line-through' : ''}`}>{s.name}</span>
-                  {shifted && st && <span className="text-[10px] sm:text-[11px] font-semibold text-warn leading-tight text-center tabular-nums">{formatHm(st.start)}〜{formatHm(st.end)}</span>}
                   {/* 教室と先生を左右半分ずつ（それぞれ中央揃え）。収まらない分は「…」で省く（全文はマスの title で見られる） */}
                   <span className="grid grid-cols-2 gap-1 text-[10px] sm:text-[11px] text-fg-muted leading-tight">
                     <span className="truncate text-center">{s.classroom}</span>
