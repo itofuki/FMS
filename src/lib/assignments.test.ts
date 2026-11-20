@@ -63,10 +63,15 @@ describe('mergeAssignments', () => {
     expect(a.url).toBe('https://lms-tokyo.iput.ac.jp/course/view.php?id=10');
   });
 
-  it('科目が見つからないLMS課題は「未分類」（「LMS」は画面のラベルで示すので重ねない）', () => {
+  it('科目が見つからないLMS課題は、科目名を空にする（画面では科目を出さない）', () => {
     const [a] = mergeAssignments({ ...base, lmsEvents: [lmsEvent({ categoryCode: 'UNKNOWN' })] });
-    expect(a.subject_name).toBe('未分類');
+    expect(a.subject_name).toBe('');
     expect(a.isLms).toBe(true);
+  });
+
+  it('時間割にないコースのLMS課題は、LMS のコース名（括弧より前）を科目名にする', () => {
+    const [a] = mergeAssignments({ ...base, lmsEvents: [lmsEvent({ categoryCode: 'UNKNOWN', courseId: 999, courseName: 'キャリアデザイン（月5限）' })] });
+    expect(a.subject_name).toBe('キャリアデザイン');
   });
 
   it('officialOnly のときは個人課題を除外する', () => {
@@ -146,5 +151,16 @@ describe('groupAssignments', () => {
   it('8日以上先は「それ以降」', () => {
     const merged = mergeAssignments({ ...base, assignments: [dbAssign({ id: 1, deadline: hoursFromNow(24 * 8) })] });
     expect(groupAssignments(merged, NOW).map((g) => g.key)).toEqual(['later']);
+  });
+});
+
+describe('LMS 課題の科目（コースの id で時間割の授業と結び付ける）', () => {
+  it('courseId が時間割の授業と同じなら、その授業名になる', () => {
+    const [a] = mergeAssignments({
+      ...base,
+      lmsEvents: [{ uid: 'assign_1', summary: '第1回', description: '', start: '2026-11-20T00:00:00Z', end: '2026-11-20T14:59:00Z', courseId: 4139, categoryCode: 'X' }],
+      subjects: [{ id: 4139, name: 'データベース' }],
+    });
+    expect(a.subject_name).toBe('データベース');
   });
 });

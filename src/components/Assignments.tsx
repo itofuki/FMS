@@ -1,6 +1,7 @@
 /* src/components/Assignments.tsx */
 
 import React, { useState, useMemo, useRef, useEffect } from 'react';
+import { dbErrorText } from '../lib/dbError';
 import { supabase } from '../lib/supabaseClient';
 import ChapterFrame, { CENTER_PANEL, LIST_GROUP, LIST_GROUP_HEADING, PAGE_GRID, SIDE_TITLE, SIDE_WIDGET } from './ChapterFrame';
 import AssignmentCalendar from './AssignmentCalendar';
@@ -25,6 +26,9 @@ import {
   getDeadlineStatus, mergeAssignments, groupAssignments, ASSIGNMENT_GROUP_LABELS, type AssignmentGroupKey,
   type Assignment, type Subject, type LmsStatus, type UnifiedAssignment,
 } from '../lib/assignments';
+
+/** 課題の科目の「その他」（科目なしとして保存する） */
+const OTHER_SUBJECT = 'other';
 
 interface AssignmentsProps { subject: Subject[] }
 
@@ -179,7 +183,7 @@ const Assignments: React.FC<AssignmentsProps> = ({ subject }) => {
     },
     onError: (error) => {
       console.error('Error saving assignment:', error);
-      toast.error('課題の保存に失敗しました。権限がありません。');
+      toast.error(`課題の保存に失敗しました: ${dbErrorText(error)}`);
     }
   });
 
@@ -464,7 +468,8 @@ const Assignments: React.FC<AssignmentsProps> = ({ subject }) => {
     // 表示上の完了状態（残している間も完了として見せる）
     const isDone = assignment.done || isLingering;
     const canDelete = !assignment.isLms && (isOfficialMode || (assignment.classification === 'private' && assignment.user_id === currentUser?.id));
-    const subjectName = assignment.subject_name || '未分類';
+    // 科目が分からない（科目に「その他」を選んだ課題・時間割にないコースの課題など）ときは「その他」
+    const subjectName = assignment.subject_name || 'その他';
     const title = cleanTitle(assignment.name);
     const hasAttachments = assignment.isLms && !!assignment.attachments?.length;
     const tag = isDone ? null : deadlineTag(assignment.deadline);
@@ -779,7 +784,16 @@ const Assignments: React.FC<AssignmentsProps> = ({ subject }) => {
           <form onSubmit={handleAddOrUpdateAssignment} className="space-y-2">
             <TextInput label="課題名" placeholder="例）中間レポート" value={newName} onChange={(e) => setNewName(e.currentTarget.value)} required />
             <SimpleGrid cols={{ base: 1, sm: 2 }}>
-              <Select label="科目" placeholder="科目を選択" data={subject.map(s => ({ value: s.id.toString(), label: s.name }))} value={newSubjectId} onChange={(value) => setNewSubjectId(value)} searchable nothingFoundMessage="科目が見つかりません" />
+              {/* 科目。授業に当てはまらない課題は「その他」（科目なしとして保存する）。最初は「その他」 */}
+              <Select
+                label="科目"
+                data={[...subject.map(s => ({ value: s.id.toString(), label: s.name })), { value: OTHER_SUBJECT, label: 'その他' }]}
+                value={newSubjectId ?? OTHER_SUBJECT}
+                onChange={(value) => setNewSubjectId(!value || value === OTHER_SUBJECT ? null : value)}
+                allowDeselect={false}
+                searchable
+                nothingFoundMessage="科目が見つかりません"
+              />
               <TextInput label="URL（任意）" placeholder="https://example.com" value={newUrl} onChange={(e) => setNewUrl(e.currentTarget.value)} leftSection={<FiLink size={16} />} />
             </SimpleGrid>
             <Group grow>

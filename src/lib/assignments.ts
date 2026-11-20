@@ -2,6 +2,7 @@
  * 課題表示まわりの型と純粋関数（UIから切り離してテスト可能にする）
  */
 import { LMS_BASE } from './lms';
+import { parseCourseName } from './lmsCourses';
 
 export type Assignment = {
   id: number;
@@ -38,6 +39,10 @@ export interface LmsEvent {
   start: string;
   end: string;
   categoryCode?: string;
+  /** LMS のコースの id（時間割の授業の id と同じ番号）。古いキャッシュにはない */
+  courseId?: number | null;
+  /** LMS のコース名（時間割にないコースの科目名に使う）。古いキャッシュにはない */
+  courseName?: string;
   url?: string;
   submissionStatus?: SubmissionStatus;
   attachments?: LmsAttachment[];
@@ -124,8 +129,11 @@ export function mergeAssignments({
     const matched = dbSubjects.find(
       (s) => s.category_code && event.categoryCode && s.category_code === event.categoryCode,
     );
+    // 科目は、コースの id で時間割の授業と結び付ける（なければ以前の科目の表とコースの略称で探す）
+    const byCourse = event.courseId != null ? subjects.find((s) => s.id === event.courseId) : undefined;
     let eventUrl = '';
     if (event.url) eventUrl = event.url;
+    else if (event.courseId != null) eventUrl = `${LMS_BASE}/course/view.php?id=${event.courseId}`;
     else if (matched) eventUrl = `${LMS_BASE}/course/view.php?id=${matched.id}`;
     else if (event.categoryCode) eventUrl = `${LMS_BASE}/course/search.php?search=${encodeURIComponent(event.categoryCode)}`;
 
@@ -137,8 +145,8 @@ export function mergeAssignments({
       done: manualDone ?? event.submissionStatus === 'submitted',
       classification: 'official' as const,
       user_id: null,
-      // LMS由来であることは画面の「LMS」ラベルで示すので、ここでは「未分類」だけにする（二重表記を避ける）
-      subject_name: subjects.find((s) => s.id === matched?.id)?.name || '未分類',
+      // 科目名: 時間割の授業 → 以前の科目の表 → LMS のコース名（括弧より前）。分からなければ空（画面では科目を出さない）
+      subject_name: byCourse?.name || subjects.find((s) => s.id === matched?.id)?.name || (event.courseName ? parseCourseName(event.courseName).name : ''),
       url: eventUrl,
       isLms: true,
       description: event.description,

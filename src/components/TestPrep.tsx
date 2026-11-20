@@ -1,6 +1,7 @@
 /* src/components/TestPrep.tsx */
 
 import React, { useState, useMemo } from 'react';
+import { dbErrorText } from '../lib/dbError';
 import { supabase } from '../lib/supabaseClient';
 import ChapterFrame, { CENTER_PANEL, LIST_GROUP, LIST_GROUP_HEADING, PAGE_GRID, SIDE_TITLE, SIDE_WIDGET } from './ChapterFrame';
 import { PageSkeleton } from './Skeleton';
@@ -172,7 +173,7 @@ const TestPrep: React.FC<TestPrepProps> = ({ subject }) => {
     },
     onError: (error) => {
       console.error('Error saving quiz question:', error);
-      toast.error('問題の保存に失敗しました。権限がありません。');
+      toast.error(`問題の保存に失敗しました: ${dbErrorText(error)}`);
     },
   });
 

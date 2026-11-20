@@ -70,7 +70,7 @@ serve(async (req) => {
     type RawAssign = {
       id: number; cmid: number; name: string; intro: string;
       duedate: number; allowsubmissionsfromdate: number;
-      courseShortname: string; attachments: RawAttachment[];
+      courseShortname: string; courseId: number | null; courseName: string; attachments: RawAttachment[];
     };
 
     const targets: RawAssign[] = (assignData.courses ?? []).flatMap((course: any) =>
@@ -82,6 +82,9 @@ serve(async (req) => {
         duedate: a.duedate ?? 0,
         allowsubmissionsfromdate: a.allowsubmissionsfromdate ?? 0,
         courseShortname: course.shortname,
+        // コースの id（時間割の授業と結び付けて科目名を出すため）
+        courseId: typeof course.id === "number" ? course.id : null,
+        courseName: course.fullname ?? "",
         attachments: [...(a.introattachments ?? []), ...(a.activityattachments ?? [])]
           .filter((f: any) => f.filename && f.fileurl)
           .map((f: any) => ({ filename: f.filename, fileurl: f.fileurl })),
@@ -107,7 +110,7 @@ serve(async (req) => {
 
     type RawCalEvent = {
       id: number; name: string; description: string;
-      timesort: number; courseShortname: string; url: string;
+      timesort: number; courseShortname: string; courseId: number | null; courseName: string; url: string;
     };
 
     const calTargets: RawCalEvent[] = !calData?.exception
@@ -119,6 +122,8 @@ serve(async (req) => {
             description: e.description ?? "",
             timesort: e.timesort,
             courseShortname: e.course?.shortname ?? "",
+            courseId: typeof e.course?.id === "number" ? e.course.id : null,
+            courseName: e.course?.fullname ?? "",
             url: e.url || e.action?.url || `${LMS_BASE}/calendar/view.php?view=day&time=${e.timesort}`,
           }))
       : [];
@@ -130,6 +135,8 @@ serve(async (req) => {
       start: new Date(e.timesort * 1000),
       end: new Date(e.timesort * 1000),
       categoryCode: e.courseShortname,
+      courseId: e.courseId,
+      courseName: e.courseName,
       submissionStatus: null as string | null,
       url: e.url,
       attachments: [] as { filename: string; url: string }[],
@@ -180,7 +187,7 @@ serve(async (req) => {
 });
 
 function buildEvent(
-  a: { id: number; cmid: number; name: string; intro: string; duedate: number; allowsubmissionsfromdate: number; courseShortname: string; attachments: { filename: string; fileurl: string }[] },
+  a: { id: number; cmid: number; name: string; intro: string; duedate: number; allowsubmissionsfromdate: number; courseShortname: string; courseId?: number | null; courseName?: string; attachments: { filename: string; fileurl: string }[] },
   submissionStatus: string | null,
 ) {
   return {
@@ -190,6 +197,8 @@ function buildEvent(
     start: new Date((a.allowsubmissionsfromdate || a.duedate) * 1000),
     end: new Date(a.duedate * 1000),
     categoryCode: a.courseShortname,
+    courseId: a.courseId ?? null,
+    courseName: a.courseName ?? "",
     submissionStatus,
     url: `${LMS_BASE}/mod/assign/view.php?id=${a.cmid}`,
     // トークンはURLに埋め込まない（キャッシュ・共有・ログ経由の漏洩防止）。
