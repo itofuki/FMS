@@ -457,8 +457,9 @@ export const TimetableContainer: React.FC<TimetableContainerProps> = ({
   return (
     <ChapterFrame title="時間割" meta={meta} tabs={tabs} bare>
       <div className={PAGE_GRID}>
-        {/* 右の列（スマホでは見出しのすぐ下）: 授業中・次の授業 */}
-        <aside className={SIDE_WIDGET}>
+        {/* 右の列（スマホでは見出しのすぐ下）: 授業中・次の授業。週の表のときは出さない（表を広く使う）。
+            通知から来たときの出席の選択・QR の読み取りはこの中で扱うので、消さずに隠すだけにする */}
+        <aside className={`${SIDE_WIDGET} ${isWeeklyView ? '!hidden' : ''}`}>
           <NextClassCard subjects={todaySubjects} now={now} attendance={attendance} />
         </aside>
         {/* 真ん中の列: 白い 1 枚の面に、今日の授業（区切り線）または週の表 */}

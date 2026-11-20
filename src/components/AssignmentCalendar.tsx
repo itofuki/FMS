@@ -78,7 +78,21 @@ export default function AssignmentCalendar({ items, selected, onSelect }: {
         </button>
         <div className="flex items-center gap-3">
           <p className="text-[17px] font-bold text-fg tabular-nums">{month.y}年 {month.m}月</p>
-          <button type="button" onClick={goToday} className="h-7 px-3 rounded-full border border-line-strong text-xs font-bold text-fg hover:bg-surface-3 transition-colors">今日</button>
+          {/* 今日: ほかの月・日を見ているときに今日へ戻る。今日を見ているときは押しても変わらないので薄くする（場所は動かさない） */}
+          {(() => {
+            const onToday = selected === today && month.y === Number(today.slice(0, 4)) && month.m === Number(today.slice(5, 7));
+            return (
+              <button
+                type="button"
+                onClick={goToday}
+                disabled={onToday}
+                aria-label={onToday ? '今日を表示中' : '今日に戻る'}
+                className="h-7 px-3 rounded-full border border-line-strong text-fg hover:bg-surface-3 transition-colors disabled:opacity-40 disabled:hover:bg-transparent disabled:cursor-default"
+              >
+                <span className="text-xs font-bold">今日</span>
+              </button>
+            );
+          })()}
         </div>
         <button type="button" onClick={() => move(1)} aria-label="次の月" className="w-9 h-9 rounded-full flex items-center justify-center text-fg hover:bg-surface-3 transition-colors">
           <FiChevronRight size={20} />

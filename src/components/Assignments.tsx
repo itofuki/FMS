@@ -659,6 +659,20 @@ const Assignments: React.FC<AssignmentsProps> = ({ subject }) => {
   // 列の見出しの右端: 管理者モードの切り替えと「追加」（スマホでは「追加」は右下の丸いボタン）
   const headerActions = (
     <>
+      {/* LMS の提出状況を今すぐ更新（同期の時刻は見出しの横に出す）。エラーのときは赤い点 */}
+      {hasLmsSession && (
+        <button
+          type="button"
+          onClick={handleForceRefreshLms}
+          disabled={isFetchingLmsEvents}
+          title={isFetchingLmsEvents ? 'LMS同期中...' : 'LMSの提出状況を今すぐ更新'}
+          aria-label="LMSの提出状況を今すぐ更新"
+          className="relative w-9 h-9 rounded-full flex items-center justify-center text-fg-muted hover:text-accent hover:bg-surface-3 disabled:cursor-not-allowed transition-colors"
+        >
+          <FiRefreshCw size={17} className={isFetchingLmsEvents ? 'animate-spin' : ''} />
+          {isLmsApiError && <span className="absolute top-1 right-1 w-2.5 h-2.5 rounded-full bg-down ring-2 ring-surface" aria-hidden="true" />}
+        </button>
+      )}
       {/* 管理者モード: 切り替えると一覧と「追加」の動きが変わるので、そのすぐ隣に置く（管理者にだけ表示） */}
       {userRole === 'admin' && (
         <button
@@ -700,7 +714,15 @@ const Assignments: React.FC<AssignmentsProps> = ({ subject }) => {
       title="課題"
       meta={isAdminMode
         ? <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded bg-amber-400 text-slate-900 text-xs font-bold whitespace-nowrap"><FiTool size={12} />管理者モード</span>
-        : <span>未完了 <span className="font-bold text-fg">{pendingCount}</span>件</span>}
+        : (
+          <span>
+            未完了 <span className="font-bold text-fg">{pendingCount}</span>件
+            {/* LMS の同期の状態（右上の更新ボタンと対になる）。一覧の量を減らさないよう、右の列ではなくここに出す */}
+            <span className={`ml-2 text-xs ${isLmsApiError ? 'text-down font-semibold' : 'text-fg-subtle'}`}>
+              {!hasLmsSession ? 'LMS 未接続' : isLmsApiError ? 'LMS 同期エラー' : `LMS ${lmsSyncedLabel}`}
+            </span>
+          </span>
+        )}
       actions={headerActions}
       tabs={[
         { key: 'list', label: '一覧', active: view === 'list', onSelect: () => setView('list') },
@@ -712,38 +734,11 @@ const Assignments: React.FC<AssignmentsProps> = ({ subject }) => {
       {/* 画面が広い（xl 以上）ときは、ヤフーファイナンスの掲示板のように「左に一覧・右に補足」の2列にする。
           課題カードが横に間延びしないようにし、進み具合はスクロールしても右に残す */}
       <div className={PAGE_GRID}>
+        {/* 右の列（スマホでは一覧の上）: 進み具合。一覧のときだけ（カレンダーでは日付の表を広く使う） */}
+        {view === 'list' && unifiedAssignments.length > 0 && (
         <aside className={SIDE_WIDGET}>
           <div>
-            {/* 上段: LMS の同期状態と更新 */}
-            <div className="px-4 sm:px-6 xl:px-5 py-3 flex flex-col gap-2 text-sm border-b border-line">
-              {hasLmsSession ? (
-                <div className="flex items-center justify-between gap-2">
-                  <span className={isLmsApiError ? 'text-down font-semibold' : 'text-fg-muted'}>
-                    {isLmsApiError ? 'LMS 同期エラー' : `LMS 同期：${lmsSyncedLabel}`}
-                  </span>
-                  <button
-                    type="button"
-                    onClick={handleForceRefreshLms}
-                    disabled={isFetchingLmsEvents}
-                    title={isFetchingLmsEvents ? 'LMS同期中...' : 'LMSの提出状況を今すぐ更新'}
-                    aria-label="LMSの提出状況を今すぐ更新"
-                    className="relative inline-flex items-center gap-1.5 px-2 py-1 -mr-2 rounded-md text-fg-muted hover:text-accent hover:bg-surface-3 disabled:cursor-not-allowed transition-colors"
-                  >
-                    <FiRefreshCw size={14} className={isFetchingLmsEvents ? 'animate-spin' : ''} />
-                    <span className="text-xs font-semibold">{isFetchingLmsEvents ? '更新中' : '更新'}</span>
-                    {isLmsApiError && <span className="absolute -top-0.5 -right-0.5 w-2.5 h-2.5 rounded-full bg-down ring-2 ring-surface" aria-hidden="true" />}
-                  </button>
-                </div>
-              ) : (
-                <div className="flex items-center justify-between gap-2">
-                  <span className="text-fg-muted">LMS 未接続</span>
-                  <Link to="/login?relogin=1" className="text-xs font-semibold text-link hover:underline">ログイン</Link>
-                </div>
-              )}
-            </div>
-
-            {/* 下段: 進み具合（掲示板の「みんなの評価」の割合バーのように、全体の状況をひと目で） */}
-            {unifiedAssignments.length > 0 && (
+            {/* 進み具合（掲示板の「みんなの評価」の割合バーのように、全体の状況をひと目で） */}
               <div className="px-4 sm:px-6 xl:px-5 py-5">
                 <div className="flex items-baseline justify-between gap-3 mb-3">
                   <span className={SIDE_TITLE}>進み具合</span>
@@ -767,9 +762,9 @@ const Assignments: React.FC<AssignmentsProps> = ({ subject }) => {
                   ))}
                 </ul>
               </div>
-            )}
           </div>
         </aside>
+        )}
         {/* 真ん中の列: 白い 1 枚の面 */}
         <div className={CENTER_PANEL}>
       {/* 追加・編集フォーム（一覧の上に開く） */}

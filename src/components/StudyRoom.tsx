@@ -133,7 +133,9 @@ const StudyRoom = () => {
   return (
     <ChapterFrame title="自習室" meta={headerMeta} tabs={dayTabs} bare>
       <div className={PAGE_GRID}>
-        {/* 右の列: 今使える部屋（時間外は次に開く部屋） */}
+        {/* 右の列（スマホでは表の上）: 今使える部屋（時間外は次に開く部屋）。今日の曜日を開いているときだけ
+            （ほかの曜日では関係がなく、表を出す場所が減るため） */}
+        {isTodaySelected && (
         <aside className={SIDE_WIDGET}>
           <div className="px-4 sm:px-5 py-4">
             <p className={`${SIDE_TITLE} flex items-center gap-1.5`}><FiMapPin size={16} />{current ? '今使える部屋' : '次に開く部屋'}</p>
@@ -160,12 +162,8 @@ const StudyRoom = () => {
               </p>
             )}
           </div>
-          {pdfUrl && (
-            <a href={pdfUrl} target="_blank" rel="noopener noreferrer" className="flex items-center gap-1 px-4 sm:px-5 py-3 border-t border-line text-sm font-semibold text-link hover:bg-surface-3 transition-colors">
-              元の時間割 PDF を開く <FiExternalLink size={13} aria-hidden="true" />
-            </a>
-          )}
         </aside>
+        )}
 
         {/* 左: 1日分の一覧表 */}
         {/* 真ん中の列: 白い 1 枚の面に、選んだ曜日の表 */}
@@ -180,7 +178,7 @@ const StudyRoom = () => {
               // 時限の列は一定、自習室と談話室は残りを半分ずつ
               <table className="w-full text-left table-fixed">
                 <colgroup>
-                  <col className="w-24 sm:w-32" />
+                  <col className="w-[7.5rem] sm:w-32" />
                   <col />
                   <col />
                 </colgroup>
@@ -204,7 +202,7 @@ const StudyRoom = () => {
                       >
                         <th scope="row" className={`relative px-4 sm:px-5 py-3 font-normal ${state === 'current' ? 'before:absolute before:left-0 before:inset-y-0 before:w-1 before:bg-accent' : ''}`}>
                           <span className="block text-[15px] font-bold text-fg">{p.label}</span>
-                          <span className="block text-xs text-fg-muted">{formatHm(p.start)}〜{formatHm(p.end)}</span>
+                          <span className="block text-xs text-fg-muted whitespace-nowrap">{formatHm(p.start)}〜{formatHm(p.end)}</span>
                         </th>
                         <td className="px-3 sm:px-5 py-3">
                           {isOpen(study) ? <span className="text-[15px] sm:text-base font-semibold text-fg break-words">{study}</span> : <span className="text-sm text-fg-subtle">閉室</span>}
@@ -219,8 +217,18 @@ const StudyRoom = () => {
               </table>
             )}
           </div>
-          {isTodaySelected && rooms && (
-            <p className="px-4 sm:px-5 py-3 text-xs text-fg-subtle border-t border-line">今の時限は色付き、終わった時限は薄く表示しています。</p>
+          {/* 表の下: 見方の説明（今日のとき）と、元の時間割 PDF（どの曜日でも） */}
+          {((isTodaySelected && rooms) || pdfUrl) && (
+            <div className="flex flex-wrap items-center justify-between gap-x-4 gap-y-1 px-4 sm:px-5 py-3 border-t border-line">
+              {isTodaySelected && rooms
+                ? <p className="text-xs text-fg-subtle">今の時限は色付き、終わった時限は薄く表示しています。</p>
+                : <span />}
+              {pdfUrl && (
+                <a href={pdfUrl} target="_blank" rel="noopener noreferrer" className="inline-flex items-center gap-1 text-sm font-semibold text-link hover:underline">
+                  元の時間割 PDF を開く <FiExternalLink size={13} aria-hidden="true" />
+                </a>
+              )}
+            </div>
           )}
         </div>
       </div>
