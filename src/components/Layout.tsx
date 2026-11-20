@@ -10,7 +10,7 @@
 import { useRef, useEffect, useState } from 'react';
 import { Outlet, Link } from "react-router-dom";
 import { ThemeToggleButton } from "./ThemeToggle";
-import { SUB_MENU_IDS } from "../lib/menu";
+import { SETTINGS_ACCOUNT_SECTION, SUB_MENU_IDS, requestSettingsSection } from "../lib/menu";
 import { clearDebugTime, isDebugTime } from "../lib/schedule";
 import { Toaster } from 'sonner';
 import { useSidebar, type ChapterLink } from "../contexts/SidebarContext";
@@ -38,13 +38,11 @@ const EXTERNAL_LINKS = [
   { href: 'https://st.uc.career-tasu.jp/top/', label: 'Career', iconClass: 'text-amber-600 dark:text-amber-400' },
 ];
 
-function Logo({ withText = true }: { withText?: boolean }) {
+/** ロゴ（マークだけ。マークの中に F・M・S が入っているので文字は添えない。X の左上と同じ） */
+function Logo({ size = 36 }: { size?: number }) {
   return (
-    <Link to="/" className="inline-flex items-center gap-2 rounded-full p-1.5 -m-1.5 hover:bg-surface-3 transition-colors" aria-label="FMS">
-      <img src="/favicon.svg" alt="" className="w-8 h-8" />
-      {withText && (
-        <span className="text-2xl font-extrabold tracking-tight text-transparent bg-clip-text bg-gradient-to-r from-cyan-500 via-sky-500 to-purple-500">FMS</span>
-      )}
+    <Link to="/" className="inline-flex items-center justify-center rounded-full p-2 -m-2 hover:bg-surface-3 transition-colors" aria-label="FMS">
+      <img src="/favicon.svg" alt="" style={{ width: size, height: size }} />
     </Link>
   );
 }
@@ -65,6 +63,11 @@ function SidebarContent({ links, activeId, onNavigate, closeMenu, compact = fals
   const handleNavigate = (id: string) => {
     onNavigate(id);
     closeMenu();
+  };
+  // 自分のアイコン: 設定のいちばん下（アカウント）を開く
+  const openAccount = () => {
+    requestSettingsSection(SETTINGS_ACCOUNT_SECTION);
+    handleNavigate('setting');
   };
   const topLinks = links.filter(link => !SUB_MENU_IDS.includes(link.id));
   const bottomLinks = links.filter(link => SUB_MENU_IDS.includes(link.id));
@@ -98,14 +101,14 @@ function SidebarContent({ links, activeId, onNavigate, closeMenu, compact = fals
     <div className="flex flex-col h-full overflow-y-auto">
       {drawer ? (
         // X のスマホのナビ: いちばん上に自分のアイコンと名前・@ID（押すと設定のアカウントへ）
-        <button type="button" onClick={() => handleNavigate('setting')} className="px-4 pt-4 pb-3 text-left">
+        <button type="button" onClick={openAccount} className="px-4 pt-4 pb-3 text-left">
           <Avatar user={user} size={40} />
           <span className="block mt-2 text-[17px] font-bold text-fg leading-tight truncate">{displayName(user)}</span>
           {handle && <span className="block text-[15px] text-fg-muted truncate">@{handle}</span>}
         </button>
       ) : (
         <div className={`pt-3 pb-4 ${compact ? 'flex justify-center' : 'px-4'}`}>
-          <Logo withText={!compact} />
+          <Logo />
         </div>
       )}
 
@@ -141,13 +144,13 @@ function SidebarContent({ links, activeId, onNavigate, closeMenu, compact = fals
         </ul>
       </div>
 
-      {/* X の左下のアカウント欄: アイコン 40px・名前（太字）と @ID の 2 段・右端に「…」（押すと設定のアカウントへ）。
+      {/* X の左下のアカウント欄: アイコン 40px・名前（太字）と @ID の 2 段・右端に「…」（押すと設定のいちばん下のアカウントへ）。
           スマホのナビでは上に出すので、ここには出さない */}
       {!drawer && (
         <div className="mt-auto pt-4 pb-3">
           <button
             type="button"
-            onClick={() => handleNavigate('setting')}
+            onClick={openAccount}
             title={compact ? displayName(user) : undefined}
             aria-label={`${displayName(user)}（アカウントの設定）`}
             className={`flex items-center rounded-full hover:bg-surface-3 transition-colors ${compact ? 'mx-auto p-1.5' : 'w-full gap-3 p-3 text-left'}`}
@@ -171,7 +174,7 @@ function SidebarContent({ links, activeId, onNavigate, closeMenu, compact = fals
 }
 
 /**
- * スマホとログイン画面の上のバー（X と同じく、左にアカウント・真ん中にロゴ）。
+ * スマホの上のバー（X と同じく、左にアカウント・真ん中にロゴ）。
  * onOpenMenu があるとき（マイページ）は左のアイコンでナビ全体を開く。Portal・Career はナビの中にある。
  * hidden のときは上に隠す（下にスクロール中）。
  */
@@ -186,8 +189,8 @@ function TopBar({ onOpenMenu, onOpenSettings, hidden = false, className = '' }: 
           </button>
         )}
       </div>
-      {/* X と同じく、真ん中はロゴのマークだけ（ナビのない画面では文字も出す） */}
-      <div className="flex justify-center"><Logo withText={!onOpenMenu} /></div>
+      {/* X と同じく、真ん中はロゴのマークだけ */}
+      <div className="flex justify-center"><Logo size={30} /></div>
       {/* 右上: X と同じく設定（ナビのない画面ではテーマの切り替え） */}
       <div className="flex justify-end">
         {onOpenSettings ? (
@@ -308,21 +311,24 @@ export default function Layout() {
         <div
           ref={scrollRootRef}
           data-scroll-root
+          // 下のタブの分の余白とスクロールバーの場所は、ナビのある画面だけ（ログイン画面の右端に帯が出ないように）
           // 列の見出しを貼り付ける位置（スマホで上のバーが出ている間はその下、隠れたら画面の上端）
           style={{ ['--chrome-top' as string]: chromeHidden ? '0px' : '53px' }}
-          className="flex-1 overflow-y-auto w-full pb-16 md:pb-0 [scrollbar-gutter:stable]"
+          className={`flex-1 overflow-y-auto w-full ${hasNav ? 'pb-16 md:pb-0 [scrollbar-gutter:stable]' : ''}`}
         >
           {isDebugTime() && <DebugTimeBanner />}
-          {/* ナビのない画面（ログインなど）と、スマホでは上のバー */}
-          <TopBar
-            className={hasNav ? 'md:hidden' : ''}
-            onOpenMenu={hasNav ? () => setIsMobileMenuOpen(true) : undefined}
-            onOpenSettings={hasNav ? () => requestChapter('setting') : undefined}
-            hidden={hasNav && chromeHidden}
-          />
+          {/* スマホでは上のバー（ログイン画面には出さない。ロゴとテーマの切り替えはログイン画面の中に置く） */}
+          {hasNav && (
+            <TopBar
+              className="md:hidden"
+              onOpenMenu={() => setIsMobileMenuOpen(true)}
+              onOpenSettings={() => requestChapter('setting')}
+              hidden={chromeHidden}
+            />
+          )}
 
-          {/* X と同じく全体を中央に寄せる（左のナビ＋真ん中 600px＋右 350px） */}
-          <div className="flex w-full max-w-[1265px] mx-auto justify-center">
+          {/* X と同じく全体を中央に寄せる（左のナビ＋真ん中 600px＋右 350px。1440px 以上は最大 1440px）。ログイン画面は背景を画面いっぱいに広げるため幅を絞らない */}
+          <div className={`flex w-full mx-auto justify-center ${hasNav ? 'max-w-[1265px] min-[90rem]:max-w-[1440px]' : ''}`}>
             {hasNav && (
               <>
                 {/* 狭い PC・タブレット: アイコンだけのナビ（88px） */}
@@ -335,8 +341,8 @@ export default function Layout() {
                 </aside>
               </>
             )}
-            {/* 中身の幅: 真ん中 600px（PC では＋右の列 300〜350px）。ナビと合わせて画面の中央に置く */}
-            <main className={`flex-1 min-w-0 relative z-10 ${hasNav ? 'md:flex-none md:w-[600px] lg:w-[924px] xl:w-[982px]' : ''}`}>
+            {/* 中身の幅: 真ん中 600px（PC では＋右の列 300〜350px。1440px 以上は真ん中 760px）。ナビと合わせて画面の中央に置く */}
+            <main className={`flex-1 min-w-0 relative z-10 ${hasNav ? 'md:flex-none md:w-[600px] lg:w-[924px] xl:w-[982px] min-[90rem]:w-[1142px]' : ''}`}>
               <Outlet />
             </main>
           </div>

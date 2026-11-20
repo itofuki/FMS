@@ -2,7 +2,7 @@
 
 import React, { useState, useMemo } from 'react';
 import { supabase } from '../lib/supabaseClient';
-import ChapterFrame, { CENTER_PANEL, PAGE_GRID, SIDE_TITLE, SIDE_WIDGET } from './ChapterFrame';
+import ChapterFrame, { CENTER_PANEL, LIST_GROUP, LIST_GROUP_HEADING, PAGE_GRID, SIDE_TITLE, SIDE_WIDGET } from './ChapterFrame';
 import { PageSkeleton } from './Skeleton';
 import { FiCheckSquare, FiCheck, FiX, FiPlus, FiEdit2, FiTrash2, FiTool, FiArrowLeft, FiRefreshCw, FiHelpCircle, FiInbox, FiChevronRight, FiCheckCircle, FiXCircle, FiImage } from 'react-icons/fi';
 import { Textarea, TextInput, Select, SegmentedControl, Radio, Button, Group, FileInput } from '@mantine/core';
@@ -620,8 +620,9 @@ const TestPrep: React.FC<TestPrepProps> = ({ subject }) => {
                       Array.from(new Map(decks.map(d => [d.subjectId, d.subjectName])).entries()).map(([subjectId, subjectName]) => {
                         const subjectDecks = decks.filter(d => d.subjectId === subjectId);
                         return (
-                          <section key={subjectId}>
-                            <h3 className="flex items-center gap-2 px-4 sm:px-5 py-3 border-b border-line text-base font-bold text-fg">
+                          <section key={subjectId} className={LIST_GROUP}>
+                            {/* まとまりの中見出し（科目） */}
+                            <h3 className={LIST_GROUP_HEADING}>
                               <span className="w-1 h-4 rounded-full bg-accent" aria-hidden="true" />
                               {subjectName}
                               <span className="text-sm font-normal text-fg-muted">{subjectDecks.length}セット</span>
@@ -638,7 +639,7 @@ const TestPrep: React.FC<TestPrepProps> = ({ subject }) => {
                                       <span className={`inline-block text-xs px-1.5 py-0.5 rounded border ${QUESTION_SET_BADGE_CLASSES[deck.questionSet]}`}>
                                         {QUESTION_SET_LABELS[deck.questionSet]}
                                       </span>
-                                      <span className="block mt-1 text-[17px] font-bold text-fg leading-snug truncate">
+                                      <span className="block mt-1 text-base font-bold text-fg leading-snug truncate">
                                         {subjectName}の{QUESTION_SET_LABELS[deck.questionSet]}
                                       </span>
                                       <span className="block mt-0.5 text-sm text-fg-muted">{deck.questions.length}問</span>

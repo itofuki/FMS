@@ -2,7 +2,7 @@
 
 import React, { useState, useMemo, useRef, useEffect } from 'react';
 import { supabase } from '../lib/supabaseClient';
-import ChapterFrame, { CENTER_PANEL, PAGE_GRID, SIDE_TITLE, SIDE_WIDGET } from './ChapterFrame';
+import ChapterFrame, { CENTER_PANEL, LIST_GROUP, LIST_GROUP_HEADING, PAGE_GRID, SIDE_TITLE, SIDE_WIDGET } from './ChapterFrame';
 import AssignmentCalendar from './AssignmentCalendar';
 import { jstYmd } from '../lib/schedule';
 import { PageSkeleton } from './Skeleton';
@@ -468,7 +468,7 @@ const Assignments: React.FC<AssignmentsProps> = ({ subject }) => {
     const title = cleanTitle(assignment.name);
     const hasAttachments = assignment.isLms && !!assignment.attachments?.length;
     const tag = isDone ? null : deadlineTag(assignment.deadline);
-    const titleClass = `text-[17px] sm:text-lg font-bold leading-snug break-words ${isDone ? 'text-fg-subtle line-through' : 'text-fg'}`;
+    const titleClass = `text-base font-bold leading-snug break-words ${isDone ? 'text-fg-subtle line-through' : 'text-fg'}`;
 
     // 左の丸いチェック（ToDo の定番の形）。見た目は 24px、押せる範囲は 44px 四方
     const doneCheck = (
@@ -839,9 +839,9 @@ const Assignments: React.FC<AssignmentsProps> = ({ subject }) => {
         displayGroups.map(group => {
           const collapsed = group.key === 'done' && !showDone;
           return (
-            <section key={group.key}>
-              {/* グループの小見出し（区切り線の行） */}
-              <h3 className="flex items-center gap-2 px-4 sm:px-5 py-3 border-b border-line text-base font-bold text-fg">
+            <section key={group.key} className={LIST_GROUP}>
+              {/* まとまりの中見出し（締切の近さ） */}
+              <h3 className={LIST_GROUP_HEADING}>
                 <span className={`w-1 h-4 rounded-full ${GROUP_STYLE[group.key].bar}`} aria-hidden="true" />
                 {group.label}
                 <span className="text-sm font-normal text-fg-muted">{group.items.length}件</span>

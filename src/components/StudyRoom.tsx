@@ -176,10 +176,17 @@ const StudyRoom = () => {
             ) : !rooms ? (
               <p className="text-center py-12 px-4 text-sm text-fg-muted">この日の情報はありません</p>
             ) : (
-              <table className="w-full text-left">
+              // 列の幅は固定（中身の長さで決めると、曜日ごとに自習室と談話室の列の位置がずれるため）。
+              // 時限の列は一定、自習室と談話室は残りを半分ずつ
+              <table className="w-full text-left table-fixed">
+                <colgroup>
+                  <col className="w-24 sm:w-32" />
+                  <col />
+                  <col />
+                </colgroup>
                 <thead className="bg-surface-2 text-sm text-fg-muted">
                   <tr>
-                    <th scope="col" className="px-4 sm:px-5 py-2.5 font-semibold w-24 sm:w-32">時限</th>
+                    <th scope="col" className="px-4 sm:px-5 py-2.5 font-semibold">時限</th>
                     <th scope="col" className="px-3 sm:px-5 py-2.5 font-semibold">自習室</th>
                     <th scope="col" className="px-3 sm:px-5 py-2.5 font-semibold">談話室</th>
                   </tr>
@@ -200,10 +207,10 @@ const StudyRoom = () => {
                           <span className="block text-xs text-fg-muted">{formatHm(p.start)}〜{formatHm(p.end)}</span>
                         </th>
                         <td className="px-3 sm:px-5 py-3">
-                          {isOpen(study) ? <span className="text-[15px] sm:text-base font-semibold text-fg">{study}</span> : <span className="text-sm text-fg-subtle">閉室</span>}
+                          {isOpen(study) ? <span className="text-[15px] sm:text-base font-semibold text-fg break-words">{study}</span> : <span className="text-sm text-fg-subtle">閉室</span>}
                         </td>
                         <td className="px-3 sm:px-5 py-3">
-                          {isOpen(talk) ? <span className="text-[15px] sm:text-base font-semibold text-fg">{talk}</span> : <span className="text-sm text-fg-subtle">閉室</span>}
+                          {isOpen(talk) ? <span className="text-[15px] sm:text-base font-semibold text-fg break-words">{talk}</span> : <span className="text-sm text-fg-subtle">閉室</span>}
                         </td>
                       </tr>
                     );

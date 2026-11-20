@@ -3,7 +3,7 @@
 import React, { useState } from 'react';
 import { supabase } from '../lib/supabaseClient';
 import ChapterFrame, { CENTER_PANEL, PAGE_GRID, SIDE_TITLE, SIDE_WIDGET } from './ChapterFrame';
-import { FiMessageSquare, FiSend, FiInfo } from 'react-icons/fi';
+import { FiSend, FiInfo } from 'react-icons/fi';
 import { Textarea, Button } from '@mantine/core';
 
 const Feedback = () => {
@@ -57,15 +57,12 @@ const Feedback = () => {
         {/* 真ん中の列: 白い 1 枚の面に入力フォーム */}
         <div className={CENTER_PANEL}>
           <form onSubmit={handleSubmit} className="px-4 sm:px-5 py-5">
-            <h3 className="text-lg font-bold text-fg flex items-center gap-2">
-              <FiMessageSquare className="text-accent" size={18} />
-              ご意見・ご要望を送る
-            </h3>
-            <p className="mt-1.5 text-[15px] text-fg-muted leading-relaxed">
-              FMS をより良くするためのアイデア、不具合の報告、追加してほしい機能など、自由にお書きください。
+            {/* ページ名（ご意見・ご要望）と同じ見出しは置かず、何を書けばよいかだけ添える */}
+            <p className="text-[15px] text-fg-muted leading-relaxed">
+              アイデア、不具合の報告、追加してほしい機能など、自由にお書きください。
             </p>
             <Textarea
-              className="mt-4"
+              className="mt-3"
               placeholder="例：〇〇の機能が使いにくい。△△の機能を追加してほしい。"
               minRows={6}
               autosize
