@@ -151,9 +151,9 @@ const StudyRoom = () => {
                 </p>
                 <dl className="mt-3 grid grid-cols-[auto_1fr] gap-x-4 gap-y-2 items-baseline">
                   <dt className="text-sm text-fg-muted">自習室</dt>
-                  <dd className={`text-xl font-bold ${isOpen(todayRooms.study[focus - 1]) ? 'text-fg' : 'text-fg-subtle'}`}>{isOpen(todayRooms.study[focus - 1]) ? todayRooms.study[focus - 1] : '閉室'}</dd>
+                  <dd className={`text-xl font-bold ${isOpen(todayRooms.study[focus - 1]) ? 'text-fg' : 'text-fg-subtle'}`}>{isOpen(todayRooms.study[focus - 1]) ? todayRooms.study[focus - 1] : <span aria-label="閉室">-</span>}</dd>
                   <dt className="text-sm text-fg-muted">談話室</dt>
-                  <dd className={`text-xl font-bold ${isOpen(todayRooms.talk[focus - 1]) ? 'text-fg' : 'text-fg-subtle'}`}>{isOpen(todayRooms.talk[focus - 1]) ? todayRooms.talk[focus - 1] : '閉室'}</dd>
+                  <dd className={`text-xl font-bold ${isOpen(todayRooms.talk[focus - 1]) ? 'text-fg' : 'text-fg-subtle'}`}>{isOpen(todayRooms.talk[focus - 1]) ? todayRooms.talk[focus - 1] : <span aria-label="閉室">-</span>}</dd>
                 </dl>
               </>
             ) : (
@@ -205,10 +205,10 @@ const StudyRoom = () => {
                           <span className="block text-xs text-fg-muted whitespace-nowrap">{formatHm(p.start)}〜{formatHm(p.end)}</span>
                         </th>
                         <td className="px-3 sm:px-5 py-3">
-                          {isOpen(study) ? <span className="text-[15px] sm:text-base font-semibold text-fg break-words">{study}</span> : <span className="text-sm text-fg-subtle">閉室</span>}
+                          {isOpen(study) ? <span className="text-[15px] sm:text-base font-semibold text-fg break-words">{study}</span> : <span className="text-fg-subtle" aria-label="閉室">-</span>}
                         </td>
                         <td className="px-3 sm:px-5 py-3">
-                          {isOpen(talk) ? <span className="text-[15px] sm:text-base font-semibold text-fg break-words">{talk}</span> : <span className="text-sm text-fg-subtle">閉室</span>}
+                          {isOpen(talk) ? <span className="text-[15px] sm:text-base font-semibold text-fg break-words">{talk}</span> : <span className="text-fg-subtle" aria-label="閉室">-</span>}
                         </td>
                       </tr>
                     );
