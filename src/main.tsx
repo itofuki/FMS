@@ -10,7 +10,23 @@ import '@mantine/dates/styles.css';
 import { MantineProvider, createTheme, type MantineColorsTuple } from '@mantine/core';
 
 import { registerSW } from 'virtual:pwa-register';
-registerSW({ immediate: true });
+// 新しい版を出した（デプロイした）ときの反映:
+//   iPhone のホーム画面のアプリは、閉じても裏に残っていて、次に開いても「続きから」になることが多い。
+//   そのままだと新しい版を確かめないので、アプリが前に出てくる（開く・切り替えて戻る）たびに確かめる。
+//   新しい版があれば autoUpdate（vite.config.ts）により入れ替わり、画面が読み込み直されて反映される。
+//   使っている途中で急に読み込み直さないよう、確かめるのは前に出てきた時だけ（最短 1 分おき）にする。
+registerSW({
+  immediate: true,
+  onRegisteredSW(_swUrl, registration) {
+    if (!registration) return;
+    let lastCheck = Date.now();
+    document.addEventListener('visibilitychange', () => {
+      if (document.visibilityState !== 'visible' || Date.now() - lastCheck < 60_000) return;
+      lastCheck = Date.now();
+      registration.update().catch(() => { /* 通信できないときは次の機会に */ });
+    });
+  },
+});
 
 // アクセント（シアン）。Tailwind の cyan-50〜900。index.css の --accent-solid と揃える
 const brand: MantineColorsTuple = [

@@ -114,10 +114,9 @@ function SidebarContent({ links, activeId, onNavigate, closeMenu, compact = fals
 
       <ul className={`space-y-1 ${compact ? '' : 'px-1'}`}>{topLinks.map(l => item(l, false))}</ul>
 
-      {/* サブメニュー（テスト対策・Tips・ご意見・設定） */}
+      {/* サブメニュー（テスト対策・Tips・ご意見・設定）。見出しは付けず、線だけで区切る（X と同じ） */}
       {bottomLinks.length > 0 && (
         <div className={`mt-4 pt-4 border-t border-line ${compact ? '' : 'px-1'}`}>
-          {!compact && <h2 className="text-xs font-semibold tracking-wider text-fg-subtle mb-2 px-4">サブメニュー</h2>}
           <ul className="space-y-0.5">{bottomLinks.map(l => item(l, true))}</ul>
         </div>
       )}
@@ -314,7 +313,7 @@ export default function Layout() {
           // 下のタブの分の余白とスクロールバーの場所は、ナビのある画面だけ（ログイン画面の右端に帯が出ないように）
           // 列の見出しを貼り付ける位置（スマホで上のバーが出ている間はその下、隠れたら画面の上端）
           style={{ ['--chrome-top' as string]: chromeHidden ? '0px' : '53px' }}
-          className={`flex-1 overflow-y-auto w-full ${hasNav ? 'pb-16 md:pb-0 [scrollbar-gutter:stable]' : ''}`}
+          className={`flex-1 overflow-y-auto w-full ${hasNav ? 'pb-[calc(53px+max(env(safe-area-inset-bottom),0.5rem)+0.75rem)] md:pb-0 [scrollbar-gutter:stable]' : ''}`}
         >
           {isDebugTime() && <DebugTimeBanner />}
           {/* スマホでは上のバー（ログイン画面には出さない。ロゴとテーマの切り替えはログイン画面の中に置く） */}
@@ -348,9 +347,10 @@ export default function Layout() {
           </div>
         </div>
 
-        {/* スマホ: 下のタブ（X と同じくアイコンだけ。下にスクロール中は半透明） */}
+        {/* スマホ: 下のタブ（X と同じくアイコンだけ。下にスクロール中は半透明）。
+            iPhone のホームバーの分（safe-area-inset-bottom）をあけ、ホームバーがない端末でも少しあける */}
         {hasNav && (
-        <nav className={`md:hidden absolute bottom-0 left-0 w-full z-30 bg-surface/90 backdrop-blur-md border-t border-line pb-[env(safe-area-inset-bottom)] transition-opacity duration-200 ${chromeHidden ? 'opacity-50' : ''}`}>
+        <nav className={`md:hidden absolute bottom-0 left-0 w-full z-30 bg-surface/90 backdrop-blur-md border-t border-line pb-[max(env(safe-area-inset-bottom),0.5rem)] transition-opacity duration-200 ${chromeHidden ? 'opacity-50' : ''}`}>
           <ul className="flex justify-around items-center h-[53px]">
             {chapterLinks.filter(link => !SUB_MENU_IDS.includes(link.id)).map(link => {
               const active = activeChapter === link.id;
@@ -382,7 +382,7 @@ export default function Layout() {
         )}
       </div>
       {/* お知らせは X と同じく画面の下の中央（スマホでは下のタブの上） */}
-      <Toaster position="bottom-center" offset={24} mobileOffset={{ bottom: 72 }} />
+      <Toaster position="bottom-center" offset={24} mobileOffset={{ bottom: 'calc(72px + max(env(safe-area-inset-bottom), 0.5rem))' }} />
     </div>
   );
 }
