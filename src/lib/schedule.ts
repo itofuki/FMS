@@ -80,6 +80,27 @@ const toMin = (t: { h: number; m: number }) => t.h * 60 + t.m;
 
 export const periodTime = (period: number) => PERIODS.find((p) => p.period === period);
 
+/** 開始・終了の時刻（時限の本来の時刻か、管理者が調整した授業の時刻） */
+export type SlotTime = { start: { h: number; m: number }; end: { h: number; m: number } };
+
+const parseHm = (v: string | null | undefined): { h: number; m: number } | null => {
+  const m = v ? /^(\d{1,2}):(\d{2})/.exec(v) : null;
+  return m ? { h: Number(m[1]), m: Number(m[2]) } : null;
+};
+
+/**
+ * その授業の開始・終了の時刻。管理者が調整した時刻（startTime / endTime。'HH:MM'）があればそれを、
+ * なければ時限の本来の時刻を使う。時限が分からなければ undefined
+ */
+export function subjectTime(s: { period: number; startTime?: string | null; endTime?: string | null }): SlotTime | undefined {
+  const p = periodTime(s.period);
+  if (!p) return undefined;
+  return { start: parseHm(s.startTime) ?? p.start, end: parseHm(s.endTime) ?? p.end };
+}
+
+/** 時限の番号か時刻を、時刻にそろえる */
+const slotOf = (x: number | SlotTime): SlotTime | undefined => (typeof x === 'number' ? periodTime(x) : x);
+
 /** 平日なら曜日キー、土日は null */
 export const weekdayOf = (d: Date): Weekday | null => {
   const i = d.getDay();
@@ -88,9 +109,9 @@ export const weekdayOf = (d: Date): Weekday | null => {
 
 export type PeriodState = 'before' | 'current' | 'after';
 
-/** その時限が、今から見て「これから / 授業中 / 終了」のどれか */
-export function periodState(period: number, now: Date): PeriodState {
-  const p = periodTime(period);
+/** その時限（または授業の時刻）が、今から見て「これから / 授業中 / 終了」のどれか */
+export function periodState(period: number | SlotTime, now: Date): PeriodState {
+  const p = slotOf(period);
   if (!p) return 'after';
   const n = minutesOf(now);
   if (n < toMin(p.start)) return 'before';
@@ -99,8 +120,8 @@ export function periodState(period: number, now: Date): PeriodState {
 }
 
 /** 開始まで（before）または終了まで（current）の残り分。after は 0 */
-export function minutesLeft(period: number, now: Date): number {
-  const p = periodTime(period);
+export function minutesLeft(period: number | SlotTime, now: Date): number {
+  const p = slotOf(period);
   if (!p) return 0;
   const n = minutesOf(now);
   const state = periodState(period, now);
@@ -115,6 +136,21 @@ export function formatMinutes(min: number): string {
   const h = Math.floor(min / 60);
   const m = min % 60;
   return m === 0 ? `${h}時間` : `${h}時間${m}分`;
+}
+
+/**
+ * 授業のうち、今いちばん注目すべきもの（授業中のもの、なければ次に始まるもの）。授業ごとの時刻に従う。
+ * どれも終わっていれば null。
+ */
+export function focusSubject<T extends { period: number; startTime?: string | null; endTime?: string | null }>(
+  subjects: T[], now: Date,
+): { subject: T; state: 'current' | 'before' } | null {
+  const sorted = [...subjects].sort((a, b) => a.period - b.period);
+  const stateOf = (s: T) => { const t = subjectTime(s); return t ? periodState(t, now) : 'after'; };
+  const current = sorted.find((s) => stateOf(s) === 'current');
+  if (current) return { subject: current, state: 'current' };
+  const next = sorted.find((s) => stateOf(s) === 'before');
+  return next ? { subject: next, state: 'before' } : null;
 }
 
 /**

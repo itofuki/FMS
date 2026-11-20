@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { isDeadlineReminderDue, formatRemaining, toJst, upcomingPeriod, classUrl } from './reminders';
+import { isDeadlineReminderDue, formatRemaining, toJst, upcomingPeriod, classUrl, dueClasses, isNearAnyClassStart, classMinutes } from './reminders';
 
 const H = 3600_000;
 // JST の日時から Date を作る
@@ -58,5 +58,47 @@ describe('classUrl', () => {
   it('出席IDがあれば出席ページ、なければコースページ', () => {
     expect(classUrl(10, 99)).toBe('https://lms-tokyo.iput.ac.jp/mod/attendance/view.php?id=99');
     expect(classUrl(10, null)).toBe('https://lms-tokyo.iput.ac.jp/course/view.php?id=10');
+  });
+});
+
+describe('授業ごとの時刻（管理者が調整した時刻）', () => {
+  const row = (id: number, period: number, extra: { start_time?: string | null; end_time?: string | null } = {}) =>
+    ({ id, wday: 'Mon', period, ...extra });
+
+  it('調整がなければ時限の本来の時刻、あればその時刻', () => {
+    expect(classMinutes(row(1, 1))).toEqual({ start: 9 * 60 + 15, end: 10 * 60 + 55 });
+    expect(classMinutes(row(1, 1, { start_time: '09:30', end_time: '11:00' }))).toEqual({ start: 9 * 60 + 30, end: 11 * 60 });
+  });
+
+  it('本来の時限の授業は、開始 5 分前から通知の対象', () => {
+    const due = dueClasses(jst('2026-11-16T09:10:00'), [row(1, 1), row(2, 3)]);
+    expect(due.map((d) => d.row.id)).toEqual([1]);
+    expect(due[0].startLabel).toBe('9:15');
+  });
+
+  it('開始が 9:30 にずれた授業は、9:25 から対象（9:10 では対象外）', () => {
+    const shifted = [row(1, 1, { start_time: '09:30' })];
+    expect(dueClasses(jst('2026-11-16T09:10:00'), shifted)).toEqual([]);
+    const due = dueClasses(jst('2026-11-16T09:25:00'), shifted);
+    expect(due).toHaveLength(1);
+    expect(due[0].startLabel).toBe('9:30');
+  });
+
+  it('続けて行う授業でも、時限ごとに通知する（出席を毎時限入力するため）', () => {
+    // 1・2限続きの授業（id 5）。2限の開始 10:55 の前にも通知する
+    const due = dueClasses(jst('2026-11-16T10:52:00'), [row(5, 1), row(5, 2)]);
+    expect(due.map((d) => d.row.period)).toEqual([2]);
+  });
+
+  it('ほかの曜日・土日の授業は対象外', () => {
+    expect(dueClasses(jst('2026-11-17T09:10:00'), [row(1, 1)])).toEqual([]); // 火曜
+    expect(dueClasses(jst('2026-11-21T09:10:00'), [{ ...row(1, 1), wday: 'Sat' }])).toEqual([]);
+  });
+
+  it('授業の開始前かどうか（全員の時間割を読むかの判断）', () => {
+    expect(isNearAnyClassStart(jst('2026-11-16T09:12:00'), [])).toBe(true);
+    expect(isNearAnyClassStart(jst('2026-11-16T09:27:00'), [])).toBe(false);
+    expect(isNearAnyClassStart(jst('2026-11-16T09:27:00'), ['09:30'])).toBe(true);
+    expect(isNearAnyClassStart(jst('2026-11-21T09:12:00'), [])).toBe(false); // 土曜
   });
 });

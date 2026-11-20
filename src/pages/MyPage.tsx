@@ -18,7 +18,7 @@ const Feedback = lazy(() => import('../components/Feedback'));
 const Tips = lazy(() => import('../components/Tips'));
 import { PageSkeleton, TimetableSkeleton } from '../components/Skeleton';
 import DeadlineReminderSync from '../components/DeadlineReminderSync';
-import { PERIODS, nowInJst, weekdayOf } from '../lib/schedule';
+import { nowInJst, subjectTime, weekdayOf } from '../lib/schedule';
 import { useLmsCourseSync } from '../hooks/useLmsCourseSync';
 import { TOGGLEABLE_MENUS, useMenuVisibility } from '../hooks/useMenuVisibility';
 
@@ -38,6 +38,9 @@ type TimetableRpcData = {
   classroom: string;
   category_code: string; 
   attendance_id?: number | null; // ★RPCから返ってくるID
+  /** 管理者が調整した開始・終了の時刻（'HH:MM'）。本来の時限どおりなら null */
+  start_time?: string | null;
+  end_time?: string | null;
 };
 
 const myPageChapters: ChapterLink[] = [
@@ -199,6 +202,8 @@ export default function MyPage() {
               classroom: subject.classroom,
               categoryCode: subject.category_code, 
               attendanceId: subject.attendance_id, // ★ RPCから取得した attendance_id を格納
+              startTime: subject.start_time ?? null,
+              endTime: subject.end_time ?? null,
             });
           }
           return acc;
@@ -235,7 +240,8 @@ export default function MyPage() {
     }
 
     todaySubjects.forEach(subject => {
-      const timeInfo = PERIODS.find(p => p.period === subject.period);
+      // 授業ごとの時刻（管理者が調整していればその時刻）
+      const timeInfo = subjectTime(subject);
       if (!timeInfo) return;
 
       const startTime = new Date(now);

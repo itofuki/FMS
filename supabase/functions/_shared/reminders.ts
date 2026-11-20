@@ -60,6 +60,59 @@ export function upcomingPeriod(now: Date): { period: number; date: string; wday:
   return null;
 }
 
+/** 'HH:MM' を 0 時からの分に（読めなければ null） */
+export function hmToMinutes(v: string | null | undefined): number | null {
+  const m = v ? /^(\d{1,2}):(\d{2})/.exec(v) : null;
+  return m ? Number(m[1]) * 60 + Number(m[2]) : null;
+}
+
+/** 授業の開始・終了（0 時からの分）。管理者が調整した時刻があればそれ、なければ時限の本来の時刻 */
+export function classMinutes(row: { period: number; start_time?: string | null; end_time?: string | null }): { start: number; end: number } | null {
+  const p = PERIOD_TIMES.find((x) => x.period === row.period);
+  if (!p) return null;
+  return {
+    start: hmToMinutes(row.start_time) ?? p.start[0] * 60 + p.start[1],
+    end: hmToMinutes(row.end_time) ?? p.end[0] * 60 + p.end[1],
+  };
+}
+
+const minutesLabel = (n: number) => `${Math.floor(n / 60)}:${String(n % 60).padStart(2, "0")}`;
+
+/**
+ * 今日の授業のうち、「開始 CLASS_LEAD_MINUTES 分前 〜 開始時刻」の間にあるものを返す（平日のみ）。
+ * 開始時刻は授業ごと（管理者が調整した時刻があればそれ）。
+ * 続けて行う授業でも、時限ごとに出席を入力するので、どの時限の前も対象にする。
+ */
+export function dueClasses<T extends { id: number; wday: string; period: number; start_time?: string | null; end_time?: string | null }>(
+  now: Date, rows: T[],
+): { row: T; date: string; startLabel: string }[] {
+  const { date, wday, minutes } = toJst(now);
+  if (wday === "Sat" || wday === "Sun") return [];
+  const today = rows.filter((r) => r.wday === wday);
+  const result: { row: T; date: string; startLabel: string }[] = [];
+  for (const r of today) {
+    const t = classMinutes(r);
+    if (!t) continue;
+    if (minutes >= t.start - CLASS_LEAD_MINUTES && minutes < t.start) result.push({ row: r, date, startLabel: minutesLabel(t.start) });
+  }
+  return result;
+}
+
+/**
+ * 今が、どれかの授業の開始 CLASS_LEAD_MINUTES 分前〜開始時刻の間か（平日のみ）。
+ * 本来の時限の開始と、管理者が調整した開始時刻（extraStarts: 'HH:MM'）の両方を見る。
+ * 当てはまらないときは、全員の時間割を読まずに済ませるために使う。
+ */
+export function isNearAnyClassStart(now: Date, extraStarts: (string | null | undefined)[]): boolean {
+  const { wday, minutes } = toJst(now);
+  if (wday === "Sat" || wday === "Sun") return false;
+  const starts = [
+    ...PERIOD_STARTS.map((p) => p.h * 60 + p.m),
+    ...extraStarts.map(hmToMinutes).filter((v): v is number => v !== null),
+  ];
+  return starts.some((st) => minutes >= st - CLASS_LEAD_MINUTES && minutes < st);
+}
+
 /** 授業のLMSページ（出席IDがあれば出席ページ） */
 export function classUrl(subjectId: number, attendanceId?: number | null): string {
   return attendanceId

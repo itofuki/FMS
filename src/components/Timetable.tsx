@@ -22,8 +22,8 @@ import { absenceAllowance, type AttendanceSummary } from '../lib/attendance';
 import { useLmsIssue, type LmsIssue } from '../lib/lmsStatus';
 import type { Subject as AssignmentSubject } from '../lib/assignments';
 import {
-  PERIODS, WEEKDAYS, WEEKDAY_LABELS, formatHm, formatMinutes, focusPeriod, minutesLeft,
-  nowInJst, periodState, periodTime, weekdayOf, currentPeriodLabel,
+  PERIODS, WEEKDAYS, WEEKDAY_LABELS, formatHm, formatMinutes, focusSubject, minutesLeft,
+  nowInJst, periodState, periodTime, subjectTime, weekdayOf, currentPeriodLabel,
 } from '../lib/schedule';
 import './Timetable.css';
 
@@ -36,6 +36,9 @@ export type Subject = {
   teacher: string;
   categoryCode?: string;
   attendanceId?: number | null;
+  /** 管理者が調整した開始・終了の時刻（'HH:MM'）。null なら時限の本来の時刻 */
+  startTime?: string | null;
+  endTime?: string | null;
 };
 export type Day = 'Mon' | 'Tue' | 'Wed' | 'Thu' | 'Fri';
 
@@ -106,7 +109,7 @@ function StateBadge({ state, minutes }: { state: 'current' | 'next' | 'after' | 
  * 左に時刻、右に時限・教室・先生、授業名、出席率と課題。授業中の行は淡く色付けし、終わった授業は薄くする。
  */
 function TodayTimeline({ subjects, now, assignmentCount, attendance }: { subjects: Subject[]; now: Date; assignmentCount: (name: string) => number; attendance: AttendanceMap }) {
-  const focus = focusPeriod(subjects.map(s => s.period), now);
+  const focus = focusSubject(subjects, now);
   const items = buildTimeline(subjects);
 
   if (subjects.length === 0) {
@@ -129,9 +132,10 @@ function TodayTimeline({ subjects, now, assignmentCount, attendance }: { subject
           );
         }
         const s = item.subject;
-        const t = periodTime(s.period)!;
-        const state = periodState(s.period, now);
-        const isFocus = focus?.period === s.period;
+        // 時刻は授業ごと（管理者が調整していればその時刻）
+        const t = subjectTime(s)!;
+        const state = periodState(t, now);
+        const isFocus = focus?.subject.id === s.id;
         const badgeState = state === 'current' ? 'current' : state === 'after' ? 'after' : isFocus ? 'next' : 'before';
         const count = assignmentCount(s.name);
         return (
@@ -159,7 +163,7 @@ function TodayTimeline({ subjects, now, assignmentCount, attendance }: { subject
                   <span className="mx-1.5 text-fg-subtle">·</span>
                   {s.teacher}
                 </p>
-                <StateBadge state={badgeState} minutes={minutesLeft(s.period, now)} />
+                <StateBadge state={badgeState} minutes={minutesLeft(t, now)} />
               </div>
               {/* 授業名を押すと出席ページ（なければコースページ）が開く */}
               <a
@@ -217,7 +221,10 @@ function WeekGrid({ weeklySubjects, now }: { weeklySubjects: Record<Day, Subject
             </div>
             {WEEKDAYS.map(d => {
               const s = weeklySubjects[d]?.find(x => x.period === p.period);
-              const isNow = d === today && periodState(p.period, now) === 'current';
+              const st = s ? subjectTime(s) : undefined;
+              const isNow = d === today && !!st && periodState(st, now) === 'current';
+              // 本来の時限とずれている授業は、マスに時刻を出す
+              const shifted = !!s && (!!s.startTime || !!s.endTime);
               if (!s) return <div key={d} className="min-h-16 rounded-md sm:rounded-lg border border-dashed border-line" />;
               return (
                 <a
@@ -232,6 +239,7 @@ function WeekGrid({ weeklySubjects, now }: { weeklySubjects: Record<Day, Subject
                   }`}
                 >
                   <span className="text-[11px] sm:text-[13px] font-bold text-fg leading-tight line-clamp-2 break-all sm:break-normal text-center">{s.name}</span>
+                  {shifted && st && <span className="text-[10px] sm:text-[11px] font-semibold text-warn leading-tight text-center tabular-nums">{formatHm(st.start)}〜{formatHm(st.end)}</span>}
                   {/* 教室と先生を左右半分ずつ（それぞれ中央揃え）。収まらない分は「…」で省く（全文はマスの title で見られる） */}
                   <span className="grid grid-cols-2 gap-1 text-[10px] sm:text-[11px] text-fg-muted leading-tight">
                     <span className="truncate text-center">{s.classroom}</span>
@@ -333,9 +341,10 @@ function NextClassCard({ subjects, now, attendance }: { subjects: Subject[]; now
   }, [searchParams, setSearchParams]);
   const closeAttendPrompt = useCallback(() => setAttendPrompt(null), []);
   const closeScanner = useCallback(() => setScanning(false), []);
-  const focus = focusPeriod(subjects.map(s => s.period), now);
-  const s = focus ? subjects.find(x => x.period === focus.period) : undefined;
-  const t = s ? periodTime(s.period) : undefined;
+  // 授業中・次の授業（授業ごとの時刻に従う）
+  const focus = focusSubject(subjects, now);
+  const s = focus?.subject;
+  const t = s ? subjectTime(s) : undefined;
   return (
     <div className="px-4 sm:px-5 py-4">
       <p className={`${SIDE_TITLE} flex items-center gap-1.5`}><FiClock size={16} />{focus?.state === 'current' ? '授業中' : '次の授業'}</p>
@@ -345,8 +354,8 @@ function NextClassCard({ subjects, now, attendance }: { subjects: Subject[]; now
           <p className="mt-1 text-lg font-bold text-fg leading-snug">{s.name}</p>
           <p className="mt-1 text-sm text-fg-muted">
             {focus!.state === 'current'
-              ? <>{formatHm(t.end)} まで（あと<span className="font-bold text-accent">{formatMinutes(minutesLeft(s.period, now))}</span>）</>
-              : <>{formatHm(t.start)} 開始（あと<span className="font-bold text-warn">{formatMinutes(minutesLeft(s.period, now))}</span>）</>}
+              ? <>{formatHm(t.end)} まで（あと<span className="font-bold text-accent">{formatMinutes(minutesLeft(t, now))}</span>）</>
+              : <>{formatHm(t.start)} 開始（あと<span className="font-bold text-warn">{formatMinutes(minutesLeft(t, now))}</span>）</>}
           </p>
           {s.attendanceId && attendance[s.attendanceId] && (
             <div className="mt-2 pt-2 border-t border-line text-sm">
@@ -357,7 +366,7 @@ function NextClassCard({ subjects, now, attendance }: { subjects: Subject[]; now
           )}
           {/* 出欠を打てる時間（開始10分前〜授業中）だけ、出席の操作を出す。
               「出席する」は出席ページがある科目のときだけ。「QR を読み取る」は出欠の QR コード用 */}
-          {(focus!.state === 'current' || minutesLeft(s.period, now) <= ATTENDANCE_LEAD_MIN) && (
+          {(focus!.state === 'current' || minutesLeft(t, now) <= ATTENDANCE_LEAD_MIN) && (
             <div className="mt-3 flex flex-wrap gap-2">
               {s.attendanceId && (
                 <a

@@ -19,6 +19,9 @@ export type CalendarClass = {
   classroom?: string | null;
   teacher?: string | null;
   attendance_id?: number | null;
+  /** 管理者が調整した開始・終了の時刻（'HH:MM'）。null なら時限の本来の時刻 */
+  start_time?: string | null;
+  end_time?: string | null;
 };
 
 export type CalendarDeadline = { uid: string; title: string; deadline: string; url?: string | null };
@@ -89,8 +92,14 @@ export function buildCalendar(opts: {
   for (let w = -weeksBefore; w < weeksAfter; w++) {
     for (const c of classes) {
       const idx = WDAY_INDEX[c.wday];
-      const time = PERIOD_TIMES.find((p) => p.period === c.period);
-      if (!idx || !time) continue;
+      const base = PERIOD_TIMES.find((p) => p.period === c.period);
+      if (!idx || !base) continue;
+      // 管理者が調整した時刻があればそれを使う
+      const hm = (v: string | null | undefined, fallback: [number, number]): [number, number] => {
+        const m = v ? /^(\d{1,2}):(\d{2})/.exec(v) : null;
+        return m ? [Number(m[1]), Number(m[2])] : fallback;
+      };
+      const time = { start: hm(c.start_time, base.start), end: hm(c.end_time, base.end) };
       const day = monday + (w * 7 + idx - 1) * DAY_MS;
       const url = c.attendance_id
         ? `${LMS_BASE}/mod/attendance/view.php?id=${c.attendance_id}`

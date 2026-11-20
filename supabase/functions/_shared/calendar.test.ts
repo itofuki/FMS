@@ -50,3 +50,18 @@ describe('escapeText / foldLine', () => {
     expect(folded.replace(/\r\n /g, '')).toBe(line);
   });
 });
+
+describe('buildCalendar（管理者が調整した時刻）', () => {
+  it('開始・終了の時刻がずれた授業は、その時刻で入れる', () => {
+    const ics = buildCalendar({
+      now: NOW,
+      // 火曜 1 限だが 9:30〜11:00 JST = 00:30〜02:00 UTC
+      classes: [{ id: 7, name: 'ゼミ', wday: 'Tue', period: 1, start_time: '09:30', end_time: '11:00' }],
+      deadlines: [],
+      weeksBefore: 0,
+      weeksAfter: 1,
+    }).replace(/\r\n /g, '');
+    expect(ics).toContain('DTSTART:20261117T003000Z');
+    expect(ics).toContain('DTEND:20261117T020000Z');
+  });
+});

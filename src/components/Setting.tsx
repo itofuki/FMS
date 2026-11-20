@@ -464,7 +464,7 @@ export default function Setting({ onSettingsSaved }: SettingProps) {
           {/* admin のタブ・root のタブ */}
           {/* コースの既定値（管理者だけ）。LMS のコースごとに曜日・時限・教室の既定値を決める */}
           {isAdmin && group === 'admin' && (
-            <SettingsCard id="settings-admin-defaults" title="コースの既定値" description="コースごとの曜日・時限・教室・担当の先生の既定値です。本人が設定した値が優先されます。">
+            <SettingsCard id="settings-admin-defaults" title="コースの既定値" description="コースごとの曜日・時限・時刻・教室・担当の先生の既定値です。曜日・時限・教室は本人が設定した値が優先されます。">
               <AdminCourseDefaults onChanged={onSettingsSaved} />
             </SettingsCard>
           )}

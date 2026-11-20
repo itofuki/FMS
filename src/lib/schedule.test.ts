@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { periodState, minutesLeft, focusPeriod, formatMinutes, mondayOf, toYmd, weekdayOf, currentPeriodLabel, parseDebugTime, jstYmd } from './schedule';
+import { periodState, minutesLeft, focusPeriod, formatMinutes, mondayOf, toYmd, weekdayOf, currentPeriodLabel, parseDebugTime, jstYmd, subjectTime, focusSubject } from './schedule';
 
 // 2026-11-17 は火曜日
 const at = (h: number, m: number, day = 17) => new Date(2026, 10, day, h, m);
@@ -79,5 +79,27 @@ describe('jstYmd', () => {
   it('日本時間の日付で数える（UTC の 15 時以降は翌日）', () => {
     expect(jstYmd('2026-11-19T14:59:00Z')).toBe('2026-11-19');
     expect(jstYmd('2026-11-19T15:00:00Z')).toBe('2026-11-20');
+  });
+});
+
+describe('授業ごとの時刻（管理者が調整した時刻）', () => {
+  it('調整がなければ時限の本来の時刻、あればその時刻', () => {
+    expect(subjectTime({ period: 1 })).toEqual({ start: { h: 9, m: 15 }, end: { h: 10, m: 55 } });
+    expect(subjectTime({ period: 1, startTime: '09:30', endTime: '11:00' })).toEqual({ start: { h: 9, m: 30 }, end: { h: 11, m: 0 } });
+    expect(subjectTime({ period: 1, startTime: '09:30' })).toEqual({ start: { h: 9, m: 30 }, end: { h: 10, m: 55 } });
+  });
+
+  it('授業中・残り時間は調整した時刻で数える', () => {
+    const t = subjectTime({ period: 1, startTime: '09:30', endTime: '11:00' })!;
+    expect(periodState(t, at(9, 20))).toBe('before');
+    expect(minutesLeft(t, at(9, 20))).toBe(10);
+    expect(periodState(t, at(10, 58))).toBe('current'); // 本来の 1 限は終わっているが、この授業は 11:00 まで
+    expect(minutesLeft(t, at(10, 58))).toBe(2);
+  });
+
+  it('次の授業は、調整した時刻に従って選ぶ', () => {
+    const subjects = [{ id: 'a', period: 1, startTime: '09:30', endTime: '11:00' }, { id: 'b', period: 3 }];
+    expect(focusSubject(subjects, at(10, 58))).toEqual({ subject: subjects[0], state: 'current' });
+    expect(focusSubject(subjects, at(11, 5))).toEqual({ subject: subjects[1], state: 'before' });
   });
 });

@@ -4,7 +4,7 @@
 import { createClient, type SupabaseClient } from "npm:@supabase/supabase-js@2";
 import { sendToUser } from "../_shared/push.ts";
 import {
-  classUrl, formatRemaining, isDeadlineReminderDue, upcomingPeriod,
+  classUrl, dueClasses, formatRemaining, isDeadlineReminderDue, isNearAnyClassStart,
 } from "../_shared/reminders.ts";
 
 const schedulerSecret = Deno.env.get("NOTIFY_SCHEDULER_SECRET");
@@ -67,11 +67,22 @@ async function runDeadlineReminders(supabase: SupabaseClient, now: Date) {
 
 type TimetableRow = {
   id: number; name: string; wday: string; period: number; classroom: string | null; attendance_id?: number | null;
+  start_time?: string | null; end_time?: string | null;
 };
 
 async function runClassReminders(supabase: SupabaseClient, now: Date) {
-  const upcoming = upcomingPeriod(now);
-  if (!upcoming) return 0;
+  // 授業の開始前でなければ、全員の時間割は読まない（本来の時限と、管理者が調整した開始時刻の両方を見る）
+  const { data: shifted, error: shiftedError } = await supabase
+    .from("lms_course_defaults")
+    .select("start_time, period_times")
+    .or("start_time.not.is.null,period_times.not.is.null");
+  if (shiftedError) throw shiftedError;
+  // 調整した開始時刻（以前の形の start_time と、時限ごとの period_times の start）
+  const extraStarts = (shifted ?? []).flatMap((r) => [
+    r.start_time as string | null,
+    ...Object.values((r.period_times ?? {}) as Record<string, { start?: string }>).map((t) => t?.start ?? null),
+  ]);
+  if (!isNearAnyClassStart(now, extraStarts)) return 0;
 
   const { data: profiles, error } = await supabase
     .from("profiles")
@@ -86,29 +97,28 @@ async function runClassReminders(supabase: SupabaseClient, now: Date) {
       console.error(`時間割の取得に失敗 (${user_id}):`, ttError);
       continue;
     }
-    const subject = (timetable as TimetableRow[] | null)?.find(
-      (s) => s.wday === upcoming.wday && s.period === upcoming.period,
-    );
-    if (!subject) continue;
-    if (!(await claim(supabase, user_id, "class", `${upcoming.date}:${upcoming.period}`))) continue;
+    // 開始時刻は授業ごと（管理者が調整していればその時刻）
+    for (const { row: subject, date, startLabel } of dueClasses(now, (timetable as TimetableRow[] | null) ?? [])) {
+      if (!(await claim(supabase, user_id, "class", `${date}:${subject.period}`))) continue;
 
-    await sendToUser(supabase, user_id, {
-      title: `まもなく${upcoming.period}限「${subject.name}」`,
-      body: `${upcoming.startLabel} 開始${subject.classroom ? `（${subject.classroom}）` : ""}。出席ページか QR コードで出席できます。`,
-      // 通知の上で出席のしかたを選ぶ（ボタンは対応する端末だけ）
-      // 本文を押したとき（iPhone は通知にボタンがないので必ずこちら）: FMS を開いて出席のしかたを選ぶ画面を出す
-      url: "/mypage?" + new URLSearchParams({
-        tab: "timetable", attend: "1", name: subject.name, period: String(upcoming.period),
-        start: upcoming.startLabel, room: subject.classroom ?? "", link: classUrl(subject.id, subject.attendance_id),
-      }).toString(),
-      tag: `class:${upcoming.date}:${upcoming.period}`,
-      actions: [{ action: "attend", title: "出席ページ" }, { action: "qr", title: "QR を読み取る" }],
-      actionUrls: {
-        attend: classUrl(subject.id, subject.attendance_id),
-        qr: "/mypage?tab=timetable&scan=1",
-      },
-    });
-    sent++;
+      await sendToUser(supabase, user_id, {
+        title: `まもなく${subject.period}限「${subject.name}」`,
+        body: `${startLabel} 開始${subject.classroom ? `（${subject.classroom}）` : ""}。出席ページか QR コードで出席できます。`,
+        // 本文を押したとき（iPhone は通知にボタンがないので必ずこちら）: FMS を開いて出席のしかたを選ぶ画面を出す
+        url: "/mypage?" + new URLSearchParams({
+          tab: "timetable", attend: "1", name: subject.name, period: String(subject.period),
+          start: startLabel, room: subject.classroom ?? "", link: classUrl(subject.id, subject.attendance_id),
+        }).toString(),
+        tag: `class:${date}:${subject.period}`,
+        // 通知の上で出席のしかたを選ぶ（ボタンは対応する端末だけ）
+        actions: [{ action: "attend", title: "出席ページ" }, { action: "qr", title: "QR を読み取る" }],
+        actionUrls: {
+          attend: classUrl(subject.id, subject.attendance_id),
+          qr: "/mypage?tab=timetable&scan=1",
+        },
+      });
+      sent++;
+    }
   }
   return sent;
 }
