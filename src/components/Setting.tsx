@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useRef } from "react";
 import { supabase } from "../lib/supabaseClient";
-import { useNavigate, useSearchParams } from "react-router-dom";
+import { Link, useNavigate } from "react-router-dom";
 import type { User } from "@supabase/supabase-js";
 import { toast } from 'sonner';
 import RadioGroup from "./RadioGroup";
@@ -17,7 +17,8 @@ import { useUserProfile } from "../hooks/useUserProfile";
 import { ThemeSelector } from "./ThemeToggle";
 import { useQueryClient } from "@tanstack/react-query";
 import { getPushState, enablePush, disablePush, sendTestPush, type PushState } from "../lib/push";
-import { getLmsSession, saveLmsSession, clearLmsSession, invokeFetchLms, LmsError, purgeLegacyLmsSecrets } from "../lib/lms";
+import { clearLmsSession, getLmsSession, purgeLegacyLmsSecrets } from "../lib/lms";
+import { useLmsIssue } from "../lib/lmsStatus";
 
 type ClassStartAction = 'auto_open' | 'notify' | 'none';
 
@@ -48,7 +49,6 @@ const PUSH_STATE_MESSAGES: Record<PushState, string> = {
 
 // 右の列の目次に並べる項目（id は各カードの id）
 const SECTIONS = [
-  { id: 'settings-lms', label: 'LMS 連携' },
   { id: 'settings-notify', label: '通知' },
   { id: 'settings-courses', label: '時間割（LMS）' },
   { id: 'settings-admin-defaults', label: 'コースの既定値（管理者）', adminOnly: true },
@@ -65,9 +65,9 @@ type SettingProps = {
 
 export default function Setting({ onSettingsSaved }: SettingProps) {
   const navigate = useNavigate();
-  const [searchParams] = useSearchParams();
   const queryClient = useQueryClient();
   const { userRole, isRoot } = useUserProfile();
+  const lmsIssue = useLmsIssue();
   const isAdmin = userRole === 'admin';
   const [user, setUser] = useState<User | null>(null);
   
@@ -79,12 +79,6 @@ export default function Setting({ onSettingsSaved }: SettingProps) {
   const [isPushBusy, setIsPushBusy] = useState(false);
   // 通知の設定を保存している間は、選択肢を押せないようにする
   const [savingNotify, setSavingNotify] = useState(false);
-
-  const [lmsUsername, setLmsUsername] = useState('');
-  const [lmsPassword, setLmsPassword] = useState('');
-  const [isLmsLoading, setIsLmsLoading] = useState(false);
-  const [lmsStatus, setLmsStatus] = useState<{ ok: boolean; message: string } | null>(null);
-  const [lmsCredentialsSaved, setLmsCredentialsSaved] = useState(() => !!getLmsSession());
 
   // 目次: いま画面のどの項目を見ているか
   const [activeSection, setActiveSection] = useState(SECTIONS[0].id);
@@ -115,8 +109,6 @@ export default function Setting({ onSettingsSaved }: SettingProps) {
     };
   }, [user]);
 
-  const advancedRef = useRef<HTMLDivElement>(null);
-  const isAdvancedFocused = searchParams.get("focus") === "advanced";
 
   useEffect(() => {
     const fetchAllData = async () => {
@@ -178,17 +170,8 @@ export default function Setting({ onSettingsSaved }: SettingProps) {
 
   useEffect(() => {
     purgeLegacyLmsSecrets();
-    setLmsUsername(getLmsSession()?.username ?? '');
   }, []);
 
-  useEffect(() => {
-    if (isAdvancedFocused && advancedRef.current) {
-      const timer = setTimeout(() => {
-        advancedRef.current?.scrollIntoView({ behavior: 'smooth', block: 'center' });
-      }, 150);
-      return () => clearTimeout(timer);
-    }
-  }, [isAdvancedFocused]);
 
   // 通知の設定は、選んだ瞬間に保存する（保存ボタンはない）。失敗したら元の値に戻す
   const saveNotify = async (next: { classStartAction?: ClassStartAction; deadlineHours?: number | null }) => {
@@ -223,43 +206,6 @@ export default function Setting({ onSettingsSaved }: SettingProps) {
     } finally {
       setSavingNotify(false);
     }
-  };
-
-  const handleSaveLmsCredentials = async () => {
-    if (!lmsUsername || !lmsPassword) {
-      toast.error('IDとパスワードを入力してください');
-      return;
-    }
-    setIsLmsLoading(true);
-    setLmsStatus(null);
-    try {
-      // パスワードはこの1回の接続にだけ使い、保存しない（保存するのはMoodleのトークンのみ）
-      const data = await invokeFetchLms({ username: lmsUsername, password: lmsPassword });
-      saveLmsSession({ username: lmsUsername, token: data.token, userId: data.userId });
-      setLmsPassword('');
-      setLmsCredentialsSaved(true);
-      setLmsStatus({ ok: true, message: `接続に成功しました！${data.events?.length ?? 0}件のイベントを取得できます。` });
-      queryClient.invalidateQueries({ queryKey: ['lmsEvents'] });
-      toast.success('LMSに接続しました。');
-    } catch (e) {
-      console.error('[LMS Error]', e);
-      const message = e instanceof LmsError && e.code === 'AUTH_FAILED'
-        ? 'IDまたはパスワードが正しくありません。'
-        : `エラー: ${e instanceof Error ? e.message : String(e)}`;
-      setLmsStatus({ ok: false, message });
-    } finally {
-      setIsLmsLoading(false);
-    }
-  };
-
-  const handleClearLmsCredentials = () => {
-    clearLmsSession();
-    queryClient.removeQueries({ queryKey: ['lmsEvents'] });
-    setLmsUsername('');
-    setLmsPassword('');
-    setLmsCredentialsSaved(false);
-    setLmsStatus(null);
-    toast.success('LMSとの接続を解除しました。');
   };
 
   const handleLogout = async () => {
@@ -317,63 +263,6 @@ export default function Setting({ onSettingsSaved }: SettingProps) {
 
         {/* 真ん中の列: 白い 1 枚の面に、項目を区切り線で並べる */}
         <div className={`${CENTER_PANEL} flex flex-col`}>
-          {/* LMS 連携（その場で反映）。課題ページの「再ログイン」から来たときは強調する */}
-          <div ref={advancedRef}>
-            <SettingsCard
-              id="settings-lms"
-              title="LMS 連携"
-              description="LMS の ID とパスワードでログインすると、課題を自動で取得します。"
-              highlight={isAdvancedFocused}
-              badge={lmsCredentialsSaved ? <span className="text-xs px-2 py-0.5 rounded-full bg-up-soft text-up font-bold">接続済み</span> : undefined}
-            >
-              <div className="space-y-3">
-                <div className="grid gap-2 sm:grid-cols-2">
-                  <input
-                    type="text"
-                    autoComplete="username"
-                    value={lmsUsername}
-                    onChange={(e) => setLmsUsername(e.target.value)}
-                    placeholder="LMS のユーザー ID"
-                    aria-label="LMS のユーザー ID"
-                    className="w-full h-10 bg-surface border border-line-strong rounded-md px-3 text-fg outline-none text-sm placeholder:text-fg-subtle focus:border-accent transition-colors"
-                  />
-                  <input
-                    type="password"
-                    autoComplete="current-password"
-                    value={lmsPassword}
-                    onChange={(e) => setLmsPassword(e.target.value)}
-                    placeholder={lmsCredentialsSaved ? '再ログインする場合のみ入力' : 'LMS のパスワード'}
-                    aria-label="LMS のパスワード"
-                    className="w-full h-10 bg-surface border border-line-strong rounded-md px-3 text-fg outline-none text-sm placeholder:text-fg-subtle focus:border-accent transition-colors"
-                  />
-                </div>
-                {lmsStatus && (
-                  <p role="status" className={`text-sm ${lmsStatus.ok ? 'text-up' : 'text-down'}`}>
-                    {lmsStatus.ok ? '✓ ' : '✗ '}{lmsStatus.message}
-                  </p>
-                )}
-                <div className="flex flex-wrap gap-2">
-                  <button
-                    type="button"
-                    onClick={handleSaveLmsCredentials}
-                    disabled={isLmsLoading}
-                    className="h-9 px-4 rounded-md bg-accent-solid hover:bg-accent-solid-hover text-on-accent transition-colors disabled:opacity-50"
-                  >
-                    <span className="text-sm font-bold">{isLmsLoading ? '接続を確認中...' : (lmsCredentialsSaved ? '再ログイン' : 'ログインして接続')}</span>
-                  </button>
-                  {lmsCredentialsSaved && (
-                    <button type="button" onClick={handleClearLmsCredentials} className="h-9 px-4 rounded-md border border-down/50 text-down hover:bg-down-soft transition-colors">
-                      <span className="text-sm font-bold">接続を解除</span>
-                    </button>
-                  )}
-                </div>
-                <p className="text-sm text-fg-muted leading-relaxed">
-                  パスワードは保存されず、ログイン後に発行される LMS のアクセストークンだけをこのブラウザに保存します。トークンの有効期限が切れたら、もう一度ログインしてください。
-                </p>
-              </div>
-            </SettingsCard>
-          </div>
-
           {/* 通知（選んだ瞬間に保存） */}
 
 
@@ -481,12 +370,20 @@ export default function Setting({ onSettingsSaved }: SettingProps) {
             {/* アイコン（画像を選ぶとすぐ保存） */}
             <div className="mb-5"><AvatarSettings /></div>
             <div className="flex flex-wrap items-center justify-between gap-3">
-              {/* LMS の ID でログインしたアカウントは、内部用のメールアドレスではなく LMS の名前と ID を出す */}
-              <p className="text-sm text-fg-muted">
-                {user.user_metadata?.lms_username
-                  ? <>{user.user_metadata.full_name ? `${user.user_metadata.full_name}（${user.user_metadata.lms_username}）` : user.user_metadata.lms_username} でログイン中</>
-                  : <>{user.email} でログイン中</>}
-              </p>
+              {/* LMS の名前と ID。LMS のトークンが切れていれば、ログイン画面で入れ直す案内を出す */}
+              <div className="min-w-0">
+                <p className="text-sm text-fg-muted">
+                  {user.user_metadata?.full_name ? `${user.user_metadata.full_name}（@${user.user_metadata.lms_username ?? ''}）` : `@${user.user_metadata?.lms_username ?? ''}`} でログイン中
+                </p>
+                {lmsIssue === 'expired' || !getLmsSession() ? (
+                  <p className="mt-1 text-sm text-warn font-semibold">
+                    LMS のログインが切れています。
+                    <Link to="/login?relogin=1" className="ml-1 text-link hover:underline">再ログイン</Link>
+                  </p>
+                ) : (
+                  <p className="mt-1 text-sm text-up font-semibold">LMS に接続中</p>
+                )}
+              </div>
               <button onClick={handleLogout} className="h-9 px-4 rounded-md border border-down/50 text-down hover:bg-down-soft transition-colors">
                 <span className="text-sm font-bold">ログアウト</span>
               </button>

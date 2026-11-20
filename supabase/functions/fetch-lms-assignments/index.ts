@@ -32,54 +32,31 @@ const isTokenError = (data: any) =>
     data.errorcode === "userdeleted"
   );
 
-const reAuthenticate = async (username: string, password: string, token: { value: string }, userId: { value: number }) => {
-  const tokenRes = await fetch(`${LMS_BASE}/login/token.php`, {
-    method: "POST",
-    headers: { "Content-Type": "application/x-www-form-urlencoded" },
-    body: new URLSearchParams({ username, password, service: "moodle_mobile_app" }),
-  });
-  const tokenData = await tokenRes.json();
-  if (!tokenData.token) return false;
-  token.value = tokenData.token;
-  const siteInfo = await moodleAPI(token.value, "core_webservice_get_site_info");
-  userId.value = siteInfo.userid;
-  return true;
-};
-
 serve(async (req) => {
   if (req.method === "OPTIONS") return new Response("ok", { headers: corsHeaders });
 
   try {
-    // パスワードはブラウザに保存しない方針のため、通常の同期は cachedToken/cachedUserId のみで行う。
-    // username/password は初回接続時（またはトークン失効後の再ログイン時）にだけ送られてくる。
-    const { username, password, cachedToken, cachedUserId, cachedStatuses = {} } = await req.json();
+    // LMS のトークン（ログイン時に lms-login が発行したもの）だけで取得する。パスワードは受け取らない。
+    // トークンが切れたら TOKEN_EXPIRED を返し、利用者はログイン画面で入れ直す。
+    const { cachedToken, cachedUserId, cachedStatuses = {} } = await req.json();
     // cachedStatuses: { [uid: string]: string } — フロントのキャッシュから渡される提出状況
     // 例: { "assign_123": "submitted", "assign_456": "draft" }
 
-    const hasPassword = !!(username && password);
     const token = { value: (cachedToken as string) ?? "" };
     const userId = { value: (cachedUserId as number) ?? 0 };
 
-    if (!hasPassword && (!token.value || !userId.value)) {
+    if (!token.value || !userId.value) {
       return jsonRes({ error: "認証情報が不足しています", code: "BAD_REQUEST" }, 400);
     }
 
-    const authFailed = () =>
-      jsonRes({ error: "IDまたはパスワードが正しくありません", code: "AUTH_FAILED" }, 401);
     const tokenExpired = () =>
       jsonRes({ error: "LMSのログイン有効期限が切れました。再度ログインしてください", code: "TOKEN_EXPIRED" }, 401);
-
-    // ── Step 1 & 2: 認証（パスワードが渡された場合は常に新しいトークンを取得）
-    if (hasPassword) {
-      const ok = await reAuthenticate(username, password, token, userId);
-      if (!ok) return authFailed();
-    }
 
     // ── Step 3: 課題一覧取得
     const assignData = await moodleAPI(token.value, "mod_assign_get_assignments");
 
     if (isTokenError(assignData)) {
-      return hasPassword ? authFailed() : tokenExpired();
+      return tokenExpired();
     }
 
     if (assignData.exception) {

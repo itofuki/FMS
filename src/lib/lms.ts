@@ -2,8 +2,8 @@
  * LMS(Moodle)連携のクライアント側ユーティリティ。
  *
  * セキュリティ方針:
- *   - LMSのパスワードはブラウザに保存しない。初回の接続時に一度だけ Edge Function に送り、
- *     返ってきた Moodle のトークンのみを保存する。
+ *   - LMSのパスワードはブラウザに保存しない。ログイン画面で入れたときに一度だけ Edge Function（lms-login）に送り、
+ *     返ってきた Moodle のトークンのみを保存する。課題の取得（fetch-lms-assignments）はトークンだけで行う。
  *   - トークンを含むURLはキャッシュ(localStorage)に保存しない。添付ファイルを開く直前に付与する。
  */
 import { FunctionsHttpError } from '@supabase/supabase-js';
@@ -69,7 +69,7 @@ export const lmsFullRefreshKey = (username: string) => `fms_lms_full_refresh_${u
 export const withLmsToken = (url: string, token: string) =>
   `${url}${url.includes('?') ? '&' : '?'}token=${encodeURIComponent(token)}`;
 
-export type LmsErrorCode = 'BAD_REQUEST' | 'AUTH_FAILED' | 'TOKEN_EXPIRED' | 'API_ERROR' | 'EXCEPTION' | 'NETWORK';
+export type LmsErrorCode = 'BAD_REQUEST' | 'TOKEN_EXPIRED' | 'API_ERROR' | 'EXCEPTION' | 'NETWORK';
 
 export class LmsError extends Error {
   code: LmsErrorCode;

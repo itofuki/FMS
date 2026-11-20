@@ -15,8 +15,8 @@ export function useCurrentUser(): User | null {
   return user;
 }
 
-/** 画面に出す名前（LMS の名前 → LMS の ID → メールアドレスの順） */
+/** 画面に出す名前（LMS の名前 → LMS の ID の順） */
 export function displayName(user: User | null): string {
   const m = user?.user_metadata ?? {};
-  return (m.full_name as string) || (m.lms_username as string) || user?.email || '';
+  return (m.full_name as string) || (m.lms_username as string) || '';
 }

@@ -260,7 +260,7 @@ function LmsIssueNotice({ issue }: { issue: LmsIssue }) {
           : 'LMS に接続できず、出席率とコースを更新できませんでした。'}
       </p>
       {issue === 'expired'
-        ? <Link to="?tab=setting&focus=advanced" className="font-bold text-link hover:underline whitespace-nowrap">再ログイン</Link>
+        ? <Link to="/login?relogin=1" className="font-bold text-link hover:underline whitespace-nowrap">再ログイン</Link>
         : <span className="text-fg-muted whitespace-nowrap">次に開いたときにもう一度試します</span>}
     </div>
   );
@@ -422,10 +422,11 @@ export const TimetableContainer: React.FC<TimetableContainerProps> = ({
     return (
       <ChapterFrame title="時間割" meta={meta}>
         <div className="text-center py-10 px-4">
-          <h2 className="text-xl font-semibold text-fg mb-2">時間割を表示するには LMS 連携が必要です</h2>
-          <p className="text-fg-muted mb-6">設定の「LMS 連携」でログインすると、LMS の今学期のコースから時間割を作ります。</p>
-          <Link to="?tab=setting&focus=advanced" className="inline-flex items-center gap-2 bg-accent-solid hover:bg-accent-solid-hover text-on-accent font-bold py-3 px-6 rounded-lg transition-colors">
-            <span>LMS 連携を開く</span>
+          {/* LMS のコースから時間割を作れなかったとき（取り込み前・曜日や時限が読み取れないコースだけのときなど） */}
+          <h2 className="text-xl font-semibold text-fg mb-2">時間割に出せる授業がありません</h2>
+          <p className="text-fg-muted mb-6">設定の「時間割（LMS のコース）」で、LMS からの取り込みと、各授業の曜日・時限を確認してください。</p>
+          <Link to="?tab=setting" className="inline-flex items-center gap-2 bg-accent-solid hover:bg-accent-solid-hover text-on-accent font-bold py-3 px-6 rounded-lg transition-colors">
+            <span>設定を開く</span>
             <FiArrowRight />
           </Link>
         </div>

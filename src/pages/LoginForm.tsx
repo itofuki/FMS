@@ -4,7 +4,7 @@
  * パスワードはどこにも保存しない。ログインと同時に「LMS 連携」も済む。
  */
 import { Suspense, lazy, useEffect, useState } from "react";
-import { useNavigate } from "react-router-dom";
+import { useNavigate, useSearchParams } from "react-router-dom";
 import { toast } from 'sonner';
 import { supabase } from "../lib/supabaseClient";
 import { clearLmsSession, getLmsSession, saveLmsSession } from "../lib/lms";
@@ -24,16 +24,20 @@ const DEFAULT_SITE = 'lms-tokyo.iput.ac.jp';
 
 export default function LoginForm() {
   const [site, setSite] = useState(DEFAULT_SITE);
-  const [username, setUsername] = useState("");
+  // LMS のログインが切れたときの入れ直し（/login?relogin=1）。ID は前回のものを入れておく
+  const [searchParams] = useSearchParams();
+  const relogin = searchParams.get('relogin') === '1';
+  const [username, setUsername] = useState(() => (relogin ? getLmsSession()?.username ?? localStorage.getItem('fms_lms_username') ?? '' : ''));
   const [password, setPassword] = useState("");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const navigate = useNavigate();
 
-  // すでにログインしていれば、ログイン画面は飛ばしてマイページへ
+  // すでにログインしていれば、ログイン画面は飛ばしてマイページへ（入れ直しのときは飛ばさない）
   useEffect(() => {
+    if (relogin) return;
     supabase.auth.getSession().then(({ data }) => { if (data.session) navigate('/mypage', { replace: true }); });
-  }, [navigate]);
+  }, [navigate, relogin]);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -60,7 +64,7 @@ export default function LoginForm() {
 
       setPassword("");
       toast.success("ログインしました");
-      navigate("/mypage");
+      navigate("/mypage", { replace: true });
     } catch (err) {
       setError(err instanceof Error ? err.message : "ログインに失敗しました");
     } finally {
@@ -77,7 +81,11 @@ export default function LoginForm() {
       </Suspense>
       <div className="relative z-10 w-full max-w-md p-8 rounded-2xl bg-surface shadow-sm border border-line">
         <h2 className="text-2xl font-bold text-center text-fg">ログイン</h2>
-        <p className="mt-2 mb-6 text-sm text-center text-fg-muted">LMS の ID とパスワードでログインします</p>
+        <p className="mt-2 mb-6 text-sm text-center text-fg-muted">
+          {relogin
+            ? 'LMS のログインの有効期限が切れました。もう一度パスワードを入れてください。'
+            : 'LMS の ID とパスワードでログインします'}
+        </p>
 
         <form onSubmit={handleSubmit} className="space-y-5">
           <div>

@@ -632,7 +632,7 @@ const Assignments: React.FC<AssignmentsProps> = ({ subject }) => {
       tone="info"
       title="LMSの課題はまだ表示されていません"
       description="設定画面からLMSにログインすると、課題を自動で取得します。"
-      action={<Link to="?tab=setting&focus=advanced" className={NOTICE_ACTION_CLASS.info}>LMSにログイン</Link>}
+      action={<Link to="/login?relogin=1" className={NOTICE_ACTION_CLASS.info}>LMSにログイン</Link>}
     />
   ) : isLmsApiError ? (
     isTokenExpired ? (
@@ -640,7 +640,7 @@ const Assignments: React.FC<AssignmentsProps> = ({ subject }) => {
         tone="danger"
         title="LMSのログイン有効期限が切れました"
         description="表示中のLMSの課題は最新ではない可能性があります。"
-        action={<Link to="?tab=setting&focus=advanced" className={NOTICE_ACTION_CLASS.danger}>再ログイン</Link>}
+        action={<Link to="/login?relogin=1" className={NOTICE_ACTION_CLASS.danger}>再ログイン</Link>}
       />
     ) : (
       <NoticeBar
@@ -737,7 +737,7 @@ const Assignments: React.FC<AssignmentsProps> = ({ subject }) => {
               ) : (
                 <div className="flex items-center justify-between gap-2">
                   <span className="text-fg-muted">LMS 未接続</span>
-                  <Link to="?tab=setting&focus=advanced" className="text-xs font-semibold text-link hover:underline">ログイン</Link>
+                  <Link to="/login?relogin=1" className="text-xs font-semibold text-link hover:underline">ログイン</Link>
                 </div>
               )}
             </div>

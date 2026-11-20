@@ -82,7 +82,6 @@ export default function MyPage() {
   }, [activeChapter]);
 
   const navigate = useNavigate();
-  // （ログイン中のユーザー自体は保持しない。メールアドレスは設定の「アカウント」に表示する）
   const [isWeeklyView, setIsWeeklyView] = useState(false);
   const [weeklySubjects, setWeeklySubjects] = useState<Record<Day, Subject[]>>({ Mon: [], Tue: [], Wed: [], Thu: [], Fri: [] });
   const [loading, setLoading] = useState(true);
@@ -147,54 +146,18 @@ export default function MyPage() {
         return;
       }
 
-      // 時間割は get_effective_timetable（LMS のコースがあればそこから、なければ学科・クラスから）
-      const [effectiveRes, profileRes] = await Promise.all([
+      // 時間割は LMS のコースから作ったもの（get_effective_timetable）
+      const [timetableRes, profileRes] = await Promise.all([
         supabase.rpc('get_effective_timetable', { p_user_id: user.id }),
-        supabase.from("profiles").select(`
-          class_start_action,
-          classes (
-            courses (
-              name
-            )
-          )
-        `).eq("user_id", user.id).single()
+        supabase.from('profiles').select('class_start_action').eq('user_id', user.id).maybeSingle(),
       ]);
-      
-      // サーバーの更新（マイグレーション）が済む前でも表示できるよう、従来の時間割に切り替える
-      const timetableRes = effectiveRes.error
-        ? await supabase.rpc('get_user_timetable', { p_user_id: user.id })
-        : effectiveRes;
       if (timetableRes.error) {
-        console.error("RPC関数の呼び出しに失敗しました:", timetableRes.error);
+        console.error("時間割の取得に失敗しました:", timetableRes.error);
         setLoading(false);
         return;
       }
-
-      if (profileRes.error) {
-        console.error("プロフィール情報の取得に失敗:", profileRes.error);
-        setIsProfileSet(false);
-      } else {
-        type ProfileWithCourse = {
-          class_start_action: string | null;
-          classes: { courses: { name: string } | { name: string }[] | null } | { courses: { name: string } | { name: string }[] | null }[] | null;
-        };
-        const profileData = profileRes.data as unknown as ProfileWithCourse | null;
-        
-        let courseNameValue = null;
-        if (profileData && profileData.classes) {
-          const cls = Array.isArray(profileData.classes) ? profileData.classes[0] : profileData.classes;
-          if (cls && cls.courses) {
-            const crs = Array.isArray(cls.courses) ? cls.courses[0] : cls.courses;
-            courseNameValue = crs?.name;
-          }
-        }
-        
-        // 学科・クラスが設定済みなら、従来の時間割を出せる
-        setIsProfileSet(!!courseNameValue);
-        
-        // 「自動で開く」を選んだ場合のみ。「通知する」はサーバー（notify-scheduler）がプッシュ通知を送る
-        setAutoOpenEnabled(profileData?.class_start_action === 'auto_open');
-      }
+      // 「自動で開く」を選んだ場合のみ。「通知する」はサーバー（notify-scheduler）がプッシュ通知を送る
+      setAutoOpenEnabled(profileRes.data?.class_start_action === 'auto_open');
 
       const initialSubjects: Record<Day, Subject[]> = { Mon: [], Tue: [], Wed: [], Thu: [], Fri: [] };
       const groupedSubjects = (timetableRes.data as TimetableRpcData[] || []).reduce(
@@ -220,8 +183,8 @@ export default function MyPage() {
       });
 
       setWeeklySubjects(groupedSubjects);
-      // LMS から時間割ができていれば、学科・クラスを設定していなくても表示する
-      if ((timetableRes.data as TimetableRpcData[] | null)?.length) setIsProfileSet(true);
+      // 時間割に出せる授業があるか（なければ、設定の「時間割（LMS のコース）」へ案内する）
+      setIsProfileSet(((timetableRes.data as TimetableRpcData[] | null) ?? []).length > 0);
       setLoading(false);
     };
     fetchUserTimetable();
