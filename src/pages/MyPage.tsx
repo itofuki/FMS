@@ -1,6 +1,6 @@
 /* src/pages/Mypage.tsx */
 
-import { useState, useEffect, useCallback, useLayoutEffect, useRef, lazy, Suspense } from "react";
+import { useState, useEffect, useCallback, useLayoutEffect, useMemo, useRef, lazy, Suspense } from "react";
 import { supabase } from "../lib/supabaseClient";
 import { useNavigate, useSearchParams } from "react-router-dom";
 import { useSidebar, type ChapterLink } from "../contexts/SidebarContext";
@@ -20,6 +20,7 @@ import { PageSkeleton, TimetableSkeleton } from '../components/Skeleton';
 import DeadlineReminderSync from '../components/DeadlineReminderSync';
 import { PERIODS, nowInJst, weekdayOf } from '../lib/schedule';
 import { useLmsCourseSync } from '../hooks/useLmsCourseSync';
+import { TOGGLEABLE_MENUS, useMenuVisibility } from '../hooks/useMenuVisibility';
 
 const VALID_DAYS: Day[] = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri'];
 function isDay(key: unknown): key is Day {
@@ -55,23 +56,48 @@ export default function MyPage() {
 
   const [refreshKey, setRefreshKey] = useState(0);
 
+  // root が隠したサブメニュー（テスト対策など）はメニューに出さない
+  // （並び順も root が決める。切り替えられない項目は元の位置のまま、設定はいちばん下）
+  const { isVisible, rank, map: menuVisibility, isLoaded: menuLoaded } = useMenuVisibility();
+  const chapters = useMemo(() => {
+    const toggleable = new Set<string>(TOGGLEABLE_MENUS.map(m => m.id));
+    const sorted = myPageChapters.filter(c => toggleable.has(c.id)).sort((a, b) => rank(a.id) - rank(b.id));
+    let i = 0;
+    // 切り替えられる項目が並んでいた場所に、決められた順で入れ直す
+    return myPageChapters
+      .map(c => (toggleable.has(c.id) ? sorted[i++] : c))
+      .filter(c => isVisible(c.id));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [menuVisibility]);
+
   useEffect(() => {
-    setChapterLinks(myPageChapters);
-    return () => {
-      setChapterLinks([]);
-      setActiveChapter('');
-    };
+    setChapterLinks(chapters);
+  }, [chapters, setChapterLinks]);
+  useEffect(() => () => {
+    setChapterLinks([]);
+    setActiveChapter('');
   }, [setChapterLinks, setActiveChapter]);
 
   useEffect(() => {
     const tabFromUrl = searchParams.get('tab');
-    if (tabFromUrl && myPageChapters.some(c => c.id === tabFromUrl)) {
+    if (tabFromUrl && chapters.some(c => c.id === tabFromUrl)) {
       setActiveChapter(tabFromUrl);
     } else if (!tabFromUrl) {
       setSearchParams({ tab: 'timetable' }, { replace: true });
+    } else if (myPageChapters.some(c => c.id === tabFromUrl) && menuLoaded) {
+      // 隠されたメニューのリンク（?tab=test-prep など）で来たときは時間割へ
+      setActiveChapter('timetable');
+      setSearchParams({ tab: 'timetable' }, { replace: true });
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [searchParams]);
+  }, [searchParams, chapters, menuLoaded]);
+
+  // 開いている画面が隠されたら（root が切り替えた直後など）、時間割へ移る
+  useEffect(() => {
+    if (activeChapter && myPageChapters.some(c => c.id === activeChapter) && !chapters.some(c => c.id === activeChapter)) {
+      setActiveChapter('timetable');
+    }
+  }, [chapters, activeChapter, setActiveChapter]);
 
   useEffect(() => {
     const tabFromUrl = searchParams.get('tab');
@@ -183,7 +209,7 @@ export default function MyPage() {
       });
 
       setWeeklySubjects(groupedSubjects);
-      // 時間割に出せる授業があるか（なければ、設定の「時間割（LMS のコース）」へ案内する）
+      // 時間割に出せる授業があるか（なければ、設定の「時間割」へ案内する）
       setIsProfileSet(((timetableRes.data as TimetableRpcData[] | null) ?? []).length > 0);
       setLoading(false);
     };
