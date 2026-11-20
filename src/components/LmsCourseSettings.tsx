@@ -1,5 +1,5 @@
 /* src/components/LmsCourseSettings.tsx
- * 設定の「時間割（LMS のコース）」の中身。
+ * 設定の「時間割」の中身。
  * LMS から取り込んだ今学期のコースを一覧にし、コース名から読み取れなかった曜日・時限や、LMS にない教室を手で入れる。
  * 入れた内容は user_course_settings に保存し、サーバーの get_effective_timetable が時間割に反映する。
  * 管理者が決めた既定値（lms_course_defaults。全コース共通・自分のコース向け）があれば、それを「既定」として出す。
@@ -77,8 +77,11 @@ export default function LmsCourseSettings({ userId, onChanged }: { userId: strin
   };
 
   const courseSelect = (
-    <div className="flex flex-wrap items-center gap-3">
-      <label htmlFor="my-course" className="text-sm font-semibold text-fg">あなたのコース</label>
+    <div className="flex items-center justify-between gap-4">
+      <div className="min-w-0">
+        <label htmlFor="my-course" className="block text-[15px] font-medium text-fg">あなたのコース</label>
+        <p className="mt-0.5 text-[13px] text-fg-muted leading-snug">コースごとの時限・教室の既定に使います</p>
+      </div>
       <select
         id="my-course"
         value={myCode ?? ''}
@@ -88,7 +91,6 @@ export default function LmsCourseSettings({ userId, onChanged }: { userId: strin
         <option value="">未設定</option>
         {courseOptions.map((o) => <option key={o.code} value={o.code}>{o.name}</option>)}
       </select>
-      <p className="w-full text-xs text-fg-subtle">LMS のコース名から自動で入ります。コースによって決まっている時限・教室を使うために使います。</p>
     </div>
   );
 
@@ -127,11 +129,9 @@ export default function LmsCourseSettings({ userId, onChanged }: { userId: strin
   if (courses.length === 0) {
     return (
       <div className="space-y-3">
-        <p className="text-sm text-fg-muted leading-relaxed">
-          {hasLms
-            ? 'LMS の今学期のコースから時間割を作ります（1日1回自動で取り込みます）。'
-            : '「LMS 連携」でログインすると、LMS の今学期のコースから時間割を作れます。'}
-        </p>
+        {!hasLms && (
+          <p className="text-sm text-fg-muted">LMS に再ログインすると、コースを取り込めます。</p>
+        )}
         {hasLms && (
           <button type="button" onClick={resync} disabled={syncing} className="inline-flex items-center gap-2 h-10 px-5 rounded-md bg-accent-solid hover:bg-accent-solid-hover text-on-accent transition-colors disabled:opacity-50">
             <FiRefreshCw size={15} className={syncing ? 'motion-safe:animate-spin' : ''} aria-hidden="true" />
@@ -162,7 +162,6 @@ export default function LmsCourseSettings({ userId, onChanged }: { userId: strin
                       ? <span>{slot}{!s?.wday && !s?.periods && base.slotFromDefault && <span className="text-fg-subtle">（既定）</span>}</span>
                       : <span className="text-warn font-semibold">曜日・時限が未設定</span>}
                     <span>{classroom ? `教室 ${classroom}` : '教室未設定'}{!s?.classroom && base.roomFromDefault && <span className="text-fg-subtle">（既定）</span>}</span>
-                    {c.attendance_id && <span>出欠あり</span>}
                     {hidden && <span>時間割に出さない</span>}
                   </p>
                 </div>
@@ -177,7 +176,7 @@ export default function LmsCourseSettings({ userId, onChanged }: { userId: strin
         })}
       </ul>
       <div className="flex flex-wrap items-center justify-between gap-2">
-        <p className="text-xs text-fg-subtle">曜日・時限はコース名から読み取ります（管理者が決めた「既定」があればそちら）。1日1回、LMS から取り直します。</p>
+        <p className="text-xs text-fg-subtle">1日1回、LMS から自動で取り直します。</p>
         {hasLms && (
           <button type="button" onClick={resync} disabled={syncing} className="inline-flex items-center gap-1.5 text-sm font-semibold text-link hover:underline disabled:opacity-50">
             <FiRefreshCw size={13} className={syncing ? 'motion-safe:animate-spin' : ''} aria-hidden="true" />

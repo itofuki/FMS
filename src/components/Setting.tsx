@@ -5,7 +5,7 @@ import { supabase } from "../lib/supabaseClient";
 import { Link, useNavigate } from "react-router-dom";
 import type { User } from "@supabase/supabase-js";
 import { toast } from 'sonner';
-import RadioGroup from "./RadioGroup";
+import { Segmented, SettingRow, SettingRows, Switch } from "./ui/SettingControls";
 import ChapterFrame, { CENTER_PANEL, PAGE_GRID, SIDE_TITLE, SIDE_WIDGET } from "../components/ChapterFrame";
 import { PageSkeleton } from "./Skeleton";
 import CalendarFeedSettings from "./CalendarFeedSettings";
@@ -13,11 +13,13 @@ import LmsCourseSettings from "./LmsCourseSettings";
 import AvatarSettings from "./AvatarSettings";
 import AdminCourseDefaults from "./AdminCourseDefaults";
 import RootRoles from "./RootRoles";
+import RootMenuVisibility from "./RootMenuVisibility";
 import { useUserProfile } from "../hooks/useUserProfile";
 import { ThemeSelector } from "./ThemeToggle";
 import { useQueryClient } from "@tanstack/react-query";
-import { getPushState, enablePush, disablePush, sendTestPush, type PushState } from "../lib/push";
+import { getPushState, enablePush, disablePush, sendTestPush, sendClassTestPush, type PushState } from "../lib/push";
 import { clearLmsSession, getLmsSession, purgeLegacyLmsSecrets } from "../lib/lms";
+import { onSettingsSectionRequest, takeSettingsSection } from "../lib/menu";
 import { useLmsIssue } from "../lib/lmsStatus";
 
 type ClassStartAction = 'auto_open' | 'notify' | 'none';
@@ -39,6 +41,13 @@ const CLASS_START_OPTIONS: { value: ClassStartAction; label: string }[] = [
   { value: 'none', label: '何もしない' },
 ];
 
+// 授業の 5 分前に何をするかの短い説明
+const CLASS_START_HINTS: Record<ClassStartAction, string> = {
+  notify: '通知から出席ページか QR の読み取りを選べます',
+  auto_open: 'FMS を開いていれば出席ページを自動で開きます',
+  none: '何もしません',
+};
+
 const PUSH_STATE_MESSAGES: Record<PushState, string> = {
   unsupported: 'このブラウザはプッシュ通知に対応していません。',
   'needs-install': 'iPhone / iPad では、Safari の共有ボタンから「ホーム画面に追加」したアプリでのみ通知を受け取れます。',
@@ -47,15 +56,21 @@ const PUSH_STATE_MESSAGES: Record<PushState, string> = {
   enabled: 'この端末で通知を受け取ります。',
 };
 
-// 右の列の目次に並べる項目（id は各カードの id）
-const SECTIONS = [
-  { id: 'settings-notify', label: '通知' },
-  { id: 'settings-courses', label: '時間割（LMS）' },
-  { id: 'settings-admin-defaults', label: 'コースの既定値（管理者）', adminOnly: true },
-  { id: 'settings-root-roles', label: '権限の管理（root）', rootOnly: true },
-  { id: 'settings-calendar', label: 'カレンダー連携' },
-  { id: 'settings-display', label: '表示' },
-  { id: 'settings-account', label: 'アカウント' },
+// 設定のタブ。admin・root の項目は、その権限を持つ人にだけタブとして出す（普通の人にはタブ自体を出さない）。
+// 名前は課題の「管理者モード」に合わせて日本語でそろえる（admin = 管理者、root = 開発者）
+type SettingGroup = 'general' | 'admin' | 'root';
+const GROUP_LABELS: Record<SettingGroup, string> = { general: '一般', admin: '管理者', root: '開発者' };
+
+// 右の列の目次に並べる項目（id は各カードの id）。group = どのタブに入るか
+const SECTIONS: { id: string; label: string; group: SettingGroup }[] = [
+  { id: 'settings-notify', label: '通知', group: 'general' },
+  { id: 'settings-courses', label: '時間割', group: 'general' },
+  { id: 'settings-calendar', label: 'カレンダー連携', group: 'general' },
+  { id: 'settings-display', label: '表示', group: 'general' },
+  { id: 'settings-account', label: 'アカウント', group: 'general' },
+  { id: 'settings-admin-defaults', label: 'コースの既定値', group: 'admin' },
+  { id: 'settings-root-menus', label: 'メニューの表示', group: 'root' },
+  { id: 'settings-root-roles', label: '権限の管理', group: 'root' },
 ];
 
 
@@ -80,6 +95,13 @@ export default function Setting({ onSettingsSaved }: SettingProps) {
   // 通知の設定を保存している間は、選択肢を押せないようにする
   const [savingNotify, setSavingNotify] = useState(false);
 
+  // いま開いているタブ（通常・admin・root）と、そのタブの項目
+  const [group, setGroup] = useState<SettingGroup>('general');
+  const groups: SettingGroup[] = ['general', ...(isAdmin ? ['admin' as const] : []), ...(isRoot ? ['root' as const] : [])];
+  const sections = SECTIONS.filter(sec => sec.group === group);
+  const sectionsRef = useRef(sections);
+  sectionsRef.current = sections;
+
   // 目次: いま画面のどの項目を見ているか
   const [activeSection, setActiveSection] = useState(SECTIONS[0].id);
 
@@ -89,14 +111,16 @@ export default function Setting({ onSettingsSaved }: SettingProps) {
     if (!user) return;
     const onScroll = () => {
       if (Date.now() < followPausedUntilRef.current) return;
-      let current = SECTIONS[0].id;
-      for (const { id } of SECTIONS) {
+      const list = sectionsRef.current;
+      let current = list[0]?.id ?? '';
+      for (const { id } of list) {
         const el = document.getElementById(id);
         if (el && el.getBoundingClientRect().top <= 160) current = id;
       }
       // いちばん下まで来たら、最後の項目（短くて上まで届かないため）
-      const last = document.getElementById(SECTIONS[SECTIONS.length - 1].id);
-      if (last && last.getBoundingClientRect().bottom <= window.innerHeight - 8) current = SECTIONS[SECTIONS.length - 1].id;
+      // （スクロールする領域がいちばん下まで来ているかで判断する）
+      const root = document.querySelector<HTMLElement>('[data-scroll-root]');
+      if (root && root.scrollTop > 0 && root.scrollTop + root.clientHeight >= root.scrollHeight - 8) current = list[list.length - 1]?.id ?? current;
       setActiveSection(current);
     };
     onScroll();
@@ -107,8 +131,55 @@ export default function Setting({ onSettingsSaved }: SettingProps) {
       document.removeEventListener('scroll', onScroll, { capture: true });
       window.removeEventListener('resize', onScroll);
     };
-  }, [user]);
+  }, [user, group]);
 
+
+  // 自分のアイコンから来たとき: 設定が描かれたあとに、予約された項目（アカウント）までスクロールする。
+  // 上の項目が後から読み込まれて高さが変わるので、最長 5 秒の間は高さが変わるたびに合わせ直す（自分でスクロールしたらやめる）。
+  // ログイン中のユーザーを読み直すたびに作り直されないよう、「読み込み済みかどうか」だけで動かす
+  const ready = !!user;
+  useEffect(() => {
+    if (!ready) return;
+    let stop: (() => void) | null = null;
+    const go = () => {
+      const id = takeSettingsSection();
+      if (!id) return;
+      stop?.();
+      // 項目が入っているタブに切り替えてから移る
+      const target = SECTIONS.find(sec => sec.id === id);
+      if (target) setGroup(target.group);
+      // 中身の領域（設定が読み込み中に描き直されても入れ替わらない外側）の高さの変化を見る
+      const page = document.querySelector('[data-scroll-root] main');
+      if (!page) return;
+      setActiveSection(id);
+      const align = () => {
+        followPausedUntilRef.current = Date.now() + 400;
+        // 描き直しで要素が入れ替わることがあるので、毎回探し直す
+        document.getElementById(id)?.scrollIntoView({ behavior: 'auto', block: 'end' });
+      };
+      // タブの切り替えでスクロール位置が戻されたあとに合わせる
+      const first = window.setTimeout(align, 60);
+      const ro = new ResizeObserver(align);
+      ro.observe(page);
+      const end = () => {
+        ro.disconnect();
+        clearTimeout(first);
+        clearTimeout(limit);
+        window.removeEventListener('wheel', end);
+        window.removeEventListener('touchmove', end);
+        window.removeEventListener('keydown', end);
+        stop = null;
+      };
+      const limit = window.setTimeout(end, 5000);
+      window.addEventListener('wheel', end, { passive: true });
+      window.addEventListener('touchmove', end, { passive: true });
+      window.addEventListener('keydown', end);
+      stop = end;
+    };
+    go();
+    const off = onSettingsSectionRequest(go);
+    return () => { off(); stop?.(); };
+  }, [ready]);
 
   useEffect(() => {
     const fetchAllData = async () => {
@@ -165,6 +236,17 @@ export default function Setting({ onSettingsSaved }: SettingProps) {
       toast.success(`テスト通知を送信しました（${sent}台）`);
     } catch (e) {
       toast.error(`テスト通知の送信に失敗しました: ${e instanceof Error ? e.message : String(e)}`);
+    }
+  };
+
+  // 授業の 5 分前の通知を試す（「出席ページ」「QR を読み取る」のボタン付き）
+  const handleClassTestPush = async () => {
+    if (!user) return;
+    try {
+      const { sent } = await sendClassTestPush(user.id);
+      toast.success(`授業前の通知を送信しました（${sent}台）`);
+    } catch (e) {
+      toast.error(`送信に失敗しました: ${e instanceof Error ? e.message : String(e)}`);
     }
   };
 
@@ -233,14 +315,29 @@ export default function Setting({ onSettingsSaved }: SettingProps) {
   };
 
   return (
-    <ChapterFrame title="設定" bare>
+    <ChapterFrame
+      title="設定"
+      bare
+      tabs={groups.length > 1 ? groups.map(g => ({
+        key: g,
+        label: GROUP_LABELS[g],
+        active: group === g,
+        onSelect: () => {
+          if (g === group) return;
+          setGroup(g);
+          setActiveSection(SECTIONS.find(sec => sec.group === g)?.id ?? '');
+          const root = document.querySelector<HTMLElement>('[data-scroll-root]');
+          if (root) root.scrollTop = 0;
+        },
+      })) : undefined}
+    >
       <div className={`${PAGE_GRID} animate-in fade-in duration-300`}>
         {/* 右の列（広い画面）: 項目の目次と、保存が必要な項目の説明 */}
         <aside className={`hidden lg:block ${SIDE_WIDGET}`}>
           <nav aria-label="設定の項目" className="px-5 py-4 border-b border-line">
             <p className={SIDE_TITLE}>この画面の項目</p>
             <ul className="mt-2 space-y-1">
-              {SECTIONS.filter(sec => (!('adminOnly' in sec) || isAdmin) && (!('rootOnly' in sec) || isRoot)).map(sec => (
+              {sections.map(sec => (
                 <li key={sec.id}>
                   <button
                     type="button"
@@ -263,132 +360,127 @@ export default function Setting({ onSettingsSaved }: SettingProps) {
 
         {/* 真ん中の列: 白い 1 枚の面に、項目を区切り線で並べる */}
         <div className={`${CENTER_PANEL} flex flex-col`}>
+          {/* 通常のタブ */}
+          {group === 'general' && (<>
           {/* 通知（選んだ瞬間に保存） */}
-
-
-            <SettingsCard id="settings-notify" title="通知" description="締切が近い課題や、授業の開始前にお知らせします。">
-              <div className="space-y-6">
-                {/* この端末で受け取るか（その場で反映） */}
-                <div>
-                  <p className="text-sm sm:text-[15px] font-semibold text-fg">
-                    この端末での通知
-                    {pushState === 'enabled' && <span className="ml-2 text-xs text-up font-bold">オン</span>}
-                  </p>
-                  {pushState && (
-                    <p className={`mt-1 text-sm ${pushState === 'denied' || pushState === 'needs-install' ? 'text-warn' : 'text-fg-muted'}`}>
-                      {PUSH_STATE_MESSAGES[pushState]}
-                    </p>
-                  )}
-                  {(pushState === 'enabled' || pushState === 'disabled') && (
-                    <div className="flex flex-wrap gap-2 mt-3">
-                      <button
-                        type="button"
-                        onClick={handleTogglePush}
-                        disabled={isPushBusy}
-                        className={`h-9 px-4 rounded-md transition-colors disabled:opacity-50 ${
-                          pushState === 'enabled'
-                            ? 'border border-line-strong text-fg hover:bg-surface-2'
-                            : 'bg-accent-solid hover:bg-accent-solid-hover text-on-accent'
-                        }`}
-                      >
-                        <span className="text-sm font-bold">{isPushBusy ? '処理中...' : pushState === 'enabled' ? 'この端末の通知をオフにする' : 'この端末で通知を受け取る'}</span>
-                      </button>
-                      {pushState === 'enabled' && (
-                        <button type="button" onClick={handleTestPush} className="h-9 px-4 rounded-md border border-line-strong text-fg hover:bg-surface-2 transition-colors">
-                          <span className="text-sm font-bold">テスト通知を送る</span>
+          <SettingsCard id="settings-notify" title="通知">
+            <SettingRows>
+              {/* この端末で受け取るか（その場で反映） */}
+              <SettingRow
+                label="この端末で受け取る"
+                hint={pushState && pushState !== 'enabled' && pushState !== 'disabled' ? PUSH_STATE_MESSAGES[pushState] : (
+                  <>
+                    締切や授業の前に、この端末へ通知します
+                    {/* オンのときだけ、届くかを確かめるリンクを添える */}
+                    {pushState === 'enabled' && (
+                      <span className="block mt-1">
+                        <button type="button" onClick={handleTestPush} className="text-link font-semibold hover:underline">
+                          <span className="text-[13px]">テスト通知を送る</span>
                         </button>
-                      )}
-                    </div>
-                  )}
-                </div>
+                        <button type="button" onClick={handleClassTestPush} className="ml-3 text-link font-semibold hover:underline">
+                          <span className="text-[13px]">授業前の通知を試す</span>
+                        </button>
+                      </span>
+                    )}
+                  </>
+                )}
+                hintTone={pushState === 'denied' || pushState === 'needs-install' ? 'warn' : 'muted'}
+              >
+                {(pushState === 'enabled' || pushState === 'disabled') && (
+                  <Switch checked={pushState === 'enabled'} onChange={() => handleTogglePush()} label="この端末で通知を受け取る" disabled={isPushBusy} />
+                )}
+              </SettingRow>
+              <SettingRow label="課題の締切" hint="未完了の課題を知らせる時間" htmlFor="deadline-reminder">
+                <select
+                  id="deadline-reminder"
+                  value={deadlineHours === null ? 'off' : String(deadlineHours)}
+                  onChange={(e) => saveNotify({ deadlineHours: e.target.value === 'off' ? null : Number(e.target.value) })}
+                  disabled={savingNotify}
+                  className="w-32 h-9 bg-surface border border-line-strong rounded-md px-2.5 text-fg outline-none text-sm focus:border-accent transition-colors"
+                >
+                  {DEADLINE_HOUR_OPTIONS.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
+                </select>
+              </SettingRow>
+              <SettingRow label="授業の 5 分前" hint={CLASS_START_HINTS[classStartAction]} stack>
+                <Segmented
+                  label="授業の 5 分前"
+                  options={CLASS_START_OPTIONS}
+                  value={classStartAction}
+                  onChange={(val) => { if (!savingNotify) saveNotify({ classStartAction: val }); }}
+                  disabled={savingNotify}
+                />
+              </SettingRow>
+            </SettingRows>
+          </SettingsCard>
 
-                <div>
-                  <label htmlFor="deadline-reminder" className="block text-sm sm:text-[15px] font-semibold text-fg mb-2">未完了の課題の締切通知</label>
-                  <select
-                    id="deadline-reminder"
-                    value={deadlineHours === null ? 'off' : String(deadlineHours)}
-                    onChange={(e) => saveNotify({ deadlineHours: e.target.value === 'off' ? null : Number(e.target.value) })}
-                    disabled={savingNotify}
-                    className="w-full sm:w-64 h-10 bg-surface border border-line-strong rounded-md px-3 text-fg outline-none text-sm focus:border-accent transition-colors"
-                  >
-                    {DEADLINE_HOUR_OPTIONS.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
-                  </select>
-                  <p className="text-sm text-fg-muted mt-2">
-                    課題一覧は FMS を開いたときに更新されます。LMS で直接提出した場合は、FMS を開くと通知の対象から外れます。
-                  </p>
-                </div>
-
-                <div>
-                  <RadioGroup
-                    legend="授業開始5分前"
-                    options={CLASS_START_OPTIONS}
-                    selectedValue={classStartAction}
-                    onChange={(val) => { if (!savingNotify) saveNotify({ classStartAction: val as ClassStartAction }); }}
-                  />
-                  <p className="text-sm text-fg-muted mt-2">
-                    {classStartAction === 'notify' && '出席ページを開くか選べる通知を送ります（アプリを閉じていても届きます）。'}
-                    {classStartAction === 'auto_open' && 'FMS を開いている場合のみ、出席ページを自動で開きます。ポップアップブロックを解除してください。'}
-                    {classStartAction === 'none' && '何もしません。'}
-                  </p>
-                </div>
-              </div>
-            </SettingsCard>
-
-
-          {/* 時間割（LMS のコース）。読み取れなかった曜日・時限や教室を手で入れる（その場で反映） */}
-          <SettingsCard id="settings-courses" title="時間割（LMS のコース）" description="LMS の今学期のコースから時間割を作ります。曜日・時限が読み取れないコースや教室はここで入れてください。">
+          {/* 時間割。読み取れなかった曜日・時限や教室を手で入れる（その場で反映） */}
+          <SettingsCard id="settings-courses" title="時間割" description="LMS のコースから自動で作ります。曜日・時限や教室が違うときは、ここで直せます。">
             <LmsCourseSettings userId={user.id} onChanged={onSettingsSaved} />
           </SettingsCard>
 
-          {/* コースの既定値（管理者だけ）。LMS のコースごとに曜日・時限・教室の既定値を決める */}
-          {isAdmin && (
-            <SettingsCard id="settings-admin-defaults" title="コースの既定値（管理者）" description="LMS のコースごとに、曜日・時限・教室・担当の先生の既定値を決めます。全コース共通か、特定のコースのユーザーだけかを選べます。曜日・時限・教室は本人が設定した値が優先されます。">
-              <AdminCourseDefaults onChanged={onSettingsSaved} />
-            </SettingsCard>
-          )}
-
-          {/* 権限の管理（root だけ）。ほかのアカウントに admin を付ける・外す */}
-          {isRoot && (
-            <SettingsCard id="settings-root-roles" title="権限の管理（root）" description="アカウントに admin の権限を付けたり外したりします。">
-              <RootRoles />
-            </SettingsCard>
-          )}
-
           {/* カレンダー連携（その場で反映） */}
-          <SettingsCard id="settings-calendar" title="カレンダー連携" description="時間割と課題の締切を、スマホやPCのカレンダーに表示します。">
+          <SettingsCard id="settings-calendar" title="カレンダー連携" description="時間割と課題の締切を、iPhone や Google のカレンダーに表示します。">
             <CalendarFeedSettings userId={user.id} />
           </SettingsCard>
 
-          {/* 表示（その場で反映） */}
-          <SettingsCard id="settings-display" title="表示" description="選んだ時点で反映され、この端末にだけ保存されます。">
-            <p className="text-sm sm:text-[15px] font-semibold text-fg mb-2">テーマ</p>
-            <ThemeSelector />
+          {/* 表示（その場で反映。この端末だけ） */}
+          <SettingsCard id="settings-display" title="表示">
+            <SettingRows>
+              <SettingRow label="テーマ" hint="この端末だけに反映されます" stack>
+                <ThemeSelector />
+              </SettingRow>
+            </SettingRows>
           </SettingsCard>
 
           {/* アカウント */}
           <SettingsCard id="settings-account" title="アカウント">
             {/* アイコン（画像を選ぶとすぐ保存） */}
-            <div className="mb-5"><AvatarSettings /></div>
-            <div className="flex flex-wrap items-center justify-between gap-3">
+            <div className="mb-4"><AvatarSettings /></div>
+            <SettingRows>
               {/* LMS の名前と ID。LMS のトークンが切れていれば、ログイン画面で入れ直す案内を出す */}
-              <div className="min-w-0">
-                <p className="text-sm text-fg-muted">
-                  {user.user_metadata?.full_name ? `${user.user_metadata.full_name}（@${user.user_metadata.lms_username ?? ''}）` : `@${user.user_metadata?.lms_username ?? ''}`} でログイン中
-                </p>
+              <SettingRow
+                label={user.user_metadata?.full_name || `@${user.user_metadata?.lms_username ?? ''}`}
+                hint={user.user_metadata?.full_name ? `@${user.user_metadata?.lms_username ?? ''} でログイン中` : 'ログイン中'}
+              >
                 {lmsIssue === 'expired' || !getLmsSession() ? (
-                  <p className="mt-1 text-sm text-warn font-semibold">
-                    LMS のログインが切れています。
-                    <Link to="/login?relogin=1" className="ml-1 text-link hover:underline">再ログイン</Link>
-                  </p>
+                  <Link to="/login?relogin=1" className="inline-flex items-center h-8 px-3.5 rounded-full bg-warn-soft text-warn hover:underline">
+                    <span className="text-sm font-bold">LMS に再ログイン</span>
+                  </Link>
                 ) : (
-                  <p className="mt-1 text-sm text-up font-semibold">LMS に接続中</p>
+                  <span className="inline-flex items-center gap-1.5 text-sm font-semibold text-up">
+                    <span className="w-2 h-2 rounded-full bg-up" aria-hidden="true" />LMS に接続中
+                  </span>
                 )}
+              </SettingRow>
+              <div className="py-3">
+                <button onClick={handleLogout} className="h-9 px-4 -ml-4 rounded-full text-down hover:bg-down-soft transition-colors">
+                  <span className="text-[15px] font-bold">ログアウト</span>
+                </button>
               </div>
-              <button onClick={handleLogout} className="h-9 px-4 rounded-md border border-down/50 text-down hover:bg-down-soft transition-colors">
-                <span className="text-sm font-bold">ログアウト</span>
-              </button>
-            </div>
+            </SettingRows>
           </SettingsCard>
+          </>)}
+
+          {/* admin のタブ・root のタブ */}
+          {/* コースの既定値（管理者だけ）。LMS のコースごとに曜日・時限・教室の既定値を決める */}
+          {isAdmin && group === 'admin' && (
+            <SettingsCard id="settings-admin-defaults" title="コースの既定値" description="コースごとの曜日・時限・教室・担当の先生の既定値です。本人が設定した値が優先されます。">
+              <AdminCourseDefaults onChanged={onSettingsSaved} />
+            </SettingsCard>
+          )}
+
+          {/* 開発者（root）だけ: サブメニューの表示・並び順と、権限の管理（ほかのアカウントを管理者にする・外す） */}
+          {isRoot && group === 'root' && (
+            <>
+            <SettingsCard id="settings-root-menus" title="メニューの表示" description="サブメニューを全員に見せるかどうかと、並び順を変えます（テスト期間だけテスト対策を出す、など）。隠してもデータは消えません。">
+              <RootMenuVisibility />
+            </SettingsCard>
+            <SettingsCard id="settings-root-roles" title="権限の管理" description="アカウントを管理者にしたり、管理者から外したりします。">
+              <RootRoles />
+            </SettingsCard>
+            </>
+          )}
+
         </div>
       </div>
     </ChapterFrame>
@@ -405,12 +497,14 @@ function SettingsCard({ id, title, description, badge, highlight = false, childr
   children: React.ReactNode;
 }) {
   return (
-    <section id={id} className={`scroll-mt-16 px-4 sm:px-5 py-5 border-b border-line transition-colors duration-700 ${highlight ? 'bg-accent-soft/60' : ''}`}>
+    // 見出しの段: 大 = ページ名（列の見出し）、中 = この項目名、小 = 各行の名前（SettingRow）。
+    // 項目どうしは太い帯で区切り、中見出しの下は少しあけて、どこからどこまでが 1 つの項目かを見せる
+    <section id={id} className={`scroll-mt-16 px-4 sm:px-5 pt-6 pb-5 border-b-8 border-bg transition-colors duration-700 ${highlight ? 'bg-accent-soft/60' : ''}`}>
       <div className="flex items-center gap-2">
-        <h3 className="text-lg font-bold text-fg">{title}</h3>
+        <h2 className="text-lg font-extrabold text-fg leading-tight">{title}</h2>
         {badge}
       </div>
-      {description && <p className="mt-1 text-sm text-fg-muted">{description}</p>}
+      {description && <p className="mt-1.5 text-[13px] text-fg-muted leading-snug">{description}</p>}
       <div className="mt-4">{children}</div>
     </section>
   );

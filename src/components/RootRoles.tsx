@@ -1,5 +1,6 @@
 /* src/components/RootRoles.tsx
- * 設定の「権限の管理（root）」。root のアカウントだけに出す。
+ * 設定の「開発者」タブの「権限の管理」。開発者（root）のアカウントだけに出す。
+ * 画面では admin を「管理者」、root を「開発者」と呼ぶ（設定のタブ名・課題の「管理者モード」とそろえる）。
  * アカウントを名前か LMS の ID で探し、admin の権限を付けたり外したりする（root_set_admin）。
  * root 自体はアプリからは付けられない（SQL Editor で付ける）。
  */
@@ -32,7 +33,7 @@ export default function RootRoles() {
 
   const setAdmin = async (u: Account, admin: boolean) => {
     const who = u.full_name || u.lms_username || 'このアカウント';
-    if (!window.confirm(admin ? `${who} に admin の権限を付けますか？` : `${who} の admin の権限を外しますか？`)) return;
+    if (!window.confirm(admin ? `${who} を管理者にしますか？` : `${who} を管理者から外しますか？`)) return;
     setBusy(u.user_id);
     const { error } = await supabase.rpc('root_set_admin', { p_user_id: u.user_id, p_admin: admin });
     setBusy(null);
@@ -67,8 +68,8 @@ export default function RootRoles() {
                   <p className="text-sm text-fg-muted truncate">{u.lms_username ? `@${u.lms_username}` : '（LMS 以外のアカウント）'}</p>
                 </div>
                 <div className="flex-shrink-0 flex items-center gap-2">
-                  {u.is_root && <span className="text-xs font-bold px-2 py-0.5 rounded-full bg-down-soft text-down">root</span>}
-                  {!u.is_root && isAdmin && <span className="text-xs font-bold px-2 py-0.5 rounded-full bg-warn-soft text-warn">admin</span>}
+                  {u.is_root && <span className="text-xs font-bold px-2 py-0.5 rounded-full bg-down-soft text-down">開発者</span>}
+                  {!u.is_root && isAdmin && <span className="text-xs font-bold px-2 py-0.5 rounded-full bg-warn-soft text-warn">管理者</span>}
                   {!u.is_root && (
                     <button
                       type="button"
@@ -77,7 +78,7 @@ export default function RootRoles() {
                       className={`h-8 px-3 rounded-full border text-xs font-bold transition-colors disabled:opacity-50 ${isAdmin ? 'border-down/50 text-down hover:bg-down-soft' : 'border-line-strong text-fg hover:bg-surface-3'}`}
                     >
                       {/* Mantine の CSS が button の文字の大きさを上書きするため、span で指定する */}
-                      <span className="text-xs font-bold">{isAdmin ? 'admin を外す' : 'admin にする'}</span>
+                      <span className="text-xs font-bold">{isAdmin ? '管理者から外す' : '管理者にする'}</span>
                     </button>
                   )}
                 </div>
@@ -86,7 +87,7 @@ export default function RootRoles() {
           })}
         </ul>
       )}
-      <p className="text-xs text-fg-subtle">admin は、公式課題の追加と、コースの既定値（曜日・時限・教室・担当の先生）の設定ができます。root の権限はアプリからは付けられません。</p>
+      <p className="text-xs text-fg-subtle">管理者は、公式課題の追加と、コースの既定値（曜日・時限・教室・担当の先生）の設定ができます。開発者の権限はアプリからは付けられません。</p>
     </div>
   );
 }

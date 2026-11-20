@@ -86,7 +86,7 @@ export default function AvatarSettings() {
             </button>
           )}
         </div>
-        <p className="text-xs text-fg-subtle">中央を正方形に切り抜いて使います。画像の撮影場所などの情報は消してから保存します。</p>
+        <p className="text-xs text-fg-subtle">中央を正方形に切り抜いて使います</p>
       </div>
       <input ref={inputRef} type="file" accept="image/*" className="hidden" onChange={onPick} />
     </div>

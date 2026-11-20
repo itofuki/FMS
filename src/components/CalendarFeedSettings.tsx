@@ -55,9 +55,6 @@ export default function CalendarFeedSettings({ userId }: { userId: string }) {
   if (token === null) {
     return (
       <div className="space-y-3">
-        <p className="text-sm text-fg-muted leading-relaxed">
-          時間割（この先 8 週間分）と未完了の課題の締切を、iPhone や Google のカレンダーに表示できます。FMS を開かなくても、カレンダーやウィジェットで予定を確認できます。
-        </p>
         <button
           type="button"
           onClick={() => issue(false)}
