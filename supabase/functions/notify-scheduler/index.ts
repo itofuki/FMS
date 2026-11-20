@@ -94,10 +94,19 @@ async function runClassReminders(supabase: SupabaseClient, now: Date) {
 
     await sendToUser(supabase, user_id, {
       title: `まもなく${upcoming.period}限「${subject.name}」`,
-      body: `${upcoming.startLabel} 開始${subject.classroom ? `（${subject.classroom}）` : ""}。出席ページを開きますか？`,
-      url: classUrl(subject.id, subject.attendance_id),
+      body: `${upcoming.startLabel} 開始${subject.classroom ? `（${subject.classroom}）` : ""}。出席ページか QR コードで出席できます。`,
+      // 通知の上で出席のしかたを選ぶ（ボタンは対応する端末だけ）
+      // 本文を押したとき（iPhone は通知にボタンがないので必ずこちら）: FMS を開いて出席のしかたを選ぶ画面を出す
+      url: "/mypage?" + new URLSearchParams({
+        tab: "timetable", attend: "1", name: subject.name, period: String(upcoming.period),
+        start: upcoming.startLabel, room: subject.classroom ?? "", link: classUrl(subject.id, subject.attendance_id),
+      }).toString(),
       tag: `class:${upcoming.date}:${upcoming.period}`,
-      actions: [{ action: "open", title: "出席ページを開く" }, { action: "dismiss", title: "閉じる" }],
+      actions: [{ action: "attend", title: "出席ページ" }, { action: "qr", title: "QR を読み取る" }],
+      actionUrls: {
+        attend: classUrl(subject.id, subject.attendance_id),
+        qr: "/mypage?tab=timetable&scan=1",
+      },
     });
     sent++;
   }

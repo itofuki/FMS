@@ -23,6 +23,8 @@ export type PushPayload = {
   tag?: string;
   /** 通知に表示するボタン（対応ブラウザのみ） */
   actions?: { action: string; title: string }[];
+  /** ボタンごとに開く URL（action → URL）。ないボタンは url を開く */
+  actionUrls?: Record<string, string>;
 };
 
 export async function sendToUser(supabase: SupabaseClient, userId: string, payload: PushPayload) {

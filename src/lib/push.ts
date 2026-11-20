@@ -84,3 +84,34 @@ export async function sendTestPush(userId: string) {
   if (error) throw error;
   return data as { sent: number; failed: number };
 }
+
+/**
+ * 授業の 5 分前の通知を、今すぐ試しに送る（本物と同じ見た目・ボタン・開く場所）。
+ * 自分の時間割から、出席ページのある授業（なければ最初の授業）を選んで使う。
+ */
+export async function sendClassTestPush(userId: string) {
+  const { data: rows } = await supabase.rpc('get_effective_timetable', { p_user_id: userId });
+  const list = (rows ?? []) as { id: number; name: string; period: number; classroom: string | null; attendance_id: number | null }[];
+  const s = list.find((r) => r.attendance_id) ?? list[0];
+  const lms = 'https://lms-tokyo.iput.ac.jp';
+  const attendUrl = s
+    ? (s.attendance_id ? `${lms}/mod/attendance/view.php?id=${s.attendance_id}` : `${lms}/course/view.php?id=${s.id}`)
+    : `${lms}/my/`;
+  const { data, error } = await supabase.functions.invoke('send-push', {
+    body: {
+      user_id: userId,
+      title: `（テスト）まもなく${s?.period ?? 1}限「${s?.name ?? '授業'}」`,
+      body: `5 分後に開始${s?.classroom ? `（${s.classroom}）` : ''}。出席ページか QR コードで出席できます。`,
+      // 本文を押したとき（iPhone はこちら）: 出席のしかたを選ぶ画面を出す
+      url: '/mypage?' + new URLSearchParams({
+        tab: 'timetable', attend: '1', name: s?.name ?? '授業', period: String(s?.period ?? 1),
+        start: '', room: s?.classroom ?? '', link: attendUrl,
+      }).toString(),
+      tag: 'class:test',
+      actions: [{ action: 'attend', title: '出席ページ' }, { action: 'qr', title: 'QR を読み取る' }],
+      actionUrls: { attend: attendUrl, qr: '/mypage?tab=timetable&scan=1' },
+    },
+  });
+  if (error) throw error;
+  return data as { sent: number; failed: number };
+}

@@ -30,7 +30,7 @@ serve(async (req) => {
   }
 
   try {
-    const { user_id, title, body, url } = await req.json();
+    const { user_id, title, body, url, tag, actions, actionUrls } = await req.json();
     if (!user_id || !title) return json({ error: "user_id と title が必要です" }, 400);
 
     const serviceRoleKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!;
@@ -53,7 +53,20 @@ serve(async (req) => {
       }
     }
 
-    const result = await sendToUser(supabase, user_id, { title, body: body ?? '', url });
+    // 通知のボタン（授業前の通知を試すときなど）。形がおかしいものは付けない
+    const validActions = Array.isArray(actions)
+      ? actions.filter((a) => a && typeof a.action === 'string' && typeof a.title === 'string').slice(0, 2)
+      : undefined;
+    const validActionUrls = actionUrls && typeof actionUrls === 'object'
+      ? Object.fromEntries(Object.entries(actionUrls).filter(([, v]) => typeof v === 'string')) as Record<string, string>
+      : undefined;
+
+    const result = await sendToUser(supabase, user_id, {
+      title, body: body ?? '', url,
+      tag: typeof tag === 'string' ? tag : undefined,
+      actions: validActions,
+      actionUrls: validActionUrls,
+    });
     if (result.total === 0) return json({ error: "Subscription not found in DB" }, 404);
     return json({ success: result.sent > 0, sent: result.sent, failed: result.failed });
 

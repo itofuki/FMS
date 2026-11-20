@@ -67,6 +67,8 @@ type PushData = {
   url?: string;
   tag?: string;
   actions?: { action: string; title: string }[];
+  /** ボタンごとに開く URL（action → URL） */
+  actionUrls?: Record<string, string>;
 };
 
 self.addEventListener('push', (event) => {
@@ -86,7 +88,7 @@ self.addEventListener('push', (event) => {
     icon: '/pwa-192x192.png',
     badge: '/favicon.svg',
     tag: data.tag,
-    data: { url: data.url || '/' },
+    data: { url: data.url || '/', actionUrls: data.actionUrls ?? {} },
     actions: data.actions,
   };
 
@@ -94,12 +96,14 @@ self.addEventListener('push', (event) => {
 });
 
 // ③ 通知をクリックした時の処理
-//    「閉じる」ボタンなら何もしない。本文タップ・「開く」ボタンなら URL を開く。
+//    「閉じる」ボタンなら何もしない。ボタンに専用の URL があればそれを（授業前の「出席ページ」「QR を読み取る」など）、
+//    なければ（本文タップ・「開く」ボタン）通知の URL を開く。
 self.addEventListener('notificationclick', (event) => {
   event.notification.close();
   if (event.action === 'dismiss') return;
 
-  const url = new URL(event.notification.data?.url || '/', self.location.origin).href;
+  const target = (event.action && event.notification.data?.actionUrls?.[event.action]) || event.notification.data?.url || '/';
+  const url = new URL(target, self.location.origin).href;
   event.waitUntil(
     self.clients.matchAll({ type: 'window', includeUncontrolled: true }).then((clientList) => {
       for (const client of clientList) {

@@ -7,13 +7,15 @@
  *   - 今日／週の切り替えは文字のボタン
  */
 import React, { Suspense, lazy, useCallback, useEffect, useMemo, useState } from 'react';
-import { Link } from 'react-router-dom';
+import { Link, useSearchParams } from 'react-router-dom';
 import { FiArrowRight, FiExternalLink, FiFileText, FiClock, FiCoffee, FiCheckCircle, FiAlertTriangle } from 'react-icons/fi';
 import ChapterFrame, { CENTER_PANEL, PAGE_GRID, SIDE_TITLE, SIDE_WIDGET } from './ChapterFrame';
 import { BsQrCodeScan } from 'react-icons/bs';
 
 // QR の読み取り（カメラと jsQR）は、押したときだけ読み込む
 const QrScanner = lazy(() => import('./QrScanner'));
+import AttendPrompt from './AttendPrompt';
+import { readAttendPrompt, type AttendPromptInfo } from '../lib/attendPrompt';
 import { useUnifiedAssignments } from '../hooks/useUnifiedAssignments';
 import { useAttendance, type AttendanceMap } from '../hooks/useAttendance';
 import { absenceAllowance, type AttendanceSummary } from '../lib/attendance';
@@ -313,7 +315,23 @@ function AttendanceChip({ summary, periodsPerDay }: { summary: AttendanceSummary
 // ------------------------------------------------------------------
 
 function NextClassCard({ subjects, now, attendance }: { subjects: Subject[]; now: Date; attendance: AttendanceMap }) {
-  const [scanning, setScanning] = useState(false);
+  // 授業前の通知の「出席する」（設定で「QR コード」を選んだとき）は ?scan=1 で来るので、すぐ読み取りを始める
+  const [searchParams, setSearchParams] = useSearchParams();
+  const [scanning, setScanning] = useState(() => searchParams.get('scan') === '1');
+  // 通知の本文を押して来たとき（?attend=1）: 出席ページか QR かを選ぶ画面を出す（iPhone は通知にボタンがないため）
+  const [attendPrompt, setAttendPrompt] = useState<AttendPromptInfo | null>(() => readAttendPrompt(searchParams));
+  useEffect(() => {
+    const scan = searchParams.get('scan') === '1';
+    const prompt = readAttendPrompt(searchParams);
+    if (!scan && !prompt) return;
+    if (scan) setScanning(true);
+    if (prompt) setAttendPrompt(prompt);
+    // 読み取ったら URL から消す（再読み込みで何度も出ないように）
+    const next = new URLSearchParams(searchParams);
+    for (const k of ['scan', 'attend', 'name', 'period', 'start', 'room', 'link']) next.delete(k);
+    setSearchParams(next, { replace: true });
+  }, [searchParams, setSearchParams]);
+  const closeAttendPrompt = useCallback(() => setAttendPrompt(null), []);
   const closeScanner = useCallback(() => setScanning(false), []);
   const focus = focusPeriod(subjects.map(s => s.period), now);
   const s = focus ? subjects.find(x => x.period === focus.period) : undefined;
@@ -363,14 +381,16 @@ function NextClassCard({ subjects, now, attendance }: { subjects: Subject[]; now
               </button>
             </div>
           )}
-          {scanning && (
-            <Suspense fallback={null}>
-              <QrScanner onClose={closeScanner} />
-            </Suspense>
-          )}
         </>
       ) : (
         <p className="mt-2 text-sm text-fg-muted">{weekdayOf(now) ? (subjects.length ? '今日の授業は終わりました' : '今日の授業はありません') : '今日は授業がありません'}</p>
+      )}
+      {attendPrompt && <AttendPrompt info={attendPrompt} onScan={() => setScanning(true)} onClose={closeAttendPrompt} />}
+      {/* 読み取りの画面（通知から来たときは、授業の表示に関係なく開く） */}
+      {scanning && (
+        <Suspense fallback={null}>
+          <QrScanner onClose={closeScanner} />
+        </Suspense>
       )}
     </div>
   );
@@ -424,7 +444,7 @@ export const TimetableContainer: React.FC<TimetableContainerProps> = ({
         <div className="text-center py-10 px-4">
           {/* LMS のコースから時間割を作れなかったとき（取り込み前・曜日や時限が読み取れないコースだけのときなど） */}
           <h2 className="text-xl font-semibold text-fg mb-2">時間割に出せる授業がありません</h2>
-          <p className="text-fg-muted mb-6">設定の「時間割（LMS のコース）」で、LMS からの取り込みと、各授業の曜日・時限を確認してください。</p>
+          <p className="text-fg-muted mb-6">設定の「時間割」で、LMS からの取り込みと、各授業の曜日・時限を確認してください。</p>
           <Link to="?tab=setting" className="inline-flex items-center gap-2 bg-accent-solid hover:bg-accent-solid-hover text-on-accent font-bold py-3 px-6 rounded-lg transition-colors">
             <span>設定を開く</span>
             <FiArrowRight />
