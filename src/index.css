@@ -132,3 +132,15 @@ body {
   background: color-mix(in srgb, var(--surface) 88%, transparent);
   box-shadow: 0 10px 30px -12px rgb(0 0 0 / 0.6);
 }
+
+/*
+ * 丸い枠（ピル）の中の文字を、上下の真ん中に置く。
+ * 日本語の書体（Noto Sans JP）は、文字が行の真ん中より少し下に描かれるため、そのままだと枠の上の余白が広く見える。
+ * 行の高さを文字の大きさちょうどにして（枠は inline-flex + items-center で真ん中に置く）、文字をわずかに上げる。
+ * 上げる量は画面で測って決めた（上下の余白の差が 0.25px 以内）。1px 単位に丸められないよう transform で動かす。
+ */
+@utility pill-text {
+  display: inline-block;
+  line-height: 1;
+  transform: translateY(-0.035em);
+}

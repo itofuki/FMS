@@ -87,9 +87,9 @@ export default function AssignmentCalendar({ items, selected, onSelect }: {
                 onClick={goToday}
                 disabled={onToday}
                 aria-label={onToday ? '今日を表示中' : '今日に戻る'}
-                className="h-7 px-3 rounded-full border border-line-strong text-fg hover:bg-surface-3 transition-colors disabled:opacity-40 disabled:hover:bg-transparent disabled:cursor-default"
+                className="inline-flex items-center h-7 px-3 rounded-full border border-line-strong text-fg hover:bg-surface-3 transition-colors disabled:opacity-40 disabled:hover:bg-transparent disabled:cursor-default"
               >
-                <span className="text-xs font-bold">今日</span>
+                <span className="pill-text text-xs font-bold">今日</span>
               </button>
             );
           })()}

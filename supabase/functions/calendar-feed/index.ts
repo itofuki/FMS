@@ -3,6 +3,7 @@
 // カレンダーアプリはログイン情報を送れないため JWT 検証は無効にし、推測できないトークンで本人を特定する。
 import { createClient } from "npm:@supabase/supabase-js@2";
 import { buildCalendar, type CalendarClass, type CalendarDeadline } from "../_shared/calendar.ts";
+import type { ClassException } from "../_shared/exceptions.ts";
 
 const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
 const serviceRoleKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
@@ -31,7 +32,10 @@ Deno.serve(async (req) => {
   if (!feed) return text("Not Found", 404);
 
   const now = new Date();
-  const [timetable, deadlines] = await Promise.all([
+  // イレギュラーな授業回は、カレンダーに入れる範囲（1 週前〜8 週先）を含む広めの期間で読む
+  const ymd = (ms: number) => new Date(ms + 9 * 60 * 60 * 1000).toISOString().slice(0, 10);
+  const DAY = 24 * 60 * 60 * 1000;
+  const [timetable, deadlines, exceptions] = await Promise.all([
     supabase.rpc("get_effective_timetable", { p_user_id: feed.user_id }),
     supabase
       .from("user_deadlines")
@@ -40,9 +44,12 @@ Deno.serve(async (req) => {
       // 1 週間前までの締切も残す（直前に提出して一覧から消えたものは、次に FMS を開いたときに消える）
       .gte("deadline", new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000).toISOString())
       .order("deadline"),
+    supabase.rpc("get_class_exceptions", {
+      p_user_id: feed.user_id, p_from: ymd(now.getTime() - 14 * DAY), p_to: ymd(now.getTime() + 63 * DAY),
+    }),
   ]);
-  if (timetable.error || deadlines.error) {
-    console.error("カレンダーの材料の取得に失敗:", timetable.error ?? deadlines.error);
+  if (timetable.error || deadlines.error || exceptions.error) {
+    console.error("カレンダーの材料の取得に失敗:", timetable.error ?? deadlines.error ?? exceptions.error);
     return text("Internal Server Error", 500);
   }
 
@@ -50,6 +57,7 @@ Deno.serve(async (req) => {
     now,
     classes: (timetable.data ?? []) as CalendarClass[],
     deadlines: (deadlines.data ?? []) as CalendarDeadline[],
+    exceptions: (exceptions.data ?? []) as ClassException[],
   });
 
   return new Response(req.method === "HEAD" ? null : ics, {

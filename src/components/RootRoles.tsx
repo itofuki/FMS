@@ -68,17 +68,17 @@ export default function RootRoles() {
                   <p className="text-sm text-fg-muted truncate">{u.lms_username ? `@${u.lms_username}` : '（LMS 以外のアカウント）'}</p>
                 </div>
                 <div className="flex-shrink-0 flex items-center gap-2">
-                  {u.is_root && <span className="text-xs font-bold px-2 py-0.5 rounded-full bg-down-soft text-down">開発者</span>}
-                  {!u.is_root && isAdmin && <span className="text-xs font-bold px-2 py-0.5 rounded-full bg-warn-soft text-warn">管理者</span>}
+                  {u.is_root && <span className="inline-flex items-center h-5 px-2 rounded-full bg-down-soft text-down text-xs font-bold"><span className="pill-text">開発者</span></span>}
+                  {!u.is_root && isAdmin && <span className="inline-flex items-center h-5 px-2 rounded-full bg-warn-soft text-warn text-xs font-bold"><span className="pill-text">管理者</span></span>}
                   {!u.is_root && (
                     <button
                       type="button"
                       onClick={() => setAdmin(u, !isAdmin)}
                       disabled={busy === u.user_id}
-                      className={`h-8 px-3 rounded-full border text-xs font-bold transition-colors disabled:opacity-50 ${isAdmin ? 'border-down/50 text-down hover:bg-down-soft' : 'border-line-strong text-fg hover:bg-surface-3'}`}
+                      className={`inline-flex items-center h-8 px-3 rounded-full border text-xs font-bold transition-colors disabled:opacity-50 ${isAdmin ? 'border-down/50 text-down hover:bg-down-soft' : 'border-line-strong text-fg hover:bg-surface-3'}`}
                     >
                       {/* Mantine の CSS が button の文字の大きさを上書きするため、span で指定する */}
-                      <span className="text-xs font-bold">{isAdmin ? '管理者から外す' : '管理者にする'}</span>
+                      <span className="pill-text text-xs font-bold">{isAdmin ? '管理者から外す' : '管理者にする'}</span>
                     </button>
                   )}
                 </div>

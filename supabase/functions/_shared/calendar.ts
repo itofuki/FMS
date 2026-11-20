@@ -3,11 +3,11 @@
 // 時刻はすべて UTC（末尾 Z）で書き出す。授業の時刻は JST で定義し、ここで UTC に直す。
 
 import { LMS_BASE, PERIOD_TIMES } from "./reminders.ts";
+import { applyExceptionsForDate, type ClassException, type TimetableRowLike } from "./exceptions.ts";
 
 export { PERIOD_TIMES };
 
 
-const WDAY_INDEX: Record<string, number> = { Mon: 1, Tue: 2, Wed: 3, Thu: 4, Fri: 5 };
 const DAY_MS = 24 * 60 * 60 * 1000;
 const JST_MS = 9 * 60 * 60 * 1000;
 
@@ -65,12 +65,14 @@ export function buildCalendar(opts: {
   now: Date;
   classes: CalendarClass[];
   deadlines: CalendarDeadline[];
+  /** イレギュラーな授業回（休講・時刻や教室の変更・補講） */
+  exceptions?: ClassException[];
   /** 授業を何週間前から入れるか */
   weeksBefore?: number;
   /** 授業を何週間先まで入れるか */
   weeksAfter?: number;
 }): string {
-  const { now, classes, deadlines, weeksBefore = 1, weeksAfter = 8 } = opts;
+  const { now, classes, deadlines, exceptions = [], weeksBefore = 1, weeksAfter = 8 } = opts;
   const stamp = icsTime(now);
   const lines: string[] = [
     "BEGIN:VCALENDAR",
@@ -84,41 +86,46 @@ export function buildCalendar(opts: {
     "X-PUBLISHED-TTL:PT6H",
   ];
 
-  // 授業: 今週の月曜から数えて weeksBefore 週前〜weeksAfter 週先まで、毎週の授業を 1 件ずつ入れる
-  // （休講・祝日は分からないため入ったままになる）
+  // 授業: 今週の月曜から数えて weeksBefore 週前〜weeksAfter 週先まで、平日ごとにその日の授業を入れる。
+  // その日のイレギュラーな授業回（休講・時刻や教室の変更・補講）があれば当てはめる（祝日は分からないため入ったままになる）
   const today = jstMidnight(now.getTime());
   const jstDow = new Date(today + JST_MS).getUTCDay(); // 0=日
   const monday = today - ((jstDow + 6) % 7) * DAY_MS;
+  const hm = (v: string | null | undefined, fallback: [number, number]): [number, number] => {
+    const m = v ? /^(\d{1,2}):(\d{2})/.exec(v) : null;
+    return m ? [Number(m[1]), Number(m[2])] : fallback;
+  };
   for (let w = -weeksBefore; w < weeksAfter; w++) {
-    for (const c of classes) {
-      const idx = WDAY_INDEX[c.wday];
-      const base = PERIOD_TIMES.find((p) => p.period === c.period);
-      if (!idx || !base) continue;
-      // 管理者が調整した時刻があればそれを使う
-      const hm = (v: string | null | undefined, fallback: [number, number]): [number, number] => {
-        const m = v ? /^(\d{1,2}):(\d{2})/.exec(v) : null;
-        return m ? [Number(m[1]), Number(m[2])] : fallback;
-      };
-      const time = { start: hm(c.start_time, base.start), end: hm(c.end_time, base.end) };
-      const day = monday + (w * 7 + idx - 1) * DAY_MS;
-      const url = c.attendance_id
-        ? `${LMS_BASE}/mod/attendance/view.php?id=${c.attendance_id}`
-        : `${LMS_BASE}/course/view.php?id=${String(c.id).split("-")[0]}`;
-      const desc = [c.teacher ? `担当: ${c.teacher}` : "", url].filter(Boolean).join("\n");
-      lines.push(
-        "BEGIN:VEVENT",
-        `UID:class-${String(c.id)}-${jstYmd(day)}-${c.period}@fms-iput.app`,
-        `DTSTAMP:${stamp}`,
-        `DTSTART:${icsTime(atJst(day, time.start))}`,
-        `DTEND:${icsTime(atJst(day, time.end))}`,
-        `SUMMARY:${escapeText(`${c.period}限 ${c.name}`)}`,
-        ...(c.classroom ? [`LOCATION:${escapeText(c.classroom)}`] : []),
-        `DESCRIPTION:${escapeText(desc)}`,
-        `URL:${url}`,
-        "CATEGORIES:授業",
-        "TRANSP:OPAQUE",
-        "END:VEVENT",
-      );
+    for (let i = 0; i < 5; i++) {
+      const day = monday + (w * 7 + i) * DAY_MS;
+      const ymd = jstYmd(day);
+      const date = `${ymd.slice(0, 4)}-${ymd.slice(4, 6)}-${ymd.slice(6, 8)}`;
+      const rows = applyExceptionsForDate(classes as TimetableRowLike[], exceptions, date);
+      for (const c of rows) {
+        const base = PERIOD_TIMES.find((p) => p.period === c.period);
+        if (!base) continue;
+        // 管理者が調整した時刻（イレギュラーな授業回の時刻を含む）があればそれを使う
+        const time = { start: hm(c.start_time, base.start), end: hm(c.end_time, base.end) };
+        const url = c.attendance_id
+          ? `${LMS_BASE}/mod/attendance/view.php?id=${c.attendance_id}`
+          : `${LMS_BASE}/course/view.php?id=${String(c.id).split("-")[0]}`;
+        const label = c.exception === "extra" ? "（補講）" : c.exception === "change" ? "（変更）" : "";
+        const desc = [c.exception_note ?? "", c.teacher ? `担当: ${c.teacher}` : "", url].filter(Boolean).join("\n");
+        lines.push(
+          "BEGIN:VEVENT",
+          `UID:class-${String(c.id)}-${ymd}-${c.period}@fms-iput.app`,
+          `DTSTAMP:${stamp}`,
+          `DTSTART:${icsTime(atJst(day, time.start))}`,
+          `DTEND:${icsTime(atJst(day, time.end))}`,
+          `SUMMARY:${escapeText(`${c.period}限 ${c.name}${label}`)}`,
+          ...(c.classroom ? [`LOCATION:${escapeText(c.classroom)}`] : []),
+          `DESCRIPTION:${escapeText(desc)}`,
+          `URL:${url}`,
+          "CATEGORIES:授業",
+          "TRANSP:OPAQUE",
+          "END:VEVENT",
+        );
+      }
     }
   }
 

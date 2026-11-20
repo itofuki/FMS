@@ -72,7 +72,7 @@ export default function AvatarSettings() {
             className="inline-flex items-center gap-1.5 h-9 px-4 rounded-full border border-line-strong text-fg hover:bg-surface-2 transition-colors disabled:opacity-50"
           >
             <FiCamera size={14} aria-hidden="true" />
-            <span className="text-sm font-bold">{busy ? '保存中...' : hasAvatar ? '画像を変える' : '画像を選ぶ'}</span>
+            <span className="pill-text text-sm font-bold">{busy ? '保存中...' : hasAvatar ? '画像を変える' : '画像を選ぶ'}</span>
           </button>
           {hasAvatar && (
             <button
@@ -82,7 +82,7 @@ export default function AvatarSettings() {
               className="inline-flex items-center gap-1.5 h-9 px-4 rounded-full text-down hover:bg-down-soft transition-colors disabled:opacity-50"
             >
               <FiTrash2 size={14} aria-hidden="true" />
-              <span className="text-sm font-bold">削除</span>
+              <span className="pill-text text-sm font-bold">削除</span>
             </button>
           )}
         </div>

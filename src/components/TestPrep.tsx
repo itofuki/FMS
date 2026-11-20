@@ -646,7 +646,7 @@ const TestPrep: React.FC<TestPrepProps> = ({ subject }) => {
                                       <span className="block mt-0.5 text-sm text-fg-muted">{deck.questions.length}問</span>
                                     </span>
                                     <span className="flex-shrink-0 inline-flex items-center gap-1 h-9 px-3 rounded-full bg-accent-soft text-accent group-hover:bg-accent-solid group-hover:text-on-accent transition-colors">
-                                      <span className="text-sm font-bold">始める</span>
+                                      <span className="pill-text text-sm font-bold">始める</span>
                                       <FiChevronRight size={16} />
                                     </span>
                                   </button>

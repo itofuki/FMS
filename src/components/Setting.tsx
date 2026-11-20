@@ -12,6 +12,7 @@ import CalendarFeedSettings from "./CalendarFeedSettings";
 import LmsCourseSettings from "./LmsCourseSettings";
 import AvatarSettings from "./AvatarSettings";
 import AdminCourseDefaults from "./AdminCourseDefaults";
+import AdminClassExceptions from "./AdminClassExceptions";
 import RootRoles from "./RootRoles";
 import RootMenuVisibility from "./RootMenuVisibility";
 import { useUserProfile } from "../hooks/useUserProfile";
@@ -69,6 +70,7 @@ const SECTIONS: { id: string; label: string; group: SettingGroup }[] = [
   { id: 'settings-display', label: '表示', group: 'general' },
   { id: 'settings-account', label: 'アカウント', group: 'general' },
   { id: 'settings-admin-defaults', label: 'コースの既定値', group: 'admin' },
+  { id: 'settings-admin-exceptions', label: '授業の変更', group: 'admin' },
   { id: 'settings-root-menus', label: 'メニューの表示', group: 'root' },
   { id: 'settings-root-roles', label: '権限の管理', group: 'root' },
 ];
@@ -444,7 +446,7 @@ export default function Setting({ onSettingsSaved }: SettingProps) {
               >
                 {lmsIssue === 'expired' || !getLmsSession() ? (
                   <Link to="/login?relogin=1" className="inline-flex items-center h-8 px-3.5 rounded-full bg-warn-soft text-warn hover:underline">
-                    <span className="text-sm font-bold">LMS に再ログイン</span>
+                    <span className="pill-text text-sm font-bold">LMS に再ログイン</span>
                   </Link>
                 ) : (
                   <span className="inline-flex items-center gap-1.5 text-sm font-semibold text-up">
@@ -462,11 +464,16 @@ export default function Setting({ onSettingsSaved }: SettingProps) {
           </>)}
 
           {/* admin のタブ・root のタブ */}
-          {/* コースの既定値（管理者だけ）。LMS のコースごとに曜日・時限・教室の既定値を決める */}
+          {/* 管理者だけ: コースの既定値（曜日・時限・時刻・教室）と、授業の変更（休講・補講など） */}
           {isAdmin && group === 'admin' && (
+            <>
             <SettingsCard id="settings-admin-defaults" title="コースの既定値" description="コースごとの曜日・時限・時刻・教室・担当の先生の既定値です。曜日・時限・教室は本人が設定した値が優先されます。">
               <AdminCourseDefaults onChanged={onSettingsSaved} />
             </SettingsCard>
+            <SettingsCard id="settings-admin-exceptions" title="授業の変更" description="休講・時刻や教室の変更・補講を、日付を指定して登録します。その日は時間割・授業前の通知・カレンダー連携でこちらを優先します。">
+              <AdminClassExceptions onChanged={onSettingsSaved} />
+            </SettingsCard>
+            </>
           )}
 
           {/* 開発者（root）だけ: サブメニューの表示・並び順と、権限の管理（ほかのアカウントを管理者にする・外す） */}

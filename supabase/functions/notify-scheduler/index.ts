@@ -4,8 +4,9 @@
 import { createClient, type SupabaseClient } from "npm:@supabase/supabase-js@2";
 import { sendToUser } from "../_shared/push.ts";
 import {
-  classUrl, dueClasses, formatRemaining, isDeadlineReminderDue, isNearAnyClassStart,
+  classUrl, dueClasses, formatRemaining, isDeadlineReminderDue, isNearAnyClassStart, toJst,
 } from "../_shared/reminders.ts";
+import { applyExceptionsForDate, type ClassException } from "../_shared/exceptions.ts";
 
 const schedulerSecret = Deno.env.get("NOTIFY_SCHEDULER_SECRET");
 
@@ -77,11 +78,22 @@ async function runClassReminders(supabase: SupabaseClient, now: Date) {
     .select("start_time, period_times")
     .or("start_time.not.is.null,period_times.not.is.null");
   if (shiftedError) throw shiftedError;
-  // 調整した開始時刻（以前の形の start_time と、時限ごとの period_times の start）
-  const extraStarts = (shifted ?? []).flatMap((r) => [
-    r.start_time as string | null,
-    ...Object.values((r.period_times ?? {}) as Record<string, { start?: string }>).map((t) => t?.start ?? null),
-  ]);
+  // 今日のイレギュラーな授業回（補講・時刻の変更）の開始時刻も見る
+  const today = toJst(now).date;
+  const { data: todayExceptions, error: exError } = await supabase
+    .from("class_exceptions")
+    .select("start_time")
+    .eq("date", today)
+    .not("start_time", "is", null);
+  if (exError) throw exError;
+  // 調整した開始時刻（以前の形の start_time と、時限ごとの period_times の start、今日のイレギュラーな授業回）
+  const extraStarts = [
+    ...(shifted ?? []).flatMap((r) => [
+      r.start_time as string | null,
+      ...Object.values((r.period_times ?? {}) as Record<string, { start?: string }>).map((t) => t?.start ?? null),
+    ]),
+    ...(todayExceptions ?? []).map((r) => r.start_time as string),
+  ];
   if (!isNearAnyClassStart(now, extraStarts)) return 0;
 
   const { data: profiles, error } = await supabase
@@ -97,8 +109,14 @@ async function runClassReminders(supabase: SupabaseClient, now: Date) {
       console.error(`時間割の取得に失敗 (${user_id}):`, ttError);
       continue;
     }
+    // 今日のイレギュラーな授業回（休講・変更・補講）を当てはめてから、開始前の授業を探す
+    const { data: exceptions, error: exListError } = await supabase.rpc("get_class_exceptions", { p_user_id: user_id, p_from: today, p_to: today });
+    if (exListError) console.error(`イレギュラーな授業回の取得に失敗 (${user_id}):`, exListError);
+    const todayRows = applyExceptionsForDate(
+      (timetable as TimetableRow[] | null) ?? [], (exceptions as ClassException[] | null) ?? [], today,
+    ) as TimetableRow[];
     // 開始時刻は授業ごと（管理者が調整していればその時刻）
-    for (const { row: subject, date, startLabel } of dueClasses(now, (timetable as TimetableRow[] | null) ?? [])) {
+    for (const { row: subject, date, startLabel } of dueClasses(now, todayRows)) {
       if (!(await claim(supabase, user_id, "class", `${date}:${subject.period}`))) continue;
 
       await sendToUser(supabase, user_id, {

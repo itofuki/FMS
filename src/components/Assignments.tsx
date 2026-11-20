@@ -555,9 +555,9 @@ const Assignments: React.FC<AssignmentsProps> = ({ subject }) => {
             <span className="text-fg-muted whitespace-nowrap">締切 {formatDateTime(assignment.deadline)}</span>
             {/* 残り時間は 1 行目の右端に */}
             {tag && (
-              <span className={`ml-auto inline-flex items-center gap-1 px-2 py-0.5 rounded-full border text-xs font-bold whitespace-nowrap ${tag.className}`}>
+              <span className={`ml-auto inline-flex items-center gap-1 h-5 px-2 rounded-full border text-xs font-bold whitespace-nowrap ${tag.className}`}>
                 <span className={`w-1.5 h-1.5 rounded-full ${tag.dot}`} aria-hidden="true" />
-                {tag.label}
+                <span className="pill-text">{tag.label}</span>
               </span>
             )}
           </div>

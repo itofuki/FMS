@@ -16,6 +16,7 @@ import { BsQrCodeScan } from 'react-icons/bs';
 const QrScanner = lazy(() => import('./QrScanner'));
 import AttendPrompt from './AttendPrompt';
 import { readAttendPrompt, type AttendPromptInfo } from '../lib/attendPrompt';
+import { applyClassExceptions, type ClassException } from '../lib/classExceptions';
 import { useUnifiedAssignments } from '../hooks/useUnifiedAssignments';
 import { useAttendance, type AttendanceMap } from '../hooks/useAttendance';
 import { absenceAllowance, type AttendanceSummary } from '../lib/attendance';
@@ -23,7 +24,7 @@ import { useLmsIssue, type LmsIssue } from '../lib/lmsStatus';
 import type { Subject as AssignmentSubject } from '../lib/assignments';
 import {
   PERIODS, WEEKDAYS, WEEKDAY_LABELS, formatHm, formatMinutes, focusSubject, minutesLeft,
-  nowInJst, periodState, periodTime, subjectTime, weekdayOf, currentPeriodLabel,
+  nowInJst, periodState, periodTime, subjectTime, weekdayOf, currentPeriodLabel, mondayOf, toYmd,
 } from '../lib/schedule';
 import './Timetable.css';
 
@@ -39,6 +40,10 @@ export type Subject = {
   /** 管理者が調整した開始・終了の時刻（'HH:MM'）。null なら時限の本来の時刻 */
   startTime?: string | null;
   endTime?: string | null;
+  /** イレギュラーな授業回: 'cancel' 休講 / 'change' 時刻・教室の変更 / 'extra' 補講（いつもの授業なら空） */
+  status?: 'cancel' | 'change' | 'extra';
+  /** イレギュラーな授業回のメモ */
+  note?: string | null;
 };
 export type Day = 'Mon' | 'Tue' | 'Wed' | 'Thu' | 'Fri';
 
@@ -97,9 +102,24 @@ function StateBadge({ state, minutes }: { state: 'current' | 'next' | 'after' | 
     after: { label: '終了', cls: 'bg-surface text-fg-subtle border-line', dot: 'bg-fg-subtle' },
   }[state];
   return (
-    <span className={`flex-shrink-0 inline-flex items-center gap-1 px-2 py-0.5 rounded-full border text-xs font-bold whitespace-nowrap ${map.cls}`}>
+    <span className={`flex-shrink-0 inline-flex items-center gap-1 h-5 px-2 rounded-full border text-xs font-bold whitespace-nowrap ${map.cls}`}>
       <span className={`w-1.5 h-1.5 rounded-full ${map.dot}`} aria-hidden="true" />
-      {map.label}
+      <span className="pill-text">{map.label}</span>
+    </span>
+  );
+}
+
+/** イレギュラーな授業回のしるし（休講・変更・補講） */
+function ExceptionBadge({ status, compact = false }: { status: Subject['status']; compact?: boolean }) {
+  if (!status) return null;
+  const map = {
+    cancel: { label: '休講', cls: 'bg-down-soft text-down border-down/40' },
+    change: { label: '変更', cls: 'bg-warn-soft text-warn border-warn/40' },
+    extra: { label: '補講', cls: 'bg-accent-soft text-accent border-accent/40' },
+  }[status];
+  return (
+    <span className={`flex-shrink-0 inline-flex items-center rounded-full border font-bold whitespace-nowrap ${compact ? 'h-4 px-1.5 text-[10px]' : 'h-5 px-2 text-xs'} ${map.cls}`}>
+      <span className="pill-text">{map.label}</span>
     </span>
   );
 }
@@ -109,7 +129,8 @@ function StateBadge({ state, minutes }: { state: 'current' | 'next' | 'after' | 
  * 左に時刻、右に時限・教室・先生、授業名、出席率と課題。授業中の行は淡く色付けし、終わった授業は薄くする。
  */
 function TodayTimeline({ subjects, now, assignmentCount, attendance }: { subjects: Subject[]; now: Date; assignmentCount: (name: string) => number; attendance: AttendanceMap }) {
-  const focus = focusSubject(subjects, now);
+  // 休講の授業は「授業中・次の授業」の対象にしない
+  const focus = focusSubject(subjects.filter(x => x.status !== 'cancel'), now);
   const items = buildTimeline(subjects);
 
   if (subjects.length === 0) {
@@ -134,7 +155,9 @@ function TodayTimeline({ subjects, now, assignmentCount, attendance }: { subject
         const s = item.subject;
         // 時刻は授業ごと（管理者が調整していればその時刻）
         const t = subjectTime(s)!;
-        const state = periodState(t, now);
+        const cancelled = s.status === 'cancel';
+        // 休講は「終了」と同じく薄くする
+        const state = cancelled ? 'after' : periodState(t, now);
         const isFocus = focus?.subject.id === s.id;
         const badgeState = state === 'current' ? 'current' : state === 'after' ? 'after' : isFocus ? 'next' : 'before';
         const count = assignmentCount(s.name);
@@ -163,7 +186,10 @@ function TodayTimeline({ subjects, now, assignmentCount, attendance }: { subject
                   <span className="mx-1.5 text-fg-subtle">·</span>
                   {s.teacher}
                 </p>
-                <StateBadge state={badgeState} minutes={minutesLeft(t, now)} />
+                <span className="flex-shrink-0 flex items-center gap-1.5">
+                  <ExceptionBadge status={s.status} />
+                  {!cancelled && <StateBadge state={badgeState} minutes={minutesLeft(t, now)} />}
+                </span>
               </div>
               {/* 授業名を押すと出席ページ（なければコースページ）が開く */}
               <a
@@ -173,16 +199,18 @@ function TodayTimeline({ subjects, now, assignmentCount, attendance }: { subject
                 title={s.attendanceId ? '出席ページを開く' : 'コースページを開く'}
                 className="mt-1 inline-flex items-start gap-1.5 text-[17px] font-bold text-fg leading-snug break-words hover:text-link hover:underline"
               >
-                <span>{s.name}</span>
+                <span className={cancelled ? 'line-through' : ''}>{s.name}</span>
                 <FiExternalLink size={15} className="mt-1 flex-shrink-0 text-fg-subtle" aria-hidden="true" />
               </a>
+              {/* イレギュラーな授業回のメモ（例: 第5回の振替） */}
+              {s.note && <p className="mt-1 text-sm text-fg-muted">{s.note}</p>}
               {(count > 0 || (s.attendanceId && attendance[s.attendanceId])) && (
                 <div className="mt-2.5 flex flex-wrap items-center gap-2">
                   {s.attendanceId && attendance[s.attendanceId] && <AttendanceChip summary={attendance[s.attendanceId]} periodsPerDay={periodsPerDay(subjects, s)} />}
                   {count > 0 && (
                     <Link to="?tab=assignments" className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full border border-line-strong text-fg hover:bg-surface-3 transition-colors">
                       <FiFileText size={13} className="text-warn" />
-                      <span className="text-xs font-bold">課題 {count}件</span>
+                      <span className="pill-text text-xs font-bold">課題 {count}件</span>
                     </Link>
                   )}
                 </div>
@@ -199,7 +227,7 @@ function TodayTimeline({ subjects, now, assignmentCount, attendance }: { subject
 // 週の表
 // ------------------------------------------------------------------
 
-function WeekGrid({ weeklySubjects, now }: { weeklySubjects: Record<Day, Subject[]>; now: Date }) {
+function WeekGrid({ weeklySubjects, now, dates }: { weeklySubjects: Record<Day, Subject[]>; now: Date; dates: Record<Day, string> }) {
   const today = weekdayOf(now);
   return (
     <div className="p-2 sm:p-4">
@@ -208,8 +236,10 @@ function WeekGrid({ weeklySubjects, now }: { weeklySubjects: Record<Day, Subject
         <div />
         {WEEKDAYS.map(d => (
           <div key={d} className="flex justify-center pb-1">
-            <span className={`px-2 sm:px-2.5 py-0.5 rounded-full text-sm font-bold ${d === today ? 'bg-accent-solid text-on-accent' : 'text-fg-muted'}`}>
-              {WEEKDAY_LABELS[d]}
+            <span className={`flex flex-col items-center px-2 sm:px-2.5 py-0.5 rounded-full ${d === today ? 'bg-accent-solid text-on-accent' : 'text-fg-muted'}`}>
+              <span className="text-sm font-bold leading-tight">{WEEKDAY_LABELS[d]}</span>
+              {/* 日付（休講・補講は日付ごとに変わるため） */}
+              <span className="text-[10px] leading-tight tabular-nums opacity-80">{Number(dates[d].slice(5, 7))}/{Number(dates[d].slice(8, 10))}</span>
             </span>
           </div>
         ))}
@@ -222,7 +252,8 @@ function WeekGrid({ weeklySubjects, now }: { weeklySubjects: Record<Day, Subject
             {WEEKDAYS.map(d => {
               const s = weeklySubjects[d]?.find(x => x.period === p.period);
               const st = s ? subjectTime(s) : undefined;
-              const isNow = d === today && !!st && periodState(st, now) === 'current';
+              const cancelled = s?.status === 'cancel';
+              const isNow = d === today && !cancelled && !!st && periodState(st, now) === 'current';
               // 本来の時限とずれている授業は、マスに時刻を出す
               const shifted = !!s && (!!s.startTime || !!s.endTime);
               if (!s) return <div key={d} className="min-h-16 rounded-md sm:rounded-lg border border-dashed border-line" />;
@@ -233,12 +264,13 @@ function WeekGrid({ weeklySubjects, now }: { weeklySubjects: Record<Day, Subject
                   target="_blank"
                   rel="noopener noreferrer"
                   title={`${s.name}（${s.classroom} / ${s.teacher}）`}
-                  className={`min-h-16 rounded-md sm:rounded-lg px-1 sm:px-2 py-1 sm:py-1.5 flex flex-col justify-center gap-0.5 shadow-sm transition-colors ${
-                    // 授業のマスも課題カードと同じ色
+                  className={`min-h-16 rounded-md sm:rounded-lg px-1 sm:px-2 py-1 sm:py-1.5 flex flex-col justify-center items-stretch gap-0.5 shadow-sm transition-colors ${
+                    // 授業のマスも課題カードと同じ色。休講は薄く
                     isNow ? 'bg-accent-soft ring-2 ring-accent' : 'bg-surface-2 dark:bg-slate-700/80 hover:bg-surface-3 dark:hover:bg-slate-700'
-                  }`}
+                  } ${cancelled ? 'opacity-55' : ''}`}
                 >
-                  <span className="text-[11px] sm:text-[13px] font-bold text-fg leading-tight line-clamp-2 break-all sm:break-normal text-center">{s.name}</span>
+                  {s.status && <span className="flex justify-center"><ExceptionBadge status={s.status} compact /></span>}
+                  <span className={`text-[11px] sm:text-[13px] font-bold text-fg leading-tight line-clamp-2 break-all sm:break-normal text-center ${cancelled ? 'line-through' : ''}`}>{s.name}</span>
                   {shifted && st && <span className="text-[10px] sm:text-[11px] font-semibold text-warn leading-tight text-center tabular-nums">{formatHm(st.start)}〜{formatHm(st.end)}</span>}
                   {/* 教室と先生を左右半分ずつ（それぞれ中央揃え）。収まらない分は「…」で省く（全文はマスの title で見られる） */}
                   <span className="grid grid-cols-2 gap-1 text-[10px] sm:text-[11px] text-fg-muted leading-tight">
@@ -416,13 +448,30 @@ interface TimetableContainerProps {
   weeklySubjects: Record<Day, Subject[]>;
   /** 課題数を出すための科目一覧（課題ページと同じもの） */
   subjects: AssignmentSubject[];
+  /** 今週のイレギュラーな授業回（休講・時刻や教室の変更・補講） */
+  exceptions?: ClassException[];
 }
 
+const NO_EXCEPTIONS: ClassException[] = [];
+
 export const TimetableContainer: React.FC<TimetableContainerProps> = ({
-  isWeeklyView, onChangeView, isProfileSet, weeklySubjects, subjects,
+  isWeeklyView, onChangeView, isProfileSet, weeklySubjects: regularWeek, subjects, exceptions = NO_EXCEPTIONS,
 }) => {
   const now = useNow();
   const today = weekdayOf(now);
+  // 今週（土日は次の週）の各曜日の日付と、その日のイレギュラーな授業回（休講・変更・補講）を当てはめた時間割
+  const todayYmd = toYmd(now);
+  const weekDates = useMemo(() => {
+    const monday = mondayOf(new Date(`${todayYmd}T12:00:00`));
+    return Object.fromEntries(WEEKDAYS.map((d, i) => {
+      const x = new Date(monday); x.setDate(monday.getDate() + i);
+      return [d, toYmd(x)];
+    })) as Record<Day, string>;
+  }, [todayYmd]);
+  const weeklySubjects = useMemo(() => {
+    const all = Object.values(regularWeek).flat();
+    return Object.fromEntries(WEEKDAYS.map((d) => [d, applyClassExceptions(regularWeek[d] ?? [], exceptions, weekDates[d], d, all)])) as Record<Day, Subject[]>;
+  }, [regularWeek, exceptions, weekDates]);
   const todaySubjects = useMemo(() => (today ? weeklySubjects[today] ?? [] : []), [today, weeklySubjects]);
   const { items } = useUnifiedAssignments(subjects);
   const lmsIssue = useLmsIssue();
@@ -469,13 +518,13 @@ export const TimetableContainer: React.FC<TimetableContainerProps> = ({
         {/* 右の列（スマホでは見出しのすぐ下）: 授業中・次の授業。週の表のときは出さない（表を広く使う）。
             通知から来たときの出席の選択・QR の読み取りはこの中で扱うので、消さずに隠すだけにする */}
         <aside className={`${SIDE_WIDGET} ${isWeeklyView ? '!hidden' : ''}`}>
-          <NextClassCard subjects={todaySubjects} now={now} attendance={attendance} />
+          <NextClassCard subjects={todaySubjects.filter(x => x.status !== 'cancel')} now={now} attendance={attendance} />
         </aside>
         {/* 真ん中の列: 白い 1 枚の面に、今日の授業（区切り線）または週の表 */}
         <div className={CENTER_PANEL}>
           {lmsIssue && <div className="px-3 pt-3"><LmsIssueNotice issue={lmsIssue} /></div>}
           {isWeeklyView ? (
-            <WeekGrid weeklySubjects={weeklySubjects} now={now} />
+            <WeekGrid weeklySubjects={weeklySubjects} now={now} dates={weekDates} />
           ) : (
             <TodayTimeline subjects={todaySubjects} now={now} assignmentCount={assignmentCount} attendance={attendance} />
           )}

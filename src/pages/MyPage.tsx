@@ -18,7 +18,8 @@ const Feedback = lazy(() => import('../components/Feedback'));
 const Tips = lazy(() => import('../components/Tips'));
 import { PageSkeleton, TimetableSkeleton } from '../components/Skeleton';
 import DeadlineReminderSync from '../components/DeadlineReminderSync';
-import { nowInJst, subjectTime, weekdayOf } from '../lib/schedule';
+import { mondayOf, nowInJst, subjectTime, toYmd, weekdayOf } from '../lib/schedule';
+import { applyClassExceptions, fetchClassExceptions, type ClassException } from '../lib/classExceptions';
 import { useLmsCourseSync } from '../hooks/useLmsCourseSync';
 import { TOGGLEABLE_MENUS, useMenuVisibility } from '../hooks/useMenuVisibility';
 
@@ -113,6 +114,8 @@ export default function MyPage() {
   const navigate = useNavigate();
   const [isWeeklyView, setIsWeeklyView] = useState(false);
   const [weeklySubjects, setWeeklySubjects] = useState<Record<Day, Subject[]>>({ Mon: [], Tue: [], Wed: [], Thu: [], Fri: [] });
+  // 今週のイレギュラーな授業回（休講・時刻や教室の変更・補講）。管理者が登録したもの
+  const [classExceptions, setClassExceptions] = useState<ClassException[]>([]);
   const [loading, setLoading] = useState(true);
   const [autoOpenEnabled, setAutoOpenEnabled] = useState(false);
   const [openedSubjects, setOpenedSubjects] = useState<string[]>([]);
@@ -176,10 +179,15 @@ export default function MyPage() {
       }
 
       // 時間割は LMS のコースから作ったもの（get_effective_timetable）
-      const [timetableRes, profileRes] = await Promise.all([
+      // 今週（土日は次の週）の月〜金のイレギュラーな授業回も一緒に読む
+      const monday = mondayOf(nowInJst());
+      const friday = new Date(monday); friday.setDate(monday.getDate() + 4);
+      const [timetableRes, profileRes, exceptions] = await Promise.all([
         supabase.rpc('get_effective_timetable', { p_user_id: user.id }),
         supabase.from('profiles').select('class_start_action').eq('user_id', user.id).maybeSingle(),
+        fetchClassExceptions(user.id, toYmd(monday), toYmd(friday)),
       ]);
+      setClassExceptions(exceptions);
       if (timetableRes.error) {
         console.error("時間割の取得に失敗しました:", timetableRes.error);
         setLoading(false);
@@ -233,7 +241,11 @@ export default function MyPage() {
     // 曜日も時刻も日本時間で数える（端末のタイムゾーンに左右されない。デバッグ用の時刻ずらしにも従う）
     const now = nowInJst();
     const todayKey = weekdayOf(now);
-    const todaySubjects = todayKey ? weeklySubjects[todayKey] || [] : [];
+    // 今日のイレギュラーな授業回を当てはめる（休講は開かない・補講は開く）
+    const todaySubjects = todayKey
+      ? applyClassExceptions(weeklySubjects[todayKey] || [], classExceptions, toYmd(now), todayKey, Object.values(weeklySubjects).flat())
+          .filter(s => s.status !== 'cancel')
+      : [];
 
     if (!autoOpenEnabled || loading || todaySubjects.length === 0) {
       return;
@@ -265,7 +277,7 @@ export default function MyPage() {
         setOpenedSubjects(prev => [...prev, subject.id]);
       }
     });
-  }, [loading, autoOpenEnabled, weeklySubjects, openedSubjects, clockTick]);
+  }, [loading, autoOpenEnabled, weeklySubjects, classExceptions, openedSubjects, clockTick]);
 
 
   const renderMainContent = () => {
@@ -273,6 +285,7 @@ export default function MyPage() {
       case 'timetable':
         return (
           <TimetableContainer
+            exceptions={classExceptions}
             isWeeklyView={isWeeklyView}
             onChangeView={setIsWeeklyView}
             isProfileSet={isProfileSet}

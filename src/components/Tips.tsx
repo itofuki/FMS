@@ -45,7 +45,7 @@ export default function Tips() {
           {TIPS.map(tip => (
             <li key={tip.title} className="px-4 sm:px-5 py-5 border-b border-line">
               <div className="flex flex-wrap items-center gap-2 text-sm">
-                {tip.isNew && <span className="px-2 py-0.5 rounded-full bg-accent-soft text-accent text-xs font-bold">NEW</span>}
+                {tip.isNew && <span className="inline-flex items-center h-5 px-2 rounded-full bg-accent-soft text-accent text-xs font-bold"><span className="pill-text">NEW</span></span>}
                 <span className="text-fg-muted">{tip.meta}</span>
               </div>
               <h3 className="mt-2 text-lg sm:text-xl font-bold text-fg leading-snug">{tip.title}</h3>
