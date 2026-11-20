@@ -1,8 +1,9 @@
 /* src/components/LmsCourseSettings.tsx
  * 設定の「時間割」の中身。
- * LMS から取り込んだ今学期のコースを一覧にし、コース名から読み取れなかった曜日・時限や、LMS にない教室を手で入れる。
- * 入れた内容は user_course_settings に保存し、サーバーの get_effective_timetable が時間割に反映する。
- * 管理者が決めた既定値（lms_course_defaults。全コース共通・自分のコース向け）があれば、それを「既定」として出す。
+ * LMS から取り込んだ今学期のコースを一覧にし、曜日・時限・教室は管理者の既定値（なければ LMS のコース名）を出す。
+ * 時間割は管理者の情報を正とするので、学生が変えられるのは「時間割に出すかどうか」だけ。
+ * ただし、管理者の既定値もコース名からの読み取りもなく曜日・時限が決まらない授業だけは、本人が曜日・時限を入れられる
+ * （管理者が既定値を入れたら、そちらを使う）。入れた内容は user_course_settings に保存する。
  * いちばん上で、自分のコース（IA・IS など。profiles.course_code）を選ぶ（LMS のコース名から自動で入る）。
  */
 import { useCallback, useEffect, useState } from 'react';
@@ -13,6 +14,8 @@ import { getLmsSession } from '../lib/lms';
 import { syncLmsCoursesNow } from '../hooks/useLmsCourseSync';
 import { fetchCourseOptions } from '../lib/courses';
 import { WEEKDAYS, WEEKDAY_LABELS, type Weekday } from '../lib/schedule';
+import { Link } from 'react-router-dom';
+import { Switch } from './ui/SettingControls';
 
 type Course = { course_id: number; name: string; fullname: string; wday: Weekday | null; periods: number[] | null; teachers: string[]; attendance_id: number | null };
 type CourseSetting = { course_id: number; wday: Weekday | null; periods: number[] | null; classroom: string | null; hidden: boolean };
@@ -110,18 +113,23 @@ export default function LmsCourseSettings({ userId, onChanged }: { userId: strin
     }
   };
 
-  const save = async (courseId: number, next: Omit<CourseSetting, 'course_id'>) => {
+  const save = async (courseId: number, patch: Partial<Omit<CourseSetting, 'course_id'>>, quiet = false) => {
+    const current = settings[courseId] ?? { course_id: courseId, wday: null, periods: null, classroom: null, hidden: false };
+    const next = { ...current, ...patch };
+    setSettings((prev) => ({ ...prev, [courseId]: next }));
     const { error } = await supabase.from('user_course_settings').upsert({
-      user_id: userId, course_id: courseId, ...next, updated_at: new Date().toISOString(),
+      user_id: userId, course_id: courseId,
+      wday: next.wday, periods: next.periods, classroom: next.classroom, hidden: next.hidden,
+      updated_at: new Date().toISOString(),
     });
     if (error) {
+      setSettings((prev) => ({ ...prev, [courseId]: current }));
       toast.error(`保存できませんでした: ${error.message}`);
       return;
     }
-    setSettings((prev) => ({ ...prev, [courseId]: { course_id: courseId, ...next } }));
     setEditing(null);
     onChanged?.();
-    toast.success('保存しました。時間割に反映されます。');
+    if (!quiet) toast.success('保存しました。時間割に反映されます。');
   };
 
   if (courses === null) return <p className="text-sm text-fg-muted">読み込み中...</p>;
@@ -149,32 +157,42 @@ export default function LmsCourseSettings({ userId, onChanged }: { userId: strin
         {courses.map((c) => {
           const s = settings[c.course_id];
           const base = baseOf(c, defaults, myCode);
-          const slot = formatSlot(s?.wday ?? base.wday, s?.periods ?? base.periods);
-          const classroom = s?.classroom || base.classroom;
+          // 管理者の既定値かコース名から曜日・時限が決まっているか（決まっていれば、それを正とする）
+          const decided = !!(base.wday && base.periods?.length);
+          const slot = decided ? formatSlot(base.wday, base.periods) : formatSlot(s?.wday ?? null, s?.periods ?? null);
           const hidden = s?.hidden ?? false;
           return (
             <li key={c.course_id} className="px-4 py-3">
-              <div className="flex items-start justify-between gap-3">
+              <div className="flex items-center justify-between gap-3">
                 <div className="min-w-0">
-                  <p className={`text-[15px] font-semibold leading-snug ${hidden ? 'text-fg-subtle line-through' : 'text-fg'}`}>{c.name}</p>
-                  <p className="mt-0.5 text-sm text-fg-muted flex flex-wrap gap-x-2">
+                  <p className={`text-[15px] font-medium leading-snug ${hidden ? 'text-fg-subtle line-through' : 'text-fg'}`}>{c.name}</p>
+                  <p className="mt-0.5 text-[13px] text-fg-muted flex flex-wrap gap-x-2">
                     {slot
-                      ? <span>{slot}{!s?.wday && !s?.periods && base.slotFromDefault && <span className="text-fg-subtle">（既定）</span>}</span>
+                      ? <span>{slot}{!decided && <span className="text-fg-subtle">（自分で入力）</span>}</span>
                       : <span className="text-warn font-semibold">曜日・時限が未設定</span>}
-                    <span>{classroom ? `教室 ${classroom}` : '教室未設定'}{!s?.classroom && base.roomFromDefault && <span className="text-fg-subtle">（既定）</span>}</span>
-                    {hidden && <span>時間割に出さない</span>}
+                    {base.classroom && <span>教室 {base.classroom}</span>}
                   </p>
+                  {/* 曜日・時限が決まらない授業だけ、自分で入れられる */}
+                  {!decided && !hidden && (
+                    <button type="button" onClick={() => setEditing(editing === c.course_id ? null : c.course_id)} className="mt-1 inline-flex items-center gap-1 text-link hover:underline">
+                      <FiEdit2 size={12} aria-hidden="true" />
+                      {/* Mantine の CSS が button の文字の大きさを上書きするため、span で指定する */}
+                      <span className="text-[13px] font-semibold">{editing === c.course_id ? '閉じる' : slot ? '曜日・時限を直す' : '曜日・時限を入れる'}</span>
+                    </button>
+                  )}
                 </div>
-                <button type="button" onClick={() => setEditing(editing === c.course_id ? null : c.course_id)} className="flex-shrink-0 inline-flex items-center gap-1 px-2.5 py-1.5 rounded-md text-fg-muted hover:text-fg hover:bg-surface-3 transition-colors">
-                  <FiEdit2 size={13} aria-hidden="true" />
-                  <span className="text-xs font-bold">{editing === c.course_id ? '閉じる' : '編集'}</span>
-                </button>
+                <Switch checked={!hidden} onChange={(on) => save(c.course_id, { hidden: !on }, true)} label={`${c.name}を時間割に出す`} />
               </div>
-              {editing === c.course_id && <CourseEditor course={c} base={base} setting={s} onSave={(next) => save(c.course_id, next)} />}
+              {editing === c.course_id && <CourseEditor course={c} setting={s} onSave={(next) => save(c.course_id, next)} />}
             </li>
           );
         })}
       </ul>
+      <p className="text-xs text-fg-subtle">
+        右のスイッチで、時間割に出すかどうかを選べます（取っていない授業や、授業ではないコースは外してください）。
+        曜日・時限・時刻・教室は管理者が設定しています。
+        <Link to="?tab=feedback" className="ml-1 font-semibold text-link hover:underline">時間割の間違いを報告</Link>
+      </p>
       <div className="flex flex-wrap items-center justify-between gap-2">
         <p className="text-xs text-fg-subtle">1日1回、LMS から自動で取り直します。</p>
         {hasLms && (
@@ -188,22 +206,16 @@ export default function LmsCourseSettings({ userId, onChanged }: { userId: strin
   );
 }
 
-function CourseEditor({ course, base, setting, onSave }: { course: Course; base: Base; setting?: CourseSetting; onSave: (next: Omit<CourseSetting, 'course_id'>) => void }) {
-  // null は「既定どおり」（管理者の既定値、なければ LMS のコース名から読み取った値）
+function CourseEditor({ course, setting, onSave }: { course: Course; setting?: CourseSetting; onSave: (next: Partial<Omit<CourseSetting, 'course_id'>>) => void }) {
+  // 曜日・時限が決まらない授業だけ、自分で入れる（管理者が既定値を入れたら、そちらを使う）
   const [wday, setWday] = useState<Weekday | null>(setting?.wday ?? null);
-  const [periods, setPeriods] = useState<number[] | null>(setting?.periods ?? null);
-  const [classroom, setClassroom] = useState(setting?.classroom ?? '');
-  const [hidden, setHidden] = useState(setting?.hidden ?? false);
-  const effectivePeriods = periods ?? base.periods ?? [];
-  const togglePeriod = (p: number) => {
-    const next = effectivePeriods.includes(p) ? effectivePeriods.filter((x) => x !== p) : [...effectivePeriods, p].sort();
-    setPeriods(next);
-  };
-  const parsed = formatSlot(base.wday, base.periods);
+  const [periods, setPeriods] = useState<number[]>(setting?.periods ?? []);
+  const togglePeriod = (p: number) => setPeriods((x) => (x.includes(p) ? x.filter((y) => y !== p) : [...x, p].sort()));
 
   return (
     <div className="mt-3 rounded-lg bg-surface-2 px-4 py-3 space-y-3">
       <p className="text-xs text-fg-subtle break-all">LMS のコース名: {course.fullname}</p>
+      <p className="text-xs text-fg-muted">コース名から曜日・時限が分からず、管理者の設定もまだない授業です。分かる範囲で入れてください。</p>
       <div>
         <label htmlFor={`wday-${course.course_id}`} className="block text-sm font-semibold text-fg mb-1">曜日</label>
         <select
@@ -212,7 +224,7 @@ function CourseEditor({ course, base, setting, onSave }: { course: Course; base:
           onChange={(e) => setWday((e.target.value || null) as Weekday | null)}
           className="h-9 bg-surface border border-line-strong rounded-md px-2 text-sm text-fg"
         >
-          <option value="">{parsed ? `既定どおり（${WEEKDAY_LABELS[base.wday!]}曜）` : '未設定'}</option>
+          <option value="">未設定</option>
           {WEEKDAYS.map((d) => <option key={d} value={d}>{WEEKDAY_LABELS[d]}曜</option>)}
         </select>
       </div>
@@ -220,7 +232,7 @@ function CourseEditor({ course, base, setting, onSave }: { course: Course; base:
         <legend className="text-sm font-semibold text-fg mb-1">時限</legend>
         <div className="flex flex-wrap gap-1.5">
           {[1, 2, 3, 4, 5, 6].map((p) => {
-            const on = effectivePeriods.includes(p);
+            const on = periods.includes(p);
             return (
               <button key={p} type="button" aria-pressed={on} onClick={() => togglePeriod(p)}
                 className={`w-10 h-9 rounded-md border text-sm font-bold transition-colors ${on ? 'bg-accent-soft border-accent text-accent' : 'bg-surface border-line text-fg-muted hover:text-fg'}`}>
@@ -228,36 +240,12 @@ function CourseEditor({ course, base, setting, onSave }: { course: Course; base:
               </button>
             );
           })}
-          {periods && base.periods && (
-            <button type="button" onClick={() => setPeriods(null)} className="ml-1 text-xs font-semibold text-link hover:underline">既定どおりに戻す</button>
-          )}
         </div>
       </fieldset>
-      <div>
-        <label htmlFor={`room-${course.course_id}`} className="block text-sm font-semibold text-fg mb-1">教室</label>
-        <input
-          id={`room-${course.course_id}`}
-          value={classroom}
-          maxLength={50}
-          onChange={(e) => setClassroom(e.target.value)}
-          placeholder={base.classroom ? `既定: ${base.classroom}` : '例: 353'}
-          className="w-full sm:w-48 h-9 bg-surface border border-line-strong rounded-md px-3 text-sm text-fg"
-        />
-      </div>
-      <label className="flex items-center gap-2 text-sm text-fg">
-        <input type="checkbox" checked={hidden} onChange={(e) => setHidden(e.target.checked)} className="w-4 h-4 accent-[var(--color-accent-solid)]" />
-        時間割に出さない（学年共通のコースなど）
-      </label>
       <div className="flex justify-end">
         <button
           type="button"
-          onClick={() => onSave({
-            wday,
-            // 既定と同じなら、上書きせず既定どおりにしておく（既定やコース名が変わったときに追従する）
-            periods: periods && JSON.stringify(periods) !== JSON.stringify(base.periods) ? periods : null,
-            classroom: classroom.trim() || null,
-            hidden,
-          })}
+          onClick={() => onSave({ wday, periods: periods.length ? periods : null })}
           className="h-9 px-5 rounded-md bg-accent-solid hover:bg-accent-solid-hover text-on-accent transition-colors"
         >
           <span className="text-sm font-bold">保存</span>

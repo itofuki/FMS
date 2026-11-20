@@ -416,7 +416,7 @@ export default function Setting({ onSettingsSaved }: SettingProps) {
           </SettingsCard>
 
           {/* 時間割。読み取れなかった曜日・時限や教室を手で入れる（その場で反映） */}
-          <SettingsCard id="settings-courses" title="時間割" description="LMS のコースから自動で作ります。曜日・時限や教室が違うときは、ここで直せます。">
+          <SettingsCard id="settings-courses" title="時間割" description="LMS のコースから自動で作ります。時間割に出す授業を選べます。">
             <LmsCourseSettings userId={user.id} onChanged={onSettingsSaved} />
           </SettingsCard>
 
