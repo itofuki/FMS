@@ -10,9 +10,10 @@ import { useComputedColorScheme } from "@mantine/core";
 
 // 粒子の色（テーマごと）。index.css のトークン値と揃えた控えめな色
 const PARTICLE_COLORS = {
-  light: { particles: ["#06b6d4", "#34d399", "#94a3b8"], links: "#cbd5e1" },
-  // ダークは配色変更前の元の色
-  dark: { particles: ["#00c6ff", "#92fe9d", "#ff0077"], links: "#4d4d4d" },
+  // ライト: 淡い背景の上でもはっきり見える濃い色。線も濃いめのグレー
+  light: { particles: ["#0891b2", "#0d9488", "#4f46e5"], links: "#475569", opacity: 0.9, linkOpacity: 0.4 },
+  // ダーク: 元の配色（シアン・緑・ピンク）を明るく出し、線は紺の上で見える明るいグレー
+  dark: { particles: ["#22d3ee", "#86efac", "#f472b6"], links: "#94a3b8", opacity: 0.85, linkOpacity: 0.4 },
 } as const;
 
 export default function ParticlesBackground() {
@@ -50,7 +51,7 @@ export default function ParticlesBackground() {
             color: colors.links,
             distance: 150,
             enable: true,
-            opacity: 0.5,
+            opacity: colors.linkOpacity,
             width: 1,
           },
           collisions: { enable: false },
@@ -66,9 +67,9 @@ export default function ParticlesBackground() {
             density: { enable: true, area: 800 },
             value: 50,
           },
-          opacity: { value: 0.35 },
+          opacity: { value: colors.opacity },
           shape: { type: "circle" },
-          size: { value: { min: 1, max: 3 } },
+          size: { value: { min: 2, max: 4 } },
         },
         detectRetina: true,
       }}

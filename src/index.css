@@ -116,3 +116,19 @@ body {
   outline-offset: 2px;
   border-radius: 0.375rem;
 }
+
+/* ログイン画面の背景: 一方向だけの緩やかなグラデーション（角だけ色が付くような色ムラにしない）。
+   ライトは青みのある淡いグレー、ダークは紺。点と線はその上で濃く・明るく出す（ParticlesBackground）。カードは少し透けさせる */
+.login-bg {
+  background: linear-gradient(160deg, #dfe8f3 0%, #e9edf6 55%, #e3e6f3 100%);
+}
+.login-card {
+  background: rgb(255 255 255 / 0.82);
+  backdrop-filter: blur(6px);
+  box-shadow: 0 10px 30px -12px rgb(15 23 42 / 0.25);
+}
+[data-mantine-color-scheme='dark'] .login-bg { background: linear-gradient(160deg, #0a1120 0%, #0e1628 55%, #121a33 100%); }
+[data-mantine-color-scheme='dark'] .login-card {
+  background: color-mix(in srgb, var(--surface) 88%, transparent);
+  box-shadow: 0 10px 30px -12px rgb(0 0 0 / 0.6);
+}
