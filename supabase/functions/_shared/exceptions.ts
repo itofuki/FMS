@@ -9,9 +9,10 @@ export type ClassException = {
   name: string;
   date: string; // YYYY-MM-DD
   kind: "change" | "cancel" | "extra";
-  period: number | null;
-  start_time: string | null;
-  end_time: string | null;
+  /** その日の授業の時限（変更: 動かした先も含めたその日の時限 / 休講: 休む時限 / 補講: 足す時限）。空なら既定値の時限すべて */
+  periods: number[] | null;
+  /** 時限ごとの時刻（既定値と違う時限だけ） */
+  period_times: Record<string, { start?: string; end?: string }> | null;
   classroom: string | null;
   note: string | null;
   attendance_id: number | null;
@@ -43,10 +44,11 @@ export function wdayOfDate(date: string): string {
 }
 
 /**
- * ある日（date）のいつもの授業（rows のうちその曜日のもの）に、その日のイレギュラーな授業回を当てはめる。
- *   - cancel : その授業（period が空ならその日の全時限）をなくす
- *   - change : 時刻・教室を、入っているものだけ変える（period が空なら全時限。時刻は最初の時限の開始・最後の時限の終了）
- *   - extra  : 補講・振替として授業を足す（同じ時限にいつもの授業があれば置き換える）
+ * ある日（date）のいつもの授業（rows のうちその曜日のもの）に、その日のイレギュラーな授業回を当てはめる（1 つの授業・1 日につき 1 件）。
+ *   - cancel : その授業の、periods の時限（空ならその日の全時限）をなくす
+ *   - change : その日のその授業を、periods の時限（空ならいつもの時限のまま）に置き換える。
+ *              時刻は period_times にある時限だけ変え、ない時限はいつもの時刻（いつもない時限なら本来の時刻）。教室は入っていれば変える
+ *   - extra  : 補講・振替として periods の時限に授業を足す（同じ時限にほかの授業があれば置き換える）
  */
 export function applyExceptionsForDate<T extends TimetableRowLike>(
   rows: T[], exceptions: ClassException[], date: string,
@@ -54,35 +56,31 @@ export function applyExceptionsForDate<T extends TimetableRowLike>(
   const wday = wdayOfDate(date);
   let day: (T | TimetableRowLike)[] = rows.filter((r) => r.wday === wday).map((r) => ({ ...r }));
   for (const e of exceptions.filter((x) => x.date === date)) {
-    const hits = (r: TimetableRowLike) => r.id === e.course_id && (e.period == null || r.period === e.period);
+    const mine = day.filter((r) => r.id === e.course_id);
+    const anyRegular = mine[0] ?? rows.find((r) => r.id === e.course_id);
+    const timeOf = (p: number, key: "start" | "end") => e.period_times?.[String(p)]?.[key] || null;
     if (e.kind === "cancel") {
-      day = day.filter((r) => !hits(r));
-    } else if (e.kind === "change") {
-      const targets = day.filter(hits).sort((a, b) => a.period - b.period);
-      targets.forEach((r, i) => {
-        r.exception = "change";
-        r.exception_note = e.note;
-        if (e.classroom) r.classroom = e.classroom;
-        // 時限を指定したときはその時限に、全時限のときは最初の時限の開始・最後の時限の終了に当てはめる
-        if (e.start_time && (e.period != null || i === 0)) r.start_time = e.start_time;
-        if (e.end_time && (e.period != null || i === targets.length - 1)) r.end_time = e.end_time;
-      });
-    } else if (e.kind === "extra" && e.period != null) {
-      const regular = rows.find((r) => r.id === e.course_id);
-      day = day.filter((r) => r.period !== e.period);
-      day.push({
-        id: e.course_id,
-        name: e.name,
-        wday,
-        period: e.period,
-        classroom: e.classroom ?? regular?.classroom ?? null,
-        teacher: regular?.teacher ?? null,
-        attendance_id: e.attendance_id ?? regular?.attendance_id ?? null,
-        start_time: e.start_time,
-        end_time: e.end_time,
-        exception: "extra",
-        exception_note: e.note,
-      });
+      day = day.filter((r) => !(r.id === e.course_id && (e.periods == null || e.periods.includes(r.period))));
+    } else if (e.kind === "change" || e.kind === "extra") {
+      const periods = e.periods ?? mine.map((r) => r.period);
+      // 変更はその日のその授業をすべて置き換える。補講は足す時限にあるほかの授業も置き換える
+      day = day.filter((r) => !(e.kind === "change" && r.id === e.course_id) && !periods.includes(r.period));
+      for (const p of periods) {
+        const same = mine.find((r) => r.period === p);
+        day.push({
+          id: e.course_id,
+          name: anyRegular?.name ?? e.name,
+          wday,
+          period: p,
+          classroom: e.classroom ?? anyRegular?.classroom ?? null,
+          teacher: anyRegular?.teacher ?? null,
+          attendance_id: e.attendance_id ?? anyRegular?.attendance_id ?? null,
+          start_time: timeOf(p, "start") ?? same?.start_time ?? null,
+          end_time: timeOf(p, "end") ?? same?.end_time ?? null,
+          exception: e.kind,
+          exception_note: e.note,
+        });
+      }
     }
   }
   return day.sort((a, b) => a.period - b.period);

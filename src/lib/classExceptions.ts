@@ -12,9 +12,10 @@ export type ClassException = {
   name: string;
   date: string; // YYYY-MM-DD
   kind: 'change' | 'cancel' | 'extra';
-  period: number | null;
-  start_time: string | null;
-  end_time: string | null;
+  /** その日の授業の時限（変更: 動かした先も含めたその日の時限 / 休講: 休む時限 / 補講: 足す時限）。空なら既定値の時限すべて */
+  periods: number[] | null;
+  /** 時限ごとの時刻（既定値と違う時限だけ） */
+  period_times: Record<string, { start?: string; end?: string }> | null;
   classroom: string | null;
   note: string | null;
   attendance_id: number | null;
@@ -33,10 +34,11 @@ export async function fetchClassExceptions(userId: string, from: string, to: str
 const courseOf = (s: Subject) => Number(s.id.split('-')[0]);
 
 /**
- * ある日（date・曜日 day）のいつもの授業に、その日のイレギュラーな授業回を当てはめる。
- *   - cancel : 休講（period が空ならその日の全時限）。消さずに status = 'cancel' にする
- *   - change : 時刻・教室を、入っているものだけ変える（period が空なら全時限。時刻は最初の時限の開始・最後の時限の終了）
- *   - extra  : 補講（同じ時限にいつもの授業があれば置き換える）
+ * ある日（date・曜日 day）のいつもの授業に、その日のイレギュラーな授業回を当てはめる（1 つの授業・1 日につき 1 件）。
+ *   - cancel : periods の時限（空ならその日の全時限）を休講にする。消さずに status = 'cancel' にする
+ *   - change : その日のその授業を、periods の時限（空ならいつもの時限のまま）に置き換える。
+ *              時刻は period_times にある時限だけ変え、ない時限はいつもの時刻。教室は入っていれば変える
+ *   - extra  : 補講として periods の時限に授業を足す（同じ時限にほかの授業があれば置き換える）
  * allSubjects は、補講のコースのいつもの教室・先生を探すのに使う（週のすべての授業）。
  */
 export function applyClassExceptions(
@@ -44,34 +46,31 @@ export function applyClassExceptions(
 ): Subject[] {
   let list = daySubjects.map((s) => ({ ...s }));
   for (const e of exceptions.filter((x) => x.date === date)) {
-    const hits = (s: Subject) => courseOf(s) === e.course_id && (e.period == null || s.period === e.period);
+    const mine = list.filter((s) => courseOf(s) === e.course_id);
+    const regular = mine[0] ?? allSubjects.find((s) => courseOf(s) === e.course_id);
+    const timeOf = (p: number, key: 'start' | 'end') => e.period_times?.[String(p)]?.[key] || null;
     if (e.kind === 'cancel') {
-      list = list.map((s) => (hits(s) ? { ...s, status: 'cancel' as const, note: e.note } : s));
-    } else if (e.kind === 'change') {
-      const targets = list.filter(hits).sort((a, b) => a.period - b.period);
-      targets.forEach((s, i) => {
-        s.status = 'change';
-        s.note = e.note;
-        if (e.classroom) s.classroom = e.classroom;
-        if (e.start_time && (e.period != null || i === 0)) s.startTime = e.start_time;
-        if (e.end_time && (e.period != null || i === targets.length - 1)) s.endTime = e.end_time;
-      });
-    } else if (e.kind === 'extra' && e.period != null) {
-      const regular = allSubjects.find((s) => courseOf(s) === e.course_id);
-      list = list.filter((s) => s.period !== e.period);
-      list.push({
-        id: `${e.course_id}-${day}-${e.period}-extra`,
-        name: e.name,
-        teacher: regular?.teacher ?? '',
-        wday: day,
-        period: e.period,
-        classroom: e.classroom ?? regular?.classroom ?? '',
-        attendanceId: e.attendance_id ?? regular?.attendanceId ?? null,
-        startTime: e.start_time,
-        endTime: e.end_time,
-        status: 'extra',
-        note: e.note,
-      });
+      list = list.map((s) => (courseOf(s) === e.course_id && (e.periods == null || e.periods.includes(s.period))
+        ? { ...s, status: 'cancel' as const, note: e.note } : s));
+    } else {
+      const periods = e.periods ?? mine.map((s) => s.period);
+      list = list.filter((s) => !(e.kind === 'change' && courseOf(s) === e.course_id) && !periods.includes(s.period));
+      for (const p of periods) {
+        const same = mine.find((s) => s.period === p);
+        list.push({
+          id: `${e.course_id}-${day}-${p}${e.kind === 'extra' ? '-extra' : ''}`,
+          name: regular?.name ?? e.name,
+          teacher: regular?.teacher ?? '',
+          wday: day,
+          period: p,
+          classroom: e.classroom ?? regular?.classroom ?? '',
+          attendanceId: e.attendance_id ?? regular?.attendanceId ?? null,
+          startTime: timeOf(p, 'start') ?? same?.startTime ?? null,
+          endTime: timeOf(p, 'end') ?? same?.endTime ?? null,
+          status: e.kind,
+          note: e.note,
+        });
+      }
     }
   }
   return list.sort((a, b) => a.period - b.period);

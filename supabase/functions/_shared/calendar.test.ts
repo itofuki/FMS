@@ -68,7 +68,7 @@ describe('buildCalendar（管理者が調整した時刻）', () => {
 
 describe('buildCalendar（イレギュラーな授業回）', () => {
   const classes = [{ id: 103, name: '英語コミュニケーション', wday: 'Tue', period: 3, classroom: '353' }];
-  const base = { id: 1, course_id: 103, name: '英語コミュニケーション', period: null, start_time: null, end_time: null, classroom: null, note: null, attendance_id: null };
+  const base = { id: 1, course_id: 103, name: '英語コミュニケーション', periods: null, period_times: null, classroom: null, note: null, attendance_id: null };
   const build = (exceptions: Parameters<typeof buildCalendar>[0]['exceptions']) =>
     buildCalendar({ now: NOW, classes, deadlines: [], exceptions, weeksBefore: 0, weeksAfter: 2 }).replace(/\r\n /g, '');
 
@@ -80,8 +80,8 @@ describe('buildCalendar（イレギュラーな授業回）', () => {
 
   it('時刻・教室の変更と、補講', () => {
     const ics = build([
-      { ...base, date: '2026-11-24', kind: 'change', start_time: '14:00', end_time: '15:30', classroom: '401' },
-      { ...base, id: 2, date: '2026-11-20', kind: 'extra', period: 4, note: '第5回の振替' },
+      { ...base, date: '2026-11-24', kind: 'change', periods: [3], period_times: { '3': { start: '14:00', end: '15:30' } }, classroom: '401' },
+      { ...base, id: 2, date: '2026-11-20', kind: 'extra', periods: [4], note: '第5回の振替' },
     ]);
     // 11/24 は 14:00〜15:30 JST = 05:00〜06:30 UTC、教室 401、（変更）
     expect(ics).toContain('DTSTART:20261124T050000Z');

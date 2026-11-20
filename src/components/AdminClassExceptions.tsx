@@ -28,9 +28,10 @@ type CourseDefault = {
 };
 /** いつもの授業（曜日・時限・時限ごとの時刻・教室） */
 type Usual = { wday: Weekday | null; periods: number[]; times: Record<number, { start: string; end: string }>; classroom: string };
+/** 登録済みの授業の変更（1 つの授業・1 日・1 対象につき 1 件） */
 type Row = {
-  id: number; course_id: number; course_code: string | null; date: string; kind: Kind; period: number | null;
-  start_time: string | null; end_time: string | null; classroom: string | null; note: string | null;
+  id: number; course_id: number; course_code: string | null; date: string; kind: Kind;
+  periods: number[] | null; period_times: PeriodTimes | null; classroom: string | null; note: string | null;
 };
 /** periods: 対象の時限（コースの既定値と同じボタンで選ぶ）。times: 時限ごとの時刻（いつもの時刻が入っていて、そこから変える） */
 type Draft = { courseId: string; courseCode: string; kind: Kind; date: string; periods: number[]; times: Record<number, { start: string; end: string }>; classroom: string; note: string };
@@ -90,9 +91,12 @@ function nextDateOf(wday: Weekday | null, today: string): string {
   return toYmd(x);
 }
 
-/** その時限のいつもの時刻（時間割にない時限なら、時限の本来の時刻） */
-function usualTimeOf(usual: Usual | null, p: number): { start: string; end: string } {
-  const own = usual?.times[p];
+/**
+ * その時限の既定の時刻（既定値にない時限なら、時限の本来の時刻）。
+ * 補講は既定値の日とは別の日に行うので、いつも本来の時刻と比べる（plain = true）
+ */
+function usualTimeOf(usual: Usual | null, p: number, plain = false): { start: string; end: string } {
+  const own = plain ? undefined : usual?.times[p];
   if (own) return own;
   const base = periodTime(p);
   return base ? { start: hhmm(base.start), end: hhmm(base.end) } : { start: '', end: '' };
@@ -114,9 +118,9 @@ export default function AdminClassExceptions({ onChanged }: { onChanged?: () => 
       supabase.rpc('admin_list_lms_courses'),
       // 今日以降のもの（過ぎたものは出さない）
       supabase.from('class_exceptions')
-        .select('id, course_id, course_code, date, kind, period, start_time, end_time, classroom, note')
+        .select('id, course_id, course_code, date, kind, periods, period_times, classroom, note')
         .gte('date', today)
-        .order('date').order('period', { nullsFirst: true }),
+        .order('date').order('course_id'),
       fetchCourseOptions(),
       supabase.from('lms_course_defaults').select('course_id, course_code, wday, periods, classroom, period_times, start_time, end_time'),
     ]);
@@ -143,7 +147,9 @@ export default function AdminClassExceptions({ onChanged }: { onChanged?: () => 
   const offDay = !!(draft && usual?.wday && draft.date && draft.kind !== 'extra'
     && new Date(`${draft.date}T12:00:00`).getDay() !== WEEKDAY_INDEX[usual.wday]);
   const selected = draft ? [...draft.periods].sort((a, b) => a - b) : [];
-  const timeChanged = (p: number, key: 'start' | 'end') => !!draft && (draft.times[p]?.[key] ?? '') !== usualTimeOf(usual, p)[key];
+  // 既定値の時限から選び直したか（時限を動かした・減らした・増やした）
+  const periodsChanged = !!draft && JSON.stringify(selected) !== JSON.stringify(usual?.periods ?? []);
+  const timeChanged = (p: number, key: 'start' | 'end') => !!draft && (draft.times[p]?.[key] ?? '') !== usualTimeOf(usual, p, draft?.kind === 'extra')[key];
 
   // 入力の確認（足りないものがあれば、その理由）
   const problem = useMemo(() => {
@@ -153,31 +159,45 @@ export default function AdminClassExceptions({ onChanged }: { onChanged?: () => 
     if (selected.length === 0) return '時限を選んでください';
     const bad = selected.find((p) => { const t = draft.times[p]; return t?.start && t?.end && t.start >= t.end; });
     if (bad) return `${bad}限: 終了は開始より後にしてください`;
-    if (draft.kind === 'change' && !selected.some((p) => timeChanged(p, 'start') || timeChanged(p, 'end')) && draft.classroom.trim() === usualRoom)
-      return '既定値から、時刻か教室を変えてください';
+    if (draft.kind === 'change' && !periodsChanged && !selected.some((p) => timeChanged(p, 'start') || timeChanged(p, 'end')) && draft.classroom.trim() === usualRoom)
+      return '既定値から、時限・時刻・教室のどれかを変えてください';
     return null;
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [draft, usual, usualRoom]);
 
   const save = async () => {
     if (!draft || problem) return;
+    const courseId = Number(draft.courseId);
+    const code = draft.courseCode || null;
+    // 1 つの授業・1 日・1 対象につき 1 件。すでにあれば置き換える
+    const existing = rows?.find((r) => r.course_id === courseId && (r.course_code ?? null) === code && r.date === draft.date);
+    if (existing && !window.confirm(`${dateLabel(draft.date)} の${courseName(courseId)}には、すでに変更（${KIND_LABEL[existing.kind]}）が登録されています。置き換えますか？`)) return;
     setSaving(true);
-    const base = { course_id: Number(draft.courseId), course_code: draft.courseCode || null, date: draft.date, kind: draft.kind, note: draft.note.trim() || null };
-    const room = draft.kind === 'cancel' || !draft.classroom.trim() || draft.classroom.trim() === usualRoom ? null : draft.classroom.trim();
-    const anyTime = draft.kind !== 'cancel' && selected.some((p) => timeChanged(p, 'start') || timeChanged(p, 'end'));
-    // いつもの時限をすべて選び、時刻を変えていない（休講・教室だけの変更）ときは「全時限」で 1 件。
-    // それ以外は時限ごとに 1 件ずつ、いつもと違う時刻だけを入れる
-    const allUsual = !!usual?.periods.length && draft.kind !== 'extra' && usual.periods.every((p) => selected.includes(p)) && selected.length === usual.periods.length;
-    const rowsToInsert = allUsual && !anyTime
-      ? [{ ...base, period: null, start_time: null, end_time: null, classroom: room }]
-      : selected.map((p) => ({
-          ...base,
-          period: p,
-          start_time: draft.kind === 'cancel' || !timeChanged(p, 'start') ? null : draft.times[p]?.start || null,
-          end_time: draft.kind === 'cancel' || !timeChanged(p, 'end') ? null : draft.times[p]?.end || null,
-          classroom: room,
-        }));
-    const { error } = await supabase.from('class_exceptions').insert(rowsToInsert);
+    // 時限: 既定値の時限と同じなら空（既定値どおり）。補講は足す時限
+    const periods = draft.kind !== 'extra' && !periodsChanged ? null : selected;
+    // 時刻: 既定値（補講は本来の時刻）と違う時限の、違うところだけ
+    const times: PeriodTimes = {};
+    if (draft.kind !== 'cancel') {
+      for (const p of selected) {
+        const t: { start?: string; end?: string } = {};
+        if (timeChanged(p, 'start') && draft.times[p]?.start) t.start = draft.times[p].start;
+        if (timeChanged(p, 'end') && draft.times[p]?.end) t.end = draft.times[p].end;
+        if (t.start || t.end) times[String(p)] = t;
+      }
+    }
+    const row = {
+      course_id: courseId,
+      course_code: code,
+      date: draft.date,
+      kind: draft.kind,
+      periods,
+      period_times: Object.keys(times).length ? times : null,
+      classroom: draft.kind === 'cancel' || !draft.classroom.trim() || draft.classroom.trim() === usualRoom ? null : draft.classroom.trim(),
+      note: draft.note.trim() || null,
+    };
+    const { error } = existing
+      ? await supabase.from('class_exceptions').update(row).eq('id', existing.id)
+      : await supabase.from('class_exceptions').insert(row);
     setSaving(false);
     if (error) {
       toast.error(`登録できませんでした: ${dbErrorText(error)}`);
@@ -216,7 +236,7 @@ export default function AdminClassExceptions({ onChanged }: { onChanged?: () => 
         next = {
           ...next,
           periods,
-          times: Object.fromEntries(periods.map((p) => [p, usualTimeOf(u, p)])),
+          times: Object.fromEntries(periods.map((p) => [p, usualTimeOf(u, p, next.kind === 'extra')])),
           classroom: u?.classroom ?? '',
           date: courseChanged && next.kind !== 'extra' ? nextDateOf(u?.wday ?? null, today) : next.date,
         };
@@ -233,12 +253,12 @@ export default function AdminClassExceptions({ onChanged }: { onChanged?: () => 
       return {
         ...d,
         periods: on ? d.periods.filter((x) => x !== p) : [...d.periods, p],
-        times: on ? d.times : { ...d.times, [p]: d.times[p] ?? usualTimeOf(usual, p) },
+        times: on ? d.times : { ...d.times, [p]: d.times[p] ?? usualTimeOf(usual, p, d.kind === 'extra') },
       };
     });
   };
   const setTime = (p: number, key: 'start' | 'end', value: string) =>
-    setDraft((d) => (d ? { ...d, times: { ...d.times, [p]: { ...(d.times[p] ?? usualTimeOf(usual, p)), [key]: value } } } : d));
+    setDraft((d) => (d ? { ...d, times: { ...d.times, [p]: { ...(d.times[p] ?? usualTimeOf(usual, p, d.kind === 'extra')), [key]: value } } } : d));
 
   return (
     <div className="space-y-3">
@@ -254,11 +274,13 @@ export default function AdminClassExceptions({ onChanged }: { onChanged?: () => 
                   <span className="font-bold text-fg tabular-nums">{dateLabel(r.date)}</span>
                   <span className={`inline-flex items-center h-5 px-2 rounded-full border text-xs font-bold ${KIND_CLASS[r.kind]}`}><span className="pill-text">{KIND_LABEL[r.kind]}</span></span>
                   <span className="font-semibold text-fg">{courseName(r.course_id)}</span>
-                  <span className="text-fg-muted">{r.period ? `${r.period}限` : '全時限'}</span>
+                  <span className="text-fg-muted">{r.periods?.length ? `${[...r.periods].sort((a, b) => a - b).join('・')}限` : '既定値の時限'}</span>
                 </p>
                 <p className="mt-0.5 text-fg-muted">
                   {[
-                    (r.start_time || r.end_time) && `時刻 ${hm(r.start_time)}〜${hm(r.end_time)}`,
+                    Object.keys(r.period_times ?? {}).length > 0 && `時刻 ${Object.entries(r.period_times ?? {})
+                      .sort(([a], [b]) => Number(a) - Number(b))
+                      .map(([p, t]) => `${p}限 ${t.start ?? ''}〜${t.end ?? ''}`).join('・')}`,
                     r.classroom && `教室 ${r.classroom}`,
                     targetName(r.course_code) && `対象 ${targetName(r.course_code)}`,
                     r.note,
@@ -352,7 +374,8 @@ export default function AdminClassExceptions({ onChanged }: { onChanged?: () => 
                     );
                   })}
                 </div>
-                {draft.kind !== 'extra' && <p className="mt-1 text-xs text-fg-subtle">既定値の時限が選ばれています。変える・休む時限だけにするときは、ほかの時限を外してください。</p>}
+                {draft.kind === 'change' && <p className="mt-1 text-xs text-fg-subtle">既定値の時限が選ばれています。その日の授業の時限に選び直してください（例: 2 限 → 4 限に動かすなら 2 を外して 4 を選ぶ）。</p>}
+                {draft.kind === 'cancel' && <p className="mt-1 text-xs text-fg-subtle">既定値の時限が選ばれています。一部の時限だけ休むときは、ほかの時限を外してください。</p>}
               </fieldset>
 
               {/* 5. 時刻（時限ごと。いつもの時刻が入っている）と教室。変えたところだけ登録する */}
@@ -361,8 +384,8 @@ export default function AdminClassExceptions({ onChanged }: { onChanged?: () => 
                   <legend className="text-sm font-semibold text-fg mb-1">時刻</legend>
                   <div className="space-y-1.5">
                     {selected.map((p) => {
-                      const t = draft.times[p] ?? usualTimeOf(usual, p);
-                      const u = usualTimeOf(usual, p);
+                      const t = draft.times[p] ?? usualTimeOf(usual, p, draft?.kind === 'extra');
+                      const u = usualTimeOf(usual, p, draft?.kind === 'extra');
                       return (
                         <div key={p} className="flex flex-wrap items-center gap-2">
                           <span className="w-10 text-sm font-bold text-accent">{p}限</span>

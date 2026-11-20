@@ -82,9 +82,9 @@ async function runClassReminders(supabase: SupabaseClient, now: Date) {
   const today = toJst(now).date;
   const { data: todayExceptions, error: exError } = await supabase
     .from("class_exceptions")
-    .select("start_time")
+    .select("period_times")
     .eq("date", today)
-    .not("start_time", "is", null);
+    .not("period_times", "is", null);
   if (exError) throw exError;
   // 調整した開始時刻（以前の形の start_time と、時限ごとの period_times の start、今日のイレギュラーな授業回）
   const extraStarts = [
@@ -92,7 +92,8 @@ async function runClassReminders(supabase: SupabaseClient, now: Date) {
       r.start_time as string | null,
       ...Object.values((r.period_times ?? {}) as Record<string, { start?: string }>).map((t) => t?.start ?? null),
     ]),
-    ...(todayExceptions ?? []).map((r) => r.start_time as string),
+    ...(todayExceptions ?? []).flatMap((r) =>
+      Object.values((r.period_times ?? {}) as Record<string, { start?: string }>).map((t) => t?.start ?? null)),
   ];
   if (!isNearAnyClassStart(now, extraStarts)) return 0;
 
