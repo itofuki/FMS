@@ -5,6 +5,7 @@ import { dbErrorText } from '../lib/dbError';
 import { supabase } from '../lib/supabaseClient';
 import ChapterFrame, { CENTER_PANEL, LIST_GROUP, LIST_GROUP_HEADING, PAGE_GRID, SIDE_TITLE, SIDE_WIDGET } from './ChapterFrame';
 import AssignmentCalendar from './AssignmentCalendar';
+import { KIND_STYLE, kindOf } from '../lib/assignmentKind';
 import { jstYmd } from '../lib/schedule';
 import { PageSkeleton } from './Skeleton';
 import { FiPlus, FiTrash2, FiInbox, FiTool, FiLink, FiEdit2, FiX, FiInfo, FiRefreshCw, FiPaperclip, FiPlay, FiExternalLink, FiMoreVertical, FiAlertTriangle } from 'react-icons/fi';
@@ -92,13 +93,16 @@ function NoticeBar({ tone, title, description, action }: { tone: keyof typeof NO
 }
 
 // グループの色（期限が近いほど強い色）。進み具合バーと小見出しの印で共通
+// 締切の近さの色（信号と同じく、直感的に分かる色）:
+//   期限切れ = 濃い赤（もう遅い）、24時間以内 = 赤（危ない）、1週間以内 = 黄（注意）、それ以降 = 水色（まだ余裕）、完了 = 緑
 const GROUP_STYLE: Record<AssignmentGroupKey, { bar: string }> = {
-  done: { bar: 'bg-up' },
-  overdue: { bar: 'bg-down' },
-  today: { bar: 'bg-down/60' },
-  week: { bar: 'bg-warn' },
-  later: { bar: 'bg-line-strong' },
+  done: { bar: 'bg-emerald-500' },
+  overdue: { bar: 'bg-red-800 dark:bg-red-700' },
+  today: { bar: 'bg-red-500' },
+  week: { bar: 'bg-amber-400' },
+  later: { bar: 'bg-sky-400' },
 };
+
 // 進み具合バーの並び（完了を左端に）
 const SUMMARY_ORDER: AssignmentGroupKey[] = ['done', 'overdue', 'today', 'week', 'later'];
 
@@ -544,11 +548,8 @@ const Assignments: React.FC<AssignmentsProps> = ({ subject }) => {
         <div className={`flex-1 min-w-0 transition-opacity duration-300 ${moreMenu ? 'pr-9' : ''} ${isDone ? 'opacity-70' : ''}`}>
           {/* 1行目: 科目・種別・締切・残り時間 */}
           <div className="flex flex-wrap items-center gap-x-2.5 gap-y-1 text-sm">
-            <span className="font-semibold text-link truncate max-w-[60%]">{subjectName}</span>
-            {assignment.isLms && <span className="text-xs text-fg-subtle">LMS</span>}
-            {!assignment.isLms && assignment.classification === 'official' && (
-              <span className="text-xs px-1.5 rounded bg-warn-soft text-warn font-semibold">公式</span>
-            )}
+            {/* 科目名の色で課題の種類（公式＝青緑、個人＝紫） */}
+            <span className={`font-semibold truncate max-w-[60%] ${KIND_STYLE[kindOf(assignment)].text}`} title={KIND_STYLE[kindOf(assignment)].label}>{subjectName}</span>
             {assignment.submissionStatus === 'draft' && (
               <span className="text-xs px-1.5 rounded bg-accent-soft text-accent font-semibold">下書き</span>
             )}
@@ -845,7 +846,8 @@ const Assignments: React.FC<AssignmentsProps> = ({ subject }) => {
           <p className="text-fg-muted text-sm">{isAdminMode ? '表示できる公式課題はありません' : '直近2週間の課題はありません 🎉'}</p>
         </div>
       ) : (
-        displayGroups.map(group => {
+        <>
+        {displayGroups.map(group => {
           const collapsed = group.key === 'done' && !showDone;
           return (
             <section key={group.key} className={LIST_GROUP}>
@@ -875,7 +877,8 @@ const Assignments: React.FC<AssignmentsProps> = ({ subject }) => {
               )}
             </section>
           );
-        })
+        })}
+        </>
       )}
         </div>
       </div>

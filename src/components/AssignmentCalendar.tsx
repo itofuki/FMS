@@ -1,25 +1,20 @@
 /* src/components/AssignmentCalendar.tsx
  * 課題の締切を月のカレンダーで見る（Open LMS のアプリのカレンダーと同じ使い方）。
- * 締切のある日に点（期限が近いほど強い色）を付け、日付を押すとその日を選ぶ（その日の課題は課題ページが下に並べる）。
+ * 締切のある日に点（公式課題は青緑、個人課題は紫）を付け、日付を押すとその日を選ぶ（その日の課題は課題ページが下に並べる）。
  * 日付は日本時間で数える。
  */
 import { useMemo, useState } from 'react';
 import { FiChevronLeft, FiChevronRight } from 'react-icons/fi';
 import type { UnifiedAssignment } from '../lib/assignments';
+import { KIND_STYLE, kindOf } from '../lib/assignmentKind';
 import { jstYmd } from '../lib/schedule';
 
 const WEEK = ['日', '月', '火', '水', '木', '金', '土'];
-const DAY_MS = 24 * 60 * 60 * 1000;
 
 
 /** 点の色: 完了は緑、期限切れ・24時間以内は赤、3日以内は黄、それ以外はアクセント */
-const dotClass = (a: UnifiedAssignment, now: number) => {
-  if (a.done) return 'bg-up/60';
-  const left = new Date(a.deadline).getTime() - now;
-  if (left <= DAY_MS) return 'bg-down';
-  if (left <= 3 * DAY_MS) return 'bg-warn';
-  return 'bg-accent';
-};
+// ●の色は課題の種類（公式＝青緑、個人＝紫。課題の一覧の科目名と同じ色）。完了したものは薄く
+const dotClass = (a: UnifiedAssignment) => `${KIND_STYLE[kindOf(a)].dot} ${a.done ? 'opacity-35' : ''}`;
 
 export default function AssignmentCalendar({ items, selected, onSelect }: {
   items: UnifiedAssignment[];
@@ -67,7 +62,6 @@ export default function AssignmentCalendar({ items, selected, onSelect }: {
     setMonth({ y, m });
     onSelect(today);
   };
-  const now = Date.now();
 
   return (
     <div className="px-2 sm:px-4 pt-3 pb-4 border-b border-line">
@@ -129,7 +123,7 @@ export default function AssignmentCalendar({ items, selected, onSelect }: {
               </span>
               {/* 締切の点（3 件まで。それ以上は「+」） */}
               <span className="flex items-center gap-0.5 h-1.5" aria-hidden="true">
-                {list.slice(0, 3).map((a) => <span key={`${a.isLms ? "lms" : "db"}-${a.id}`} className={`w-1.5 h-1.5 rounded-full ${dotClass(a, now)}`} />)}
+                {list.slice(0, 3).map((a) => <span key={`${a.isLms ? "lms" : "db"}-${a.id}`} className={`w-1.5 h-1.5 rounded-full ${dotClass(a)}`} />)}
                 {list.length > 3 && <span className="text-[9px] leading-none text-fg-muted">+</span>}
               </span>
             </button>
