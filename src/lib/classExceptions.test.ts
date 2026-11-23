@@ -44,3 +44,11 @@ describe('画面の時間割へのイレギュラーな授業回の当てはめ�
     expect(list[3].id.split('-')[0]).toBe('3');
   });
 });
+
+describe('臨時授業', () => {
+  it('id は「x」で始まり、LMS のコースとは結び付けない', () => {
+    const list = applyClassExceptions([], [{ id: 7, course_id: -7, name: '臨時ゼミ', date: '2026-11-25', kind: 'extra', periods: [5], period_times: null, classroom: '401', note: null, attendance_id: null }], '2026-11-25', 'Wed', []);
+    expect(list).toHaveLength(1);
+    expect(list[0]).toMatchObject({ id: 'x7-Wed-5-extra', name: '臨時ゼミ', classroom: '401', status: 'extra' });
+  });
+});

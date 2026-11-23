@@ -106,10 +106,12 @@ export function buildCalendar(opts: {
         if (!base) continue;
         // 管理者が調整した時刻（イレギュラーな授業回の時刻を含む）があればそれを使う
         const time = { start: hm(c.start_time, base.start), end: hm(c.end_time, base.end) };
-        const url = c.attendance_id
+        // 臨時授業（id が負の数）は LMS にないので、リンクを付けない
+        const personal = Number(c.id) < 0;
+        const url = personal ? "" : c.attendance_id
           ? `${LMS_BASE}/mod/attendance/view.php?id=${c.attendance_id}`
           : `${LMS_BASE}/course/view.php?id=${String(c.id).split("-")[0]}`;
-        const label = c.exception === "extra" ? "（補講）" : c.exception === "change" ? "（変更）" : "";
+        const label = personal ? "（臨時）" : c.exception === "extra" ? "（補講）" : c.exception === "change" ? "（変更）" : "";
         const desc = [c.exception_note ?? "", c.teacher ? `担当: ${c.teacher}` : "", url].filter(Boolean).join("\n");
         lines.push(
           "BEGIN:VEVENT",
@@ -120,7 +122,7 @@ export function buildCalendar(opts: {
           `SUMMARY:${escapeText(`${c.period}限 ${c.name}${label}`)}`,
           ...(c.classroom ? [`LOCATION:${escapeText(c.classroom)}`] : []),
           `DESCRIPTION:${escapeText(desc)}`,
-          `URL:${url}`,
+          ...(url ? [`URL:${url}`] : []),
           "CATEGORIES:授業",
           "TRANSP:OPAQUE",
           "END:VEVENT",

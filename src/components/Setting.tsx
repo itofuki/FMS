@@ -10,6 +10,7 @@ import ChapterFrame, { CENTER_PANEL, PAGE_GRID, SIDE_TITLE, SIDE_WIDGET } from "
 import { PageSkeleton } from "./Skeleton";
 import CalendarFeedSettings from "./CalendarFeedSettings";
 import LmsCourseSettings from "./LmsCourseSettings";
+import AdminExtraClasses from "./AdminExtraClasses";
 import AvatarSettings from "./AvatarSettings";
 import AdminCourseDefaults from "./AdminCourseDefaults";
 import AdminClassExceptions from "./AdminClassExceptions";
@@ -71,6 +72,7 @@ const SECTIONS: { id: string; label: string; group: SettingGroup }[] = [
   { id: 'settings-account', label: 'アカウント', group: 'general' },
   { id: 'settings-admin-defaults', label: 'コースの既定値', group: 'admin' },
   { id: 'settings-admin-exceptions', label: '授業の変更', group: 'admin' },
+  { id: 'settings-admin-extra', label: '臨時授業', group: 'admin' },
   { id: 'settings-root-menus', label: 'メニューの表示', group: 'root' },
   { id: 'settings-root-roles', label: '権限の管理', group: 'root' },
 ];
@@ -467,11 +469,14 @@ export default function Setting({ onSettingsSaved }: SettingProps) {
           {/* 管理者だけ: コースの既定値（曜日・時限・時刻・教室）と、授業の変更（休講・補講など） */}
           {isAdmin && group === 'admin' && (
             <>
-            <SettingsCard id="settings-admin-defaults" title="コースの既定値" description="コースごとの曜日・時限・時刻・教室・担当の先生の既定値です。曜日・時限・教室は本人が設定した値が優先されます。">
+            <SettingsCard id="settings-admin-defaults" title="コースの既定値" description="コースごとの曜日・時限・時刻・教室・担当の先生の既定値です。学生の時間割はこの値を使います。授業ではない名目上のコースも指定できます。">
               <AdminCourseDefaults onChanged={onSettingsSaved} />
             </SettingsCard>
             <SettingsCard id="settings-admin-exceptions" title="授業の変更" description="休講・時刻や教室の変更・補講を、日付を指定して登録します。その日は時間割・授業前の通知・カレンダー連携でこちらを優先します。">
               <AdminClassExceptions onChanged={onSettingsSaved} />
+            </SettingsCard>
+            <SettingsCard id="settings-admin-extra" title="臨時授業" description="LMS にない授業を、日付を指定して登録します。対象の学生の時間割・授業前の通知・カレンダー連携に「臨時」として出ます。">
+              <AdminExtraClasses onChanged={onSettingsSaved} />
             </SettingsCard>
             </>
           )}

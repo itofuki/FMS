@@ -11,7 +11,7 @@
  */
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { toast } from 'sonner';
-import { FiPlus, FiTrash2 } from 'react-icons/fi';
+import { FiEdit2, FiPlus, FiTrash2 } from 'react-icons/fi';
 import { supabase } from '../lib/supabaseClient';
 import { fetchCourseOptions } from '../lib/courses';
 import { dbErrorText } from '../lib/dbError';
@@ -25,6 +25,7 @@ type PeriodTimes = Record<string, { start?: string; end?: string }>;
 type CourseDefault = {
   course_id: number; course_code: string | null; wday: Weekday | null; periods: number[] | null;
   classroom: string | null; period_times: PeriodTimes | null; start_time: string | null; end_time: string | null;
+  not_a_class: boolean;
 };
 /** いつもの授業（曜日・時限・時限ごとの時刻・教室） */
 type Usual = { wday: Weekday | null; periods: number[]; times: Record<number, { start: string; end: string }>; classroom: string };
@@ -34,7 +35,8 @@ type Row = {
   periods: number[] | null; period_times: PeriodTimes | null; classroom: string | null; note: string | null;
 };
 /** periods: 対象の時限（コースの既定値と同じボタンで選ぶ）。times: 時限ごとの時刻（いつもの時刻が入っていて、そこから変える） */
-type Draft = { courseId: string; courseCode: string; kind: Kind; date: string; periods: number[]; times: Record<number, { start: string; end: string }>; classroom: string; note: string };
+/** id: 編集中の登録（新しく登録するときは空） */
+type Draft = { id?: number; courseId: string; courseCode: string; kind: Kind; date: string; periods: number[]; times: Record<number, { start: string; end: string }>; classroom: string; note: string };
 
 const KIND_OPTIONS: { value: Kind; label: string }[] = [
   { value: 'change', label: '時刻・教室の変更' },
@@ -45,7 +47,7 @@ const KIND_LABEL: Record<Kind, string> = { change: '変更', cancel: '休講', e
 const KIND_CLASS: Record<Kind, string> = {
   change: 'bg-warn-soft text-warn border-warn/40',
   cancel: 'bg-down-soft text-down border-down/40',
-  extra: 'bg-accent-soft text-accent border-accent/40',
+  extra: 'bg-blue-50 text-blue-700 border-blue-300 dark:bg-blue-400/10 dark:text-blue-300 dark:border-blue-400/40',
 };
 const WD = ['日', '月', '火', '水', '木', '金', '土'];
 const hm = (v: string | null) => (v ? v.slice(0, 5) : '');
@@ -122,7 +124,7 @@ export default function AdminClassExceptions({ onChanged }: { onChanged?: () => 
         .gte('date', today)
         .order('date').order('course_id'),
       fetchCourseOptions(),
-      supabase.from('lms_course_defaults').select('course_id, course_code, wday, periods, classroom, period_times, start_time, end_time'),
+      supabase.from('lms_course_defaults').select('course_id, course_code, wday, periods, classroom, period_times, start_time, end_time, not_a_class'),
     ]);
     if (c.error) toast.error(`コースの一覧を読めませんでした: ${dbErrorText(c.error)}`);
     setCourseDefaults((d.data ?? []) as CourseDefault[]);
@@ -169,9 +171,17 @@ export default function AdminClassExceptions({ onChanged }: { onChanged?: () => 
     if (!draft || problem) return;
     const courseId = Number(draft.courseId);
     const code = draft.courseCode || null;
-    // 1 つの授業・1 日・1 対象につき 1 件。すでにあれば置き換える
-    const existing = rows?.find((r) => r.course_id === courseId && (r.course_code ?? null) === code && r.date === draft.date);
-    if (existing && !window.confirm(`${dateLabel(draft.date)} の${courseName(courseId)}には、すでに変更（${KIND_LABEL[existing.kind]}）が登録されています。置き換えますか？`)) return;
+    // 1 つの授業・1 日・1 対象につき 1 件。編集中ならその登録を、新しく登録するときは同じ授業・日の登録があれば置き換える
+    const existing = draft.id != null
+      ? rows?.find((r) => r.id === draft.id)
+      : rows?.find((r) => r.course_id === courseId && (r.course_code ?? null) === code && r.date === draft.date);
+    // 編集で授業・日・対象を変えて、ほかの登録と重なるとき
+    const clash = draft.id != null && rows?.find((r) => r.id !== draft.id && r.course_id === courseId && (r.course_code ?? null) === code && r.date === draft.date);
+    if (clash) {
+      toast.error(`${dateLabel(draft.date)} の${courseName(courseId)}には、ほかの変更が登録されています。先にそちらを削除してください。`);
+      return;
+    }
+    if (existing && draft.id == null && !window.confirm(`${dateLabel(draft.date)} の${courseName(courseId)}には、すでに変更（${KIND_LABEL[existing.kind]}）が登録されています。置き換えますか？`)) return;
     setSaving(true);
     // 時限: 既定値の時限と同じなら空（既定値どおり）。補講は足す時限
     const periods = draft.kind !== 'extra' && !periodsChanged ? null : selected;
@@ -245,6 +255,28 @@ export default function AdminClassExceptions({ onChanged }: { onChanged?: () => 
     });
   };
 
+  /** 登録済みの変更を編集する（登録した内容を、既定値に重ねてフォームに入れる） */
+  const startEdit = (r: Row) => {
+    const u = usualOf(courses.find((c) => c.course_id === r.course_id), courseDefaults, r.course_code ?? '');
+    const periods = [...(r.periods ?? u?.periods ?? [])].sort((a, b) => a - b);
+    setDraft({
+      id: r.id,
+      courseId: String(r.course_id),
+      courseCode: r.course_code ?? '',
+      kind: r.kind,
+      date: r.date,
+      periods,
+      times: Object.fromEntries(periods.map((p) => {
+        const base = usualTimeOf(u, p, r.kind === 'extra');
+        const own = r.period_times?.[String(p)];
+        return [p, { start: own?.start || base.start, end: own?.end || base.end }];
+      })),
+      classroom: r.classroom ?? u?.classroom ?? '',
+      note: r.note ?? '',
+    });
+    requestAnimationFrame(() => document.getElementById('ex-form')?.scrollIntoView({ behavior: 'smooth', block: 'start' }));
+  };
+
   /** 時限のボタン: 選ぶと、その時限のいつもの時刻を入れる */
   const togglePeriod = (p: number) => {
     setDraft((d) => {
@@ -267,29 +299,38 @@ export default function AdminClassExceptions({ onChanged }: { onChanged?: () => 
         <p className="text-sm text-fg-muted">これからの授業の変更はありません。</p>
       ) : (
         <ul className="divide-y divide-line border border-line rounded-lg">
-          {rows.map((r) => (
-            <li key={r.id} className="flex items-start justify-between gap-3 px-4 py-2.5">
-              <div className="min-w-0 text-sm">
-                <p className="flex flex-wrap items-center gap-x-2 gap-y-1">
-                  <span className="font-bold text-fg tabular-nums">{dateLabel(r.date)}</span>
-                  <span className={`inline-flex items-center h-5 px-2 rounded-full border text-xs font-bold ${KIND_CLASS[r.kind]}`}><span className="pill-text">{KIND_LABEL[r.kind]}</span></span>
-                  <span className="font-semibold text-fg">{courseName(r.course_id)}</span>
-                  <span className="text-fg-muted">{r.periods?.length ? `${[...r.periods].sort((a, b) => a - b).join('・')}限` : '既定値の時限'}</span>
-                </p>
-                <p className="mt-0.5 text-fg-muted">
-                  {[
-                    Object.keys(r.period_times ?? {}).length > 0 && `時刻 ${Object.entries(r.period_times ?? {})
-                      .sort(([a], [b]) => Number(a) - Number(b))
-                      .map(([p, t]) => `${p}限 ${t.start ?? ''}〜${t.end ?? ''}`).join('・')}`,
-                    r.classroom && `教室 ${r.classroom}`,
-                    targetName(r.course_code) && `対象 ${targetName(r.course_code)}`,
-                    r.note,
-                  ].filter(Boolean).join('・')}
-                </p>
-              </div>
-              <button type="button" aria-label="削除" onClick={() => remove(r)} className="flex-shrink-0 p-1.5 rounded-md text-down hover:bg-down-soft"><FiTrash2 size={14} /></button>
-            </li>
-          ))}
+          {rows.map((r) => {
+            // 時限: 登録した時限、なければ既定値の時限（実際の時限を出す）
+            const ps = r.periods?.length ? r.periods : usualOf(courses.find((c) => c.course_id === r.course_id), courseDefaults, r.course_code ?? '')?.periods ?? [];
+            return (
+              <li key={r.id} className="flex items-start justify-between gap-3 px-4 py-2.5">
+                <div className="min-w-0 text-sm">
+                  {/* 1 行目: 種類のしるしと授業名 */}
+                  <p className="flex items-center gap-2">
+                    <span className={`flex-shrink-0 inline-flex items-center h-5 px-2 rounded-full border text-xs font-bold ${KIND_CLASS[r.kind]}`}><span className="pill-text">{KIND_LABEL[r.kind]}</span></span>
+                    <span className="font-semibold text-fg truncate">{courseName(r.course_id)}</span>
+                  </p>
+                  {/* 2 行目: 日付・時限・時刻・教室・対象・メモ */}
+                  <p className="mt-1 text-fg-muted">
+                    <span className="font-semibold text-fg tabular-nums">{dateLabel(r.date)}</span>
+                    {[
+                      ps.length > 0 && `${[...ps].sort((a, b) => a - b).join('・')}限`,
+                      Object.keys(r.period_times ?? {}).length > 0 && `時刻 ${Object.entries(r.period_times ?? {})
+                        .sort(([a], [b]) => Number(a) - Number(b))
+                        .map(([p, t]) => `${p}限 ${t.start ?? ''}〜${t.end ?? ''}`).join('・')}`,
+                      r.classroom && `教室 ${r.classroom}`,
+                      targetName(r.course_code) && `対象 ${targetName(r.course_code)}`,
+                      r.note,
+                    ].filter(Boolean).map((t) => <span key={String(t)}><span className="mx-1.5 text-fg-subtle">·</span>{t}</span>)}
+                  </p>
+                </div>
+                <span className="flex-shrink-0 flex items-center gap-1">
+                  <button type="button" aria-label="編集" onClick={() => startEdit(r)} className="p-1.5 rounded-md text-fg-muted hover:text-fg hover:bg-surface-3"><FiEdit2 size={14} /></button>
+                  <button type="button" aria-label="削除" onClick={() => remove(r)} className="p-1.5 rounded-md text-down hover:bg-down-soft"><FiTrash2 size={14} /></button>
+                </span>
+              </li>
+            );
+          })}
         </ul>
       )}
 
@@ -300,13 +341,17 @@ export default function AdminClassExceptions({ onChanged }: { onChanged?: () => 
           <span className="pill-text text-sm font-bold">授業の変更を登録</span>
         </button>
       ) : (
-        <div className="rounded-lg bg-surface-2 px-4 py-3 space-y-3">
+        <div id="ex-form" className="scroll-mt-20 rounded-lg bg-surface-2 px-4 py-3 space-y-3">
+          {draft.id != null && <p className="text-sm font-bold text-fg">変更を編集</p>}
           {/* 1. 授業（選ぶと、いつもの授業の内容が下の欄に入る） */}
           <div>
             <label htmlFor="ex-course" className="block text-sm font-semibold text-fg mb-1">授業</label>
             <select id="ex-course" value={draft.courseId} onChange={(e) => changeDraft({ courseId: e.target.value }, true)} className={`${inputClass} w-full max-w-md`}>
               <option value="">選んでください</option>
-              {courses.map((c) => <option key={c.course_id} value={c.course_id}>{c.name}</option>)}
+              {/* 授業ではない名目上のコースは選べない */}
+              {courses
+                .filter((c) => !courseDefaults.some((d) => d.course_id === c.course_id && d.course_code === null && d.not_a_class))
+                .map((c) => <option key={c.course_id} value={c.course_id}>{c.name}</option>)}
             </select>
           </div>
 
@@ -417,7 +462,7 @@ export default function AdminClassExceptions({ onChanged }: { onChanged?: () => 
           {problem && <p role="alert" className="text-xs text-down font-semibold">{problem}</p>}
           <div className="flex justify-end gap-2">
             <button type="button" onClick={() => setDraft(null)} className="h-9 px-4 rounded-md text-fg-muted hover:bg-surface-3"><span className="text-sm font-bold">やめる</span></button>
-            <button type="button" onClick={save} disabled={!!problem || saving} className="h-9 px-5 rounded-md bg-accent-solid hover:bg-accent-solid-hover text-on-accent disabled:opacity-50"><span className="text-sm font-bold">{saving ? '登録中...' : '登録'}</span></button>
+            <button type="button" onClick={save} disabled={!!problem || saving} className="h-9 px-5 rounded-md bg-accent-solid hover:bg-accent-solid-hover text-on-accent disabled:opacity-50"><span className="text-sm font-bold">{saving ? '保存中...' : draft.id != null ? '保存' : '登録'}</span></button>
           </div>
         </div>
       )}

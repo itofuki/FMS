@@ -244,7 +244,8 @@ export default function MyPage() {
     // 今日のイレギュラーな授業回を当てはめる（休講は開かない・補講は開く）
     const todaySubjects = todayKey
       ? applyClassExceptions(weeklySubjects[todayKey] || [], classExceptions, toYmd(now), todayKey, Object.values(weeklySubjects).flat())
-          .filter(s => s.status !== 'cancel')
+          // 休講と、臨時授業（LMS にないので開くページがない。id が「x」で始まる）は開かない
+          .filter(s => s.status !== 'cancel' && !s.id.startsWith('x'))
       : [];
 
     if (!autoOpenEnabled || loading || todaySubjects.length === 0) {

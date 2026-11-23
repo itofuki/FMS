@@ -7,10 +7,12 @@
  *   - 今日／週の切り替えは文字のボタン
  */
 import React, { Suspense, lazy, useCallback, useEffect, useMemo, useState } from 'react';
+import { createPortal } from 'react-dom';
 import { Link, useSearchParams } from 'react-router-dom';
-import { FiArrowRight, FiExternalLink, FiFileText, FiClock, FiCoffee, FiCheckCircle, FiAlertTriangle } from 'react-icons/fi';
+import { FiArrowRight, FiExternalLink, FiFileText, FiClock, FiCoffee, FiCheckCircle, FiAlertTriangle, FiMapPin, FiUser } from 'react-icons/fi';
 import ChapterFrame, { CENTER_PANEL, PAGE_GRID, SIDE_TITLE, SIDE_WIDGET } from './ChapterFrame';
 import { BsQrCodeScan } from 'react-icons/bs';
+import { TbClockEdit } from 'react-icons/tb';
 
 // QR の読み取り（カメラと jsQR）は、押したときだけ読み込む
 const QrScanner = lazy(() => import('./QrScanner'));
@@ -19,12 +21,12 @@ import { readAttendPrompt, type AttendPromptInfo } from '../lib/attendPrompt';
 import { applyClassExceptions, type ClassException } from '../lib/classExceptions';
 import { useUnifiedAssignments } from '../hooks/useUnifiedAssignments';
 import { useAttendance, type AttendanceMap } from '../hooks/useAttendance';
-import { absenceAllowance, type AttendanceSummary } from '../lib/attendance';
+import { type AttendanceSummary } from '../lib/attendance';
 import { useLmsIssue, type LmsIssue } from '../lib/lmsStatus';
 import type { Subject as AssignmentSubject } from '../lib/assignments';
 import {
-  PERIODS, WEEKDAYS, WEEKDAY_LABELS, formatHm, formatMinutes, focusSubject, minutesLeft,
-  nowInJst, periodState, periodTime, subjectTime, weekdayOf, currentPeriodLabel, mondayOf, toYmd,
+  PERIODS, WEEKDAYS, WEEKDAY_LABELS, formatHm, focusSubject, minutesLeft,
+  nowInJst, periodState, subjectTime, weekdayOf, currentPeriodLabel, mondayOf, toYmd,
 } from '../lib/schedule';
 import './Timetable.css';
 
@@ -44,14 +46,23 @@ export type Subject = {
   status?: 'cancel' | 'change' | 'extra';
   /** イレギュラーな授業回のメモ */
   note?: string | null;
+  /** イレギュラーな授業回で教室が変わったか */
+  roomChanged?: boolean;
+  /** イレギュラーな授業回でその日だけ時刻が変わったか（既定値でいつもずれている時刻とは分けて見せる） */
+  timeChanged?: boolean;
+  /** イレギュラーな授業回で、いつもはない時限に動かしたか */
+  periodMoved?: boolean;
 };
 export type Day = 'Mon' | 'Tue' | 'Wed' | 'Thu' | 'Fri';
 
 const LMS_BASE = 'https://lms-tokyo.iput.ac.jp';
 /** 出席IDがあれば出席ページ、なければコースページ */
 const courseUrl = (s: Subject) => `${LMS_BASE}/course/view.php?id=${s.id.split('-')[0]}`;
+/** 臨時授業（臨時授業など。LMS のコースではないので id が「x」で始まる） */
+const isPersonal = (s: Subject) => s.id.startsWith('x');
+/** 出席ページ（なければコースページ）。臨時授業は LMS にないので空 */
 const attendanceUrl = (s: Subject) =>
-  s.attendanceId ? `${LMS_BASE}/mod/attendance/view.php?id=${s.attendanceId}` : courseUrl(s);
+  isPersonal(s) ? '' : s.attendanceId ? `${LMS_BASE}/mod/attendance/view.php?id=${s.attendanceId}` : courseUrl(s);
 
 /** 出席を取る時間（開始10分前〜授業中）。この間だけ右の列の出席ボタンを目立たせる */
 const ATTENDANCE_LEAD_MIN = 10;
@@ -74,19 +85,30 @@ type TimelineItem =
   | { kind: 'class'; subject: Subject }
   | { kind: 'gap'; label: string; from: string; to: string };
 
-/** 授業の間に「昼休み」「空きコマ」を挟んだ並びを作る（時限を順に進め、3限に入る直前に昼休みを入れる） */
+/** 授業の間に、空き時間（空いた時限・昼休み・休み）を挟んだ並びを作る（実際の時刻で求める） */
 function buildTimeline(subjects: Subject[]): TimelineItem[] {
-  const sorted = [...subjects].sort((a, b) => a.period - b.period);
+  // 空き時間は、前後の授業の実際の時刻（管理者が調整した時刻・その日の変更を含む）から求める。
+  // そのため、まれに 1 限と 2 限の間に昼休みが入るような日でも、その時間が空きとして出る。
+  // 授業の間の通常の休み（10 分）より長いときだけ出す
+  const toMin = (t: { h: number; m: number }) => t.h * 60 + t.m;
+  const hm = (n: number) => `${Math.floor(n / 60)}:${String(n % 60).padStart(2, '0')}`;
+  const LUNCH = { from: 12 * 60 + 25, to: 13 * 60 + 20 };
+  const sorted = [...subjects]
+    .map((s) => ({ s, t: subjectTime(s) }))
+    .filter((x): x is { s: Subject; t: NonNullable<ReturnType<typeof subjectTime>> } => !!x.t)
+    .sort((a, b) => toMin(a.t.start) - toMin(b.t.start) || a.s.period - b.s.period);
   const items: TimelineItem[] = [];
-  sorted.forEach((s, i) => {
+  sorted.forEach(({ s, t }, i) => {
     const prev = sorted[i - 1];
     if (prev) {
-      for (let p = prev.period + 1; p <= s.period; p++) {
-        if (p === 3) items.push({ kind: 'gap', label: '昼休み', from: '12:25', to: '13:20' });
-        if (p < s.period) {
-          const t = periodTime(p);
-          if (t) items.push({ kind: 'gap', label: `空きコマ（${p}限）`, from: formatHm(t.start), to: formatHm(t.end) });
-        }
+      const from = toMin(prev.t.end);
+      const to = toMin(t.start);
+      if (to - from > 10) {
+        // 空き時間に丸ごと入る本来の時限と、本来の昼休みと 30 分以上重なるか
+        const periods = PERIODS.filter((p) => toMin(p.start) >= from && toMin(p.end) <= to).map((p) => `${p.period}限`);
+        const lunch = Math.min(to, LUNCH.to) - Math.max(from, LUNCH.from) >= 30 ? ['昼休み'] : [];
+        const label = [...periods, ...lunch].join('・') || '休み';
+        items.push({ kind: 'gap', label, from: hm(from), to: hm(to) });
       }
     }
     items.push({ kind: 'class', subject: s });
@@ -94,32 +116,21 @@ function buildTimeline(subjects: Subject[]): TimelineItem[] {
   return items;
 }
 
-function StateBadge({ state, minutes }: { state: 'current' | 'next' | 'after' | 'before'; minutes: number }) {
-  const map = {
-    current: { label: `授業中・あと${formatMinutes(minutes)}`, cls: 'bg-accent-soft text-accent border-accent/40', dot: 'bg-accent' },
-    next: { label: `次の授業・あと${formatMinutes(minutes)}`, cls: 'bg-warn-soft text-warn border-warn/40', dot: 'bg-warn' },
-    before: { label: 'これから', cls: 'bg-surface text-fg-muted border-line-strong', dot: 'bg-fg-subtle' },
-    after: { label: '終了', cls: 'bg-surface text-fg-subtle border-line', dot: 'bg-fg-subtle' },
-  }[state];
-  return (
-    <span className={`flex-shrink-0 inline-flex items-center gap-1 h-5 px-2 rounded-full border text-xs font-bold whitespace-nowrap ${map.cls}`}>
-      <span className={`w-1.5 h-1.5 rounded-full ${map.dot}`} aria-hidden="true" />
-      <span className="pill-text">{map.label}</span>
-    </span>
-  );
-}
+
 
 /** イレギュラーな授業回のしるし（休講・変更・補講） */
-function ExceptionBadge({ status, compact = false }: { status: Subject['status']; compact?: boolean }) {
+function ExceptionBadge({ status, compact = false, personal = false }: { status: Subject['status']; compact?: boolean; personal?: boolean }) {
   if (!status) return null;
   const map = {
     cancel: { label: '休講', cls: 'bg-down-soft text-down border-down/40' },
     change: { label: '変更', cls: 'bg-warn-soft text-warn border-warn/40' },
-    extra: { label: '補講', cls: 'bg-accent-soft text-accent border-accent/40' },
+    // 休講は赤、補講は青（大学のポータルなどでよく使われる色）
+    extra: { label: '補講', cls: 'bg-blue-50 text-blue-700 border-blue-300 dark:bg-blue-400/10 dark:text-blue-300 dark:border-blue-400/40' },
   }[status];
   return (
     <span className={`flex-shrink-0 inline-flex items-center rounded-full border font-bold whitespace-nowrap ${compact ? 'h-4 px-1.5 text-[10px]' : 'h-5 px-2 text-xs'} ${map.cls}`}>
-      <span className="pill-text">{map.label}</span>
+      {/* 臨時授業は「臨時」 */}
+      <span className="pill-text">{personal && status === 'extra' ? '臨時' : map.label}</span>
     </span>
   );
 }
@@ -132,6 +143,9 @@ function TodayTimeline({ subjects, now, assignmentCount, attendance }: { subject
   // 休講の授業は「授業中・次の授業」の対象にしない
   const focus = focusSubject(subjects.filter(x => x.status !== 'cancel'), now);
   const items = buildTimeline(subjects);
+  // スマホでは右の列（授業中・次の授業）を出さないので、出席の操作はその授業の行に出す。QR は ?scan=1 で読み取りを始める
+  const [, setSearchParams] = useSearchParams();
+  const startScan = () => setSearchParams((p) => { const n = new URLSearchParams(p); n.set('scan', '1'); return n; });
 
   if (subjects.length === 0) {
     return (
@@ -142,77 +156,125 @@ function TodayTimeline({ subjects, now, assignmentCount, attendance }: { subject
     );
   }
 
+  // 続く空きコマ・昼休みは 1 行にまとめる（帯を何本も並べない）
+  const rows: ({ kind: 'gaps'; gaps: Extract<TimelineItem, { kind: 'gap' }>[] } | Extract<TimelineItem, { kind: 'class' }>)[] = [];
+  for (const item of items) {
+    const last = rows[rows.length - 1];
+    if (item.kind === 'gap') {
+      if (last?.kind === 'gaps') last.gaps.push(item);
+      else rows.push({ kind: 'gaps', gaps: [item] });
+    } else rows.push(item);
+  }
+
   return (
     <ol className="divide-y divide-line">
-      {items.map((item, i) => {
-        if (item.kind === 'gap') {
+      {rows.map((row, i) => {
+        if (row.kind === 'gaps') {
           return (
-            <li key={`gap-${i}`} className="px-4 sm:px-5 py-2 bg-bg/50 text-sm text-fg-subtle">
-              {item.label}<span className="ml-3 tabular-nums">{item.from}〜{item.to}</span>
+            <li key={`gap-${i}`} className="px-4 sm:px-5 py-2 pl-[5rem] sm:pl-[5.25rem] text-xs text-fg-subtle">
+              {/* 続く空き時間は 1 つの範囲にまとめる（例: 空き 10:55〜13:20（2限・昼休み）） */}
+              空き {row.gaps[0].from}〜{row.gaps[row.gaps.length - 1].to}
+              <span className="ml-1">（{row.gaps.map((g) => g.label).join('・')}）</span>
             </li>
           );
         }
-        const s = item.subject;
+        const s = row.subject;
         // 時刻は授業ごと（管理者が調整していればその時刻）
         const t = subjectTime(s)!;
         const cancelled = s.status === 'cancel';
         // 休講は「終了」と同じく薄くする
         const state = cancelled ? 'after' : periodState(t, now);
         const isFocus = focus?.subject.id === s.id;
-        const badgeState = state === 'current' ? 'current' : state === 'after' ? 'after' : isFocus ? 'next' : 'before';
+        const left = minutesLeft(t, now);
         const count = assignmentCount(s.name);
+        const summary = s.attendanceId ? attendance[s.attendanceId] : undefined;
+        // 時刻の色（週の表と同じ 2 色）: その日だけ変わった → オレンジ、そもそも本来の時限と違う → アクセント
+        const dayChanged = !!(s.timeChanged || s.periodMoved);
+        const timeColor = dayChanged ? 'text-warn' : (s.startTime || s.endTime) ? 'text-accent' : '';
+        // 出欠を打てる時間（開始 10 分前〜授業中）
+        const canAttend = isFocus && (state === 'current' || left <= ATTENDANCE_LEAD_MIN);
         return (
           <li
             key={s.id}
             aria-current={state === 'current' ? 'time' : undefined}
-            className={`relative flex gap-4 px-4 sm:px-5 py-4 transition-colors ${
+            className={`relative flex gap-4 px-4 sm:px-5 py-3.5 transition-colors ${
               state === 'current'
                 ? 'bg-accent-soft/60 before:absolute before:left-0 before:inset-y-0 before:w-1 before:bg-accent'
-                : 'hover:bg-surface-2'
-            } ${state === 'after' ? 'opacity-55' : ''}`}
+                : cancelled ? 'bg-down-soft/40' : 'hover:bg-surface-2'
+            } ${state === 'after' && !cancelled ? 'opacity-55' : ''}`}
           >
             {/* 左: 時刻 */}
-            <div className="w-12 flex-shrink-0 text-right tabular-nums">
-              <p className="text-base sm:text-lg font-bold leading-none text-fg">{formatHm(t.start)}</p>
-              <p className="mt-1 text-xs text-fg-muted">{formatHm(t.end)}</p>
+            <div className="w-12 flex-shrink-0 text-right tabular-nums pt-0.5">
+              <p className={`text-base font-bold leading-none ${timeColor || 'text-fg'}`}>{formatHm(t.start)}</p>
+              <p className={`mt-1 text-xs ${timeColor || 'text-fg-muted'}`}>{formatHm(t.end)}</p>
             </div>
             {/* 右: 授業 */}
             <div className="flex-1 min-w-0">
+              {/* 1 行目: 授業名（押すと出席ページ、なければコースページ）と、いま注目する授業の残り時間・休講・補講 */}
               <div className="flex items-start justify-between gap-2">
-                <p className="text-sm text-fg-muted min-w-0">
-                  <span className="font-semibold text-accent">{s.period}限</span>
-                  <span className="mx-1.5 text-fg-subtle">·</span>
-                  {s.classroom || '教室未定'}
-                  <span className="mx-1.5 text-fg-subtle">·</span>
-                  {s.teacher}
-                </p>
-                <span className="flex-shrink-0 flex items-center gap-1.5">
-                  <ExceptionBadge status={s.status} />
-                  {!cancelled && <StateBadge state={badgeState} minutes={minutesLeft(t, now)} />}
+                {attendanceUrl(s) ? (
+                  <a
+                    href={attendanceUrl(s)}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    title={s.attendanceId ? '出席ページを開く' : 'コースページを開く'}
+                    className={`min-w-0 text-base font-bold leading-snug break-words hover:text-link hover:underline ${cancelled ? 'line-through text-fg-subtle' : 'text-fg'}`}
+                  >
+                    {s.name}
+                  </a>
+                ) : (
+                  // 臨時授業（LMS にないのでリンクなし）
+                  <span className="min-w-0 text-base font-bold leading-snug break-words text-fg">{s.name}</span>
+                )}
+                <span className="flex-shrink-0 flex items-center gap-1.5 pt-0.5">
+                  {(s.status === 'cancel' || s.status === 'extra') && <ExceptionBadge status={s.status} personal={isPersonal(s)} />}
+                  {!cancelled && state === 'current' && (
+                    <span className="inline-flex items-center gap-1 text-xs font-bold text-accent whitespace-nowrap">
+                      <span className="w-1.5 h-1.5 rounded-full bg-accent motion-safe:animate-pulse" aria-hidden="true" />授業中
+                    </span>
+                  )}
                 </span>
               </div>
-              {/* 授業名を押すと出席ページ（なければコースページ）が開く */}
-              <a
-                href={attendanceUrl(s)}
-                target="_blank"
-                rel="noopener noreferrer"
-                title={s.attendanceId ? '出席ページを開く' : 'コースページを開く'}
-                className="mt-1 inline-flex items-start gap-1.5 text-[17px] font-bold text-fg leading-snug break-words hover:text-link hover:underline"
-              >
-                <span className={cancelled ? 'line-through' : ''}>{s.name}</span>
-                <FiExternalLink size={15} className="mt-1 flex-shrink-0 text-fg-subtle" aria-hidden="true" />
-              </a>
+              {/* 2 行目: 時限・教室・先生・課題（1 行に控えめに） */}
+              {/* 2 行目: 情報の種類ごとに色とアイコンを分ける（時限＝アクセントの小さな札、教室＝濃い文字、先生＝灰色、課題＝オレンジ） */}
+              <div className={`mt-1 flex flex-wrap items-center gap-x-3 gap-y-1 text-[13px] ${cancelled ? 'opacity-50' : ''}`}>
+                <span className="inline-flex items-center h-5 px-1.5 rounded bg-accent-soft text-accent text-xs font-bold"><span className="pill-text">{s.period}限</span></span>
+                <span className={`inline-flex items-center gap-1 ${s.roomChanged ? 'text-warn font-semibold' : 'text-fg font-medium'}`}>
+                  <FiMapPin size={12} className={s.roomChanged ? '' : 'text-fg-subtle'} aria-hidden="true" />{s.classroom || '教室未定'}
+                </span>
+                {s.teacher && (
+                  <span className="inline-flex items-center gap-1 text-fg-muted">
+                    <FiUser size={12} className="text-fg-subtle" aria-hidden="true" />{s.teacher}
+                  </span>
+                )}
+                {count > 0 && (
+                  <Link to="?tab=assignments" className="inline-flex items-center gap-1 font-semibold text-warn hover:underline">
+                    <FiFileText size={12} aria-hidden="true" />課題 {count}件
+                  </Link>
+                )}
+              </div>
               {/* イレギュラーな授業回のメモ（例: 第5回の振替） */}
-              {s.note && <p className="mt-1 text-sm text-fg-muted">{s.note}</p>}
-              {(count > 0 || (s.attendanceId && attendance[s.attendanceId])) && (
-                <div className="mt-2.5 flex flex-wrap items-center gap-2">
-                  {s.attendanceId && attendance[s.attendanceId] && <AttendanceChip summary={attendance[s.attendanceId]} periodsPerDay={periodsPerDay(subjects, s)} />}
-                  {count > 0 && (
-                    <Link to="?tab=assignments" className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full border border-line-strong text-fg hover:bg-surface-3 transition-colors">
-                      <FiFileText size={13} className="text-warn" />
-                      <span className="pill-text text-xs font-bold">課題 {count}件</span>
-                    </Link>
+              {s.note && <p className="mt-0.5 text-[13px] text-fg-muted">{s.note}</p>}
+              {/* 出席率（LMS の出欠） */}
+              {summary && (
+                <p className="mt-1 inline-flex flex-wrap items-center gap-1 text-xs text-fg-muted" title="LMS の出欠より・1日1回更新">
+                  <FiCheckCircle size={12} className="text-up" aria-hidden="true" />
+                  {summary.percent === null ? '出席の記録なし' : `出席率 ${Math.round(summary.percent)}%（${summary.completed}/${summary.total}回）`}
+                </p>
+              )}
+              {/* スマホ: 出席の操作（広い画面では右の列にある） */}
+              {canAttend && (
+                <div className="mt-2 flex flex-wrap gap-2 lg:hidden">
+                  {s.attendanceId && (
+                    <a href={attendanceUrl(s)} target="_blank" rel="noopener noreferrer" className="inline-flex items-center gap-1.5 h-8 px-3.5 rounded-full bg-accent-solid hover:bg-accent-solid-hover text-on-accent transition-colors">
+                      <FiCheckCircle size={14} aria-hidden="true" />
+                      <span className="pill-text text-[13px] font-bold">出席する</span>
+                    </a>
                   )}
+                  <button type="button" onClick={startScan} className="inline-flex items-center gap-1.5 h-8 px-3.5 rounded-full border border-line-strong text-fg hover:bg-surface-3 transition-colors">
+                    <BsQrCodeScan size={14} aria-hidden="true" />
+                    <span className="pill-text text-[13px] font-bold">QR を読み取る</span>
+                  </button>
                 </div>
               )}
             </div>
@@ -227,8 +289,97 @@ function TodayTimeline({ subjects, now, assignmentCount, attendance }: { subject
 // 週の表
 // ------------------------------------------------------------------
 
+/**
+ * 週の表のマスを長押ししたときに出す、授業の詳しい内容（スマホではマスが狭く、名前や教室が「…」で省かれるため）。
+ * 画面の下から出し、名前・時刻・教室・先生・メモを省かずに見せる
+ */
+function ClassDetailSheet({ subject: s, date, onClose }: { subject: Subject; date: string; onClose: () => void }) {
+  // 長押しで開いた直後、指を離したときの「押した」が背景に当たって閉じてしまわないよう、開いてすぐの押下は無視する
+  const [openedAt] = useState(() => Date.now());
+  const onBackdrop = () => { if (Date.now() - openedAt > 500) onClose(); };
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') onClose(); };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [onClose]);
+  const t = subjectTime(s);
+  const url = attendanceUrl(s);
+  const dayChanged = !!(s.timeChanged || s.periodMoved);
+  const [y, m, d] = date.split('-').map(Number);
+  const wd = ['日', '月', '火', '水', '木', '金', '土'][new Date(y, m - 1, d).getDay()];
+  return createPortal(
+    <div className="fixed inset-0 z-[70] flex items-end sm:items-center justify-center bg-black/40" onClick={onBackdrop}>
+      <div
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="class-detail-title"
+        onClick={(e) => e.stopPropagation()}
+        className="w-full sm:max-w-sm bg-surface rounded-t-2xl sm:rounded-2xl shadow-xl px-5 pt-5 pb-[calc(1.25rem+env(safe-area-inset-bottom))] sm:pb-5"
+      >
+        <p className="flex items-center gap-2 text-sm text-fg-muted">
+          <span className="font-semibold text-fg tabular-nums">{m}/{d}（{wd}）</span>
+          <span className="inline-flex items-center h-5 px-1.5 rounded bg-accent-soft text-accent text-xs font-bold"><span className="pill-text">{s.period}限</span></span>
+          {(s.status === 'cancel' || s.status === 'extra') && <ExceptionBadge status={s.status} personal={isPersonal(s)} />}
+        </p>
+        <h2 id="class-detail-title" className={`mt-2 text-lg font-extrabold leading-snug ${s.status === 'cancel' ? 'line-through text-fg-subtle' : 'text-fg'}`}>{s.name}</h2>
+        <dl className="mt-3 grid grid-cols-[auto_1fr] gap-x-4 gap-y-1.5 text-sm">
+          <dt className="text-fg-muted">時刻</dt>
+          <dd className={`tabular-nums font-semibold ${dayChanged ? 'text-warn' : (s.startTime || s.endTime) ? 'text-accent' : 'text-fg'}`}>
+            {t ? `${formatHm(t.start)}〜${formatHm(t.end)}` : '—'}
+            {dayChanged && <span className="ml-2 text-xs font-normal">この日だけ変更</span>}
+          </dd>
+          <dt className="text-fg-muted">教室</dt>
+          <dd className={s.roomChanged ? 'text-warn font-semibold' : 'text-fg'}>{s.classroom || '未定'}{s.roomChanged && <span className="ml-2 text-xs font-normal">この日だけ変更</span>}</dd>
+          {s.teacher && (<><dt className="text-fg-muted">先生</dt><dd className="text-fg">{s.teacher}</dd></>)}
+          {s.note && (<><dt className="text-fg-muted">メモ</dt><dd className="text-fg">{s.note}</dd></>)}
+        </dl>
+        <div className="mt-5 flex flex-col gap-2">
+          {url && (
+            <a href={url} target="_blank" rel="noopener noreferrer" onClick={onClose} className="inline-flex items-center justify-center gap-2 h-11 rounded-full bg-accent-solid hover:bg-accent-solid-hover text-on-accent transition-colors">
+              <span className="pill-text text-[15px] font-bold">{s.attendanceId ? '出席ページを開く' : 'コースページを開く'}</span>
+              <FiExternalLink size={14} className="opacity-70" aria-hidden="true" />
+            </a>
+          )}
+          <button type="button" onClick={onClose} className="h-10 rounded-full text-fg-muted hover:bg-surface-3 transition-colors">
+            <span className="text-sm font-semibold">閉じる</span>
+          </button>
+        </div>
+      </div>
+    </div>,
+    document.body,
+  );
+}
+
+/** 長押しとみなす時間（ミリ秒） */
+const LONG_PRESS_MS = 450;
+
 function WeekGrid({ weeklySubjects, now, dates }: { weeklySubjects: Record<Day, Subject[]>; now: Date; dates: Record<Day, string> }) {
   const today = weekdayOf(now);
+  // 長押しで開いた授業の詳しい内容
+  const [detail, setDetail] = useState<{ subject: Subject; date: string } | null>(null);
+  // 長押し: 押し続けたら詳しい内容を出し、そのあとの「押した」（LMS を開く）は止める。指が動いたら（スクロール）やめる
+  const pressRef = React.useRef<{ timer: number; x: number; y: number; fired: boolean } | null>(null);
+  const pressHandlers = (s: Subject, date: string) => ({
+    onPointerDown: (e: React.PointerEvent) => {
+      const timer = window.setTimeout(() => {
+        if (pressRef.current) pressRef.current.fired = true;
+        setDetail({ subject: s, date });
+      }, LONG_PRESS_MS);
+      pressRef.current = { timer, x: e.clientX, y: e.clientY, fired: false };
+    },
+    onPointerMove: (e: React.PointerEvent) => {
+      const p = pressRef.current;
+      if (p && !p.fired && Math.hypot(e.clientX - p.x, e.clientY - p.y) > 8) { clearTimeout(p.timer); pressRef.current = null; }
+    },
+    onPointerUp: () => { if (pressRef.current && !pressRef.current.fired) clearTimeout(pressRef.current.timer); },
+    onPointerCancel: () => { if (pressRef.current) clearTimeout(pressRef.current.timer); pressRef.current = null; },
+    onClick: (e: React.MouseEvent) => {
+      // 長押しのあとの「押した」は、LMS を開かない
+      if (pressRef.current?.fired) { e.preventDefault(); pressRef.current = null; }
+    },
+    // スマホのリンクの長押しメニュー（プレビュー）を出さない
+    onContextMenu: (e: React.MouseEvent) => e.preventDefault(),
+  });
   return (
     <div className="p-2 sm:p-4">
       {/* スマホでも5日分が1画面に収まるよう、最小幅は付けない。科目名は2行まで出し、超える分は「…」で省く（全文はマスの title で見られる） */}
@@ -256,27 +407,40 @@ function WeekGrid({ weeklySubjects, now, dates }: { weeklySubjects: Record<Day, 
               const isNow = d === today && !cancelled && !!st && periodState(st, now) === 'current';
               // 本来の時限とずれている授業は、マスに時刻を出す
               const shifted = !!s && (!!s.startTime || !!s.endTime);
+              // 授業の変更（時限・時刻・教室）はしるしを付けず、変わったところだけをオレンジで出す
+              const changed = s?.status === 'change';
+              const badge = s?.status === 'change' ? undefined : s?.status;
+              // その日だけ時刻が変わった・時限を動かしたときは、時刻をオレンジで出す（時限を動かしただけでも、変わったと分かるように）
+              const timeDiff = !!s && (!!s.timeChanged || !!s.periodMoved);
               if (!s) return <div key={d} className="min-h-16 rounded-md sm:rounded-lg border border-dashed border-line" />;
               return (
                 <a
                   key={d}
-                  href={attendanceUrl(s)}
-                  target="_blank"
+                  {...pressHandlers(s, dates[d])}
+                  // 臨時授業は LMS にないのでリンクにしない
+                  href={attendanceUrl(s) || undefined}
+                  target={attendanceUrl(s) ? '_blank' : undefined}
                   rel="noopener noreferrer"
-                  title={`${s.name}（${s.classroom} / ${s.teacher}）`}
-                  className={`min-h-16 rounded-md sm:rounded-lg px-1 sm:px-2 py-1 sm:py-1.5 flex flex-col justify-center items-stretch gap-0.5 shadow-sm transition-colors ${
+                  title={`${s.name}（${s.classroom} / ${s.teacher}）${changed ? `・この日は変更あり${s.note ? `（${s.note}）` : ''}` : ''}`}
+                  // 長押しで詳しい内容を出すので、文字の選択と iPhone のリンクの長押しメニューを止める
+                  style={{ WebkitTouchCallout: 'none' }}
+                  className={`select-none min-h-16 rounded-md sm:rounded-lg px-1 sm:px-2 py-1 sm:py-1.5 flex flex-col justify-center items-stretch gap-0.5 shadow-sm transition-colors ${
                     // 授業のマスも課題カードと同じ色。休講は薄く
                     isNow ? 'bg-accent-soft ring-2 ring-accent' : 'bg-surface-2 dark:bg-slate-700/80 hover:bg-surface-3 dark:hover:bg-slate-700'
                   } ${cancelled ? 'opacity-55' : ''}`}
                 >
-                  {/* いちばん上: 休講・変更・補講のしるしと、本来の時限とずれている授業の時刻（同じ行に並べて段を増やさない）。
+                  {/* いちばん上: 休講・補講のしるしと、本来の時限とずれている授業の時刻（同じ行に並べて段を増やさない）。
                       時刻はスマホでは開始だけ、広い画面では開始〜終了 */}
-                  {(s.status || (shifted && st)) && (
+                  {(badge || ((shifted || timeDiff) && st)) && (
                     <span className="flex flex-wrap items-center justify-center gap-x-1 gap-y-0.5">
-                      {s.status && <ExceptionBadge status={s.status} compact />}
-                      {shifted && st && (
-                        <span className="inline-flex items-center gap-0.5 text-[10px] sm:text-[11px] font-semibold text-warn leading-tight tabular-nums">
-                          <FiClock size={10} aria-hidden="true" className="flex-shrink-0" />
+                      {badge && <ExceptionBadge status={badge} compact personal={isPersonal(s)} />}
+                      {(shifted || timeDiff) && st && (
+                        // 2 色で塗り分ける: そもそも本来の時限と時刻が違う授業（既定値）はアクセントの色＋時計、
+                        // その日だけ変更のあった授業はオレンジ＋「時計に鉛筆」（大学のポータルなどと同じく「変更＝注意」の色）
+                        <span className={`inline-flex items-center gap-0.5 text-[10px] sm:text-[11px] font-semibold leading-tight tabular-nums ${timeDiff ? 'text-warn' : 'text-accent'}`}>
+                          {timeDiff
+                            ? <TbClockEdit size={12} aria-label="この日だけ時刻が変更" className="flex-shrink-0" />
+                            : <FiClock size={10} aria-label="本来の時限と時刻が違う授業" className="flex-shrink-0" />}
                           {formatHm(st.start)}〜<span className="hidden sm:inline">{formatHm(st.end)}</span>
                         </span>
                       )}
@@ -285,7 +449,7 @@ function WeekGrid({ weeklySubjects, now, dates }: { weeklySubjects: Record<Day, 
                   <span className={`text-[11px] sm:text-[13px] font-bold text-fg leading-tight line-clamp-2 break-all sm:break-normal text-center ${cancelled ? 'line-through' : ''}`}>{s.name}</span>
                   {/* 教室と先生を左右半分ずつ（それぞれ中央揃え）。収まらない分は「…」で省く（全文はマスの title で見られる） */}
                   <span className="grid grid-cols-2 gap-1 text-[10px] sm:text-[11px] text-fg-muted leading-tight">
-                    <span className="truncate text-center">{s.classroom}</span>
+                    <span className={`truncate text-center ${s.roomChanged ? 'text-warn font-semibold' : ''}`}>{s.classroom}</span>
                     <span className="truncate text-center">{s.teacher}</span>
                   </span>
                 </a>
@@ -294,6 +458,8 @@ function WeekGrid({ weeklySubjects, now, dates }: { weeklySubjects: Record<Day, 
           </React.Fragment>
         ))}
       </div>
+      <p className="mt-2 text-xs text-fg-subtle text-center">授業を長押しすると、詳しい内容が見られます</p>
+      {detail && <ClassDetailSheet subject={detail.subject} date={detail.date} onClose={() => setDetail(null)} />}
     </div>
   );
 }
@@ -324,41 +490,6 @@ function attendanceLabel(a: AttendanceSummary) {
   return a.percent === null
     ? `出席の記録はまだありません（全 ${a.total} 回）`
     : `出席率 ${Math.round(a.percent)}%（記録 ${a.completed} / 全 ${a.total} 回）`;
-}
-
-/** その授業が 1 日に何コマあるか（同じコースが同じ曜日に並んでいる数）。休める回数の上限の計算に使う */
-function periodsPerDay(daySubjects: Subject[], s: Subject) {
-  const courseId = s.id.split('-')[0];
-  return Math.max(1, daySubjects.filter(x => x.id.split('-')[0] === courseId && x.wday === s.wday).length);
-}
-
-/** 「あと 2 回休める」。上限が近ければ注意の色、超えていれば赤 */
-function AbsencesLeft({ summary, periodsPerDay, prefix = '' }: { summary: AttendanceSummary; periodsPerDay: number; prefix?: string }) {
-  const a = absenceAllowance(summary, periodsPerDay);
-  if (!a) return null;
-  const tone = a.absencesLeft < 0 ? 'text-down' : a.absencesLeft <= 1 ? 'text-warn' : 'text-fg';
-  return (
-    <span className={`font-bold ${tone}`} title={`減点 ${a.lost} 点 / 上限 ${a.limit} 点（欠席 −3 点・遅刻 −1 点）`}>
-      {prefix}{a.absencesLeft < 0 ? '休める上限を超えています' : `あと${a.absencesLeft}回休める`}
-    </span>
-  );
-}
-
-/** 授業カードの下段に出す出席率と休める回数（押せない表示だけのもの） */
-function AttendanceChip({ summary, periodsPerDay }: { summary: AttendanceSummary; periodsPerDay: number }) {
-  return (
-    <span
-      title={`${attendanceLabel(summary)}${summary.points ? `・得点 ${summary.points}` : ''}（LMS の出欠より・1日1回更新）`}
-      className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-md bg-surface-2 dark:bg-slate-800/60 text-fg-muted"
-    >
-      <FiCheckCircle size={13} className="text-up" aria-hidden="true" />
-      <span className="text-xs font-bold">
-        {summary.percent === null ? '出席 記録なし' : <>出席率 <span className="text-fg">{Math.round(summary.percent)}%</span></>}
-        <span className="font-normal ml-1">（{summary.completed}/{summary.total}回）</span>
-        <AbsencesLeft summary={summary} periodsPerDay={periodsPerDay} prefix=" · " />
-      </span>
-    </span>
-  );
 }
 
 // ------------------------------------------------------------------
@@ -397,14 +528,12 @@ function NextClassCard({ subjects, now, attendance }: { subjects: Subject[]; now
           <p className="mt-1 text-lg font-bold text-fg leading-snug">{s.name}</p>
           <p className="mt-1 text-sm text-fg-muted">
             {focus!.state === 'current'
-              ? <>{formatHm(t.end)} まで（あと<span className="font-bold text-accent">{formatMinutes(minutesLeft(t, now))}</span>）</>
-              : <>{formatHm(t.start)} 開始（あと<span className="font-bold text-warn">{formatMinutes(minutesLeft(t, now))}</span>）</>}
+              ? <>{formatHm(t.end)} まで</>
+              : <>{formatHm(t.start)} 開始</>}
           </p>
           {s.attendanceId && attendance[s.attendanceId] && (
             <div className="mt-2 pt-2 border-t border-line text-sm">
-              {/* 出席率と休める回数は 2 行に分け、休める回数を目立たせる */}
               <p className="text-fg-muted">{attendanceLabel(attendance[s.attendanceId])}</p>
-              <p className="mt-0.5"><AbsencesLeft summary={attendance[s.attendanceId]} periodsPerDay={periodsPerDay(subjects, s)} /></p>
             </div>
           )}
           {/* 出欠を打てる時間（開始10分前〜授業中）だけ、出席の操作を出す。
@@ -528,7 +657,7 @@ export const TimetableContainer: React.FC<TimetableContainerProps> = ({
       <div className={PAGE_GRID}>
         {/* 右の列（スマホでは見出しのすぐ下）: 授業中・次の授業。週の表のときは出さない（表を広く使う）。
             通知から来たときの出席の選択・QR の読み取りはこの中で扱うので、消さずに隠すだけにする */}
-        <aside className={`${SIDE_WIDGET} ${isWeeklyView ? '!hidden' : ''}`}>
+        <aside className={`${SIDE_WIDGET} ${isWeeklyView ? '!hidden' : 'hidden lg:block'}`}>
           <NextClassCard subjects={todaySubjects.filter(x => x.status !== 'cancel')} now={now} attendance={attendance} />
         </aside>
         {/* 真ん中の列: 白い 1 枚の面に、今日の授業（区切り線）または週の表 */}

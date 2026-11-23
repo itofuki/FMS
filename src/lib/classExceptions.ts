@@ -58,7 +58,8 @@ export function applyClassExceptions(
       for (const p of periods) {
         const same = mine.find((s) => s.period === p);
         list.push({
-          id: `${e.course_id}-${day}-${p}${e.kind === 'extra' ? '-extra' : ''}`,
+          // 臨時授業（course_id が負の数）は「x」で始まる id にする（「-」で区切って読むため、負の数にしない）
+          id: e.course_id < 0 ? `x${-e.course_id}-${day}-${p}-extra` : `${e.course_id}-${day}-${p}${e.kind === 'extra' ? '-extra' : ''}`,
           name: regular?.name ?? e.name,
           teacher: regular?.teacher ?? '',
           wday: day,
@@ -69,6 +70,10 @@ export function applyClassExceptions(
           endTime: timeOf(p, 'end') ?? same?.endTime ?? null,
           status: e.kind,
           note: e.note,
+          roomChanged: !!e.classroom && e.classroom !== regular?.classroom,
+          timeChanged: !!(timeOf(p, 'start') || timeOf(p, 'end')),
+          // いつもはこの時限にない（時限を動かした・補講）
+          periodMoved: e.kind === 'change' && !same,
         });
       }
     }

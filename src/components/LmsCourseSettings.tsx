@@ -19,9 +19,9 @@ import { Switch } from './ui/SettingControls';
 
 type Course = { course_id: number; name: string; fullname: string; wday: Weekday | null; periods: number[] | null; teachers: string[]; attendance_id: number | null };
 type CourseSetting = { course_id: number; wday: Weekday | null; periods: number[] | null; classroom: string | null; hidden: boolean };
-type CourseDefault = { course_id: number; course_code: string | null; wday: Weekday | null; periods: number[] | null; classroom: string | null };
+type CourseDefault = { course_id: number; course_code: string | null; wday: Weekday | null; periods: number[] | null; classroom: string | null; not_a_class: boolean };
 /** 本人が何も入れていないときに使う値（管理者の既定値 > LMS のコース名から読み取った値） */
-type Base = { wday: Weekday | null; periods: number[] | null; classroom: string | null; slotFromDefault: boolean; roomFromDefault: boolean };
+type Base = { wday: Weekday | null; periods: number[] | null; classroom: string | null; slotFromDefault: boolean; roomFromDefault: boolean; notAClass: boolean };
 
 const baseOf = (c: Course, defaults: CourseDefault[], myCode: string | null): Base => {
   const mine = defaults.find((d) => d.course_id === c.course_id && myCode && d.course_code === myCode);
@@ -35,6 +35,8 @@ const baseOf = (c: Course, defaults: CourseDefault[], myCode: string | null): Ba
     classroom,
     slotFromDefault: !!(wday || periods),
     roomFromDefault: !!classroom,
+    // 管理者が「授業ではない」とした名目上のコース（自分のコース向けの既定値があればそちらに従う）
+    notAClass: (mine ?? all)?.not_a_class ?? false,
   };
 };
 
@@ -55,7 +57,7 @@ export default function LmsCourseSettings({ userId, onChanged }: { userId: strin
     const [c, s, d, p, o] = await Promise.all([
       supabase.from('user_lms_courses').select('course_id, name, fullname, wday, periods, teachers, attendance_id').eq('user_id', userId).order('name'),
       supabase.from('user_course_settings').select('course_id, wday, periods, classroom, hidden').eq('user_id', userId),
-      supabase.from('lms_course_defaults').select('course_id, course_code, wday, periods, classroom'),
+      supabase.from('lms_course_defaults').select('course_id, course_code, wday, periods, classroom, not_a_class'),
       supabase.from('profiles').select('course_code').eq('user_id', userId).maybeSingle(),
       fetchCourseOptions(),
     ]);
@@ -159,6 +161,15 @@ export default function LmsCourseSettings({ userId, onChanged }: { userId: strin
           const base = baseOf(c, defaults, myCode);
           // 管理者の既定値かコース名から曜日・時限が決まっているか（決まっていれば、それを正とする）
           const decided = !!(base.wday && base.periods?.length);
+          // 授業ではない名目上のコース: 時間割には出ないので、説明だけ出す
+          if (base.notAClass) {
+            return (
+              <li key={c.course_id} className="px-4 py-3">
+                <p className="text-[15px] font-medium leading-snug text-fg-subtle">{c.name}</p>
+                <p className="mt-0.5 text-[13px] text-fg-subtle">授業ではありません（時間割に出ません）</p>
+              </li>
+            );
+          }
           const slot = decided ? formatSlot(base.wday, base.periods) : formatSlot(s?.wday ?? null, s?.periods ?? null);
           const hidden = s?.hidden ?? false;
           return (

@@ -93,3 +93,19 @@ describe('buildCalendar（イレギュラーな授業回）', () => {
     expect(ics).toContain('第5回の振替');
   });
 });
+
+describe('buildCalendar（臨時授業）', () => {
+  it('「（臨時）」を付け、LMS のリンクは付けない', () => {
+    const ics = buildCalendar({
+      now: NOW,
+      classes: [],
+      deadlines: [],
+      exceptions: [{ id: 5, course_id: -5, name: '臨時ゼミ', date: '2026-11-19', kind: 'extra', periods: [5], period_times: null, classroom: '401', note: null, attendance_id: null }],
+      weeksBefore: 0,
+      weeksAfter: 1,
+    }).replace(/\r\n /g, '');
+    expect(ics).toContain('SUMMARY:5限 臨時ゼミ（臨時）');
+    expect(ics).toContain('LOCATION:401');
+    expect(ics).not.toContain('course/view.php?id=-5');
+  });
+});

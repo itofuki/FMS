@@ -19,10 +19,12 @@ type Default = {
   id: number; course_id: number; course_code: string | null; wday: Weekday | null; periods: number[] | null;
   classroom: string | null; teacher: string | null;
   period_times: PeriodTimes | null;
+  /** 授業ではない名目上のコース（時間割に出さない） */
+  not_a_class: boolean;
   /** 以前の形（最初の時限の開始・最後の時限の終了）。読み込んだときに period_times に移す */
   start_time: string | null; end_time: string | null;
 };
-type Draft = { id?: number; course_code: string | null; wday: Weekday | null; periods: number[]; classroom: string; teacher: string; times: PeriodTimes };
+type Draft = { id?: number; course_code: string | null; wday: Weekday | null; periods: number[]; classroom: string; teacher: string; times: PeriodTimes; notAClass: boolean };
 
 /** 'HH:MM:SS' → 'HH:MM' */
 const hm = (v: string | null | undefined) => (v ? v.slice(0, 5) : '');
@@ -61,7 +63,7 @@ export default function AdminCourseDefaults({ onChanged }: { onChanged?: () => v
   const load = useCallback(async () => {
     const [c, d, o] = await Promise.all([
       supabase.rpc('admin_list_lms_courses'),
-      supabase.from('lms_course_defaults').select('id, course_id, course_code, wday, periods, classroom, teacher, period_times, start_time, end_time').order('course_code', { nullsFirst: true }),
+      supabase.from('lms_course_defaults').select('id, course_id, course_code, wday, periods, classroom, teacher, period_times, start_time, end_time, not_a_class').order('course_code', { nullsFirst: true }),
       fetchCourseOptions(),
     ]);
     if (c.error) toast.error(`コースの一覧を読めませんでした: ${c.error.message}`);
@@ -93,6 +95,7 @@ export default function AdminCourseDefaults({ onChanged }: { onChanged?: () => v
       })(),
       start_time: null,
       end_time: null,
+      not_a_class: draft.notAClass,
       updated_at: new Date().toISOString(),
     };
     // 同じコース・同じ対象の既定値は 1 つだけ（新規で重なったら既存を更新する）
@@ -150,13 +153,15 @@ export default function AdminCourseDefaults({ onChanged }: { onChanged?: () => v
                     <p className="text-[15px] font-semibold text-fg leading-snug">{c.name}</p>
                     <p className="mt-0.5 text-xs text-fg-subtle break-all">{c.fullname}</p>
                     <p className="mt-0.5 text-sm text-fg-muted">
-                      {parsed ? `コース名から: ${parsed}` : <span className="text-warn font-semibold">コース名から曜日・時限を読み取れません</span>}
+                      {rows.some((d) => d.not_a_class && d.course_code === null)
+                        ? <span className="font-semibold text-fg-subtle">授業ではない（時間割に出さない）</span>
+                        : parsed ? `コース名から: ${parsed}` : <span className="text-warn font-semibold">コース名から曜日・時限を読み取れません</span>}
                       <span className="ml-2">{c.users}人</span>
                     </p>
                   </div>
                   <button
                     type="button"
-                    onClick={() => setEditing({ courseId: c.course_id, draft: { course_code: null, wday: null, periods: [], classroom: '', teacher: '', times: {} } })}
+                    onClick={() => setEditing({ courseId: c.course_id, draft: { course_code: null, wday: null, periods: [], classroom: '', teacher: '', times: {}, notAClass: false } })}
                     className="flex-shrink-0 inline-flex items-center gap-1 px-2.5 py-1.5 rounded-md text-fg-muted hover:text-fg hover:bg-surface-3 transition-colors"
                   >
                     <FiPlus size={13} aria-hidden="true" />
@@ -170,10 +175,10 @@ export default function AdminCourseDefaults({ onChanged }: { onChanged?: () => v
                       <li key={d.id} className="flex items-center justify-between gap-2 rounded-md bg-surface-2 px-3 py-2 text-sm">
                         <span className="min-w-0">
                           <span className="font-semibold text-fg">{courseName(d.course_code)}</span>
-                          <span className="ml-2 text-fg-muted">{[slotText(d.wday, d.periods), timesText(timesOf(d, d.periods ?? c.periods ?? [])) && `時刻 ${timesText(timesOf(d, d.periods ?? c.periods ?? []))}`, d.classroom && `教室 ${d.classroom}`, d.teacher && `担当 ${d.teacher}`].filter(Boolean).join('・') || '（値なし）'}</span>
+                          <span className="ml-2 text-fg-muted">{[d.not_a_class && '授業ではない', slotText(d.wday, d.periods), timesText(timesOf(d, d.periods ?? c.periods ?? [])) && `時刻 ${timesText(timesOf(d, d.periods ?? c.periods ?? []))}`, d.classroom && `教室 ${d.classroom}`, d.teacher && `担当 ${d.teacher}`].filter(Boolean).join('・') || '（値なし）'}</span>
                         </span>
                         <span className="flex-shrink-0 flex items-center gap-1">
-                          <button type="button" aria-label="編集" onClick={() => setEditing({ courseId: c.course_id, draft: { id: d.id, course_code: d.course_code, wday: d.wday, periods: d.periods ?? [], classroom: d.classroom ?? '', teacher: d.teacher ?? '', times: timesOf(d, d.periods ?? c.periods ?? []) } })} className="p-1.5 rounded-md text-fg-muted hover:text-fg hover:bg-surface-3"><FiEdit2 size={14} /></button>
+                          <button type="button" aria-label="編集" onClick={() => setEditing({ courseId: c.course_id, draft: { id: d.id, course_code: d.course_code, wday: d.wday, periods: d.periods ?? [], classroom: d.classroom ?? '', teacher: d.teacher ?? '', times: timesOf(d, d.periods ?? c.periods ?? []), notAClass: d.not_a_class } })} className="p-1.5 rounded-md text-fg-muted hover:text-fg hover:bg-surface-3"><FiEdit2 size={14} /></button>
                           <button type="button" aria-label="削除" onClick={() => remove(d.id)} className="p-1.5 rounded-md text-down hover:bg-down-soft"><FiTrash2 size={14} /></button>
                         </span>
                       </li>
@@ -215,9 +220,29 @@ function DefaultEditor({ draft, coursePeriods, courseOptions, onCancel, onSave }
     setD((x) => ({ ...x, times: { ...x.times, [String(p)]: { ...x.times[String(p)], [key]: value } } }));
   // 開始が終了より後になっている時限がないか
   const badPeriod = timePeriods.find((p) => { const t = d.times[String(p)]; return t?.start && t?.end && t.start >= t.end; });
-  const timeError = badPeriod ? `${badPeriod}限: 終了は開始より後にしてください` : null;
+  const timeError = !d.notAClass && badPeriod ? `${badPeriod}限: 終了は開始より後にしてください` : null;
   return (
     <div className="mt-3 rounded-lg bg-surface-2 px-4 py-3 space-y-3">
+      {/* 名目上のコース（お知らせ用など、曜日・時限がそもそもない）は「授業ではない」にして時間割に出さない */}
+      <label className="flex items-start gap-2 text-sm text-fg">
+        <input type="checkbox" checked={d.notAClass} onChange={(e) => setD({ ...d, notAClass: e.target.checked })} className="mt-0.5 w-4 h-4 accent-[var(--color-accent-solid)]" />
+        <span>
+          <span className="font-semibold">授業ではない</span>
+          <span className="block text-xs text-fg-muted">お知らせ用など、曜日・時限がそもそもない名目上のコース。対象の学生の時間割に出しません。</span>
+        </span>
+      </label>
+      {d.notAClass && (
+        <div className="flex flex-wrap gap-4">
+          <div>
+            <label className="block text-sm font-semibold text-fg mb-1">対象</label>
+            <select value={d.course_code ?? ''} onChange={(e) => setD({ ...d, course_code: e.target.value || null })} className="h-9 bg-surface border border-line-strong rounded-md px-2 text-sm text-fg">
+              <option value="">全コース共通</option>
+              {courseOptions.map((o) => <option key={o.code} value={o.code}>{o.name}</option>)}
+            </select>
+          </div>
+        </div>
+      )}
+      {!d.notAClass && (<>
       <div className="flex flex-wrap gap-4">
         <div>
           <label className="block text-sm font-semibold text-fg mb-1">対象</label>
@@ -282,6 +307,7 @@ function DefaultEditor({ draft, coursePeriods, courseOptions, onCancel, onSave }
         <p className="mt-1 text-xs text-fg-subtle">空のままの時限は本来の時刻です。時間割・授業前の通知・カレンダー連携がこの時刻に合います。</p>
         {timeError && <p role="alert" className="mt-1 text-xs text-down font-semibold">{timeError}</p>}
       </fieldset>
+      </>)}
       <div className="flex justify-end gap-2">
         <button type="button" onClick={onCancel} className="h-9 px-4 rounded-md text-fg-muted hover:bg-surface-3"><span className="text-sm font-bold">やめる</span></button>
         <button type="button" onClick={() => onSave({ ...d, times: Object.fromEntries(Object.entries(d.times).filter(([p]) => timePeriods.includes(Number(p)))) })} disabled={!!timeError} className="h-9 px-5 rounded-md bg-accent-solid hover:bg-accent-solid-hover text-on-accent disabled:opacity-50"><span className="text-sm font-bold">保存</span></button>
