@@ -8,8 +8,9 @@
  */
 import React, { Suspense, lazy, useCallback, useEffect, useMemo, useState } from 'react';
 import { createPortal } from 'react-dom';
+import { AnimatePresence, motion } from 'framer-motion';
 import { Link, useSearchParams } from 'react-router-dom';
-import { FiArrowRight, FiExternalLink, FiFileText, FiClock, FiCoffee, FiCheckCircle, FiAlertTriangle, FiMapPin, FiUser } from 'react-icons/fi';
+import { FiArrowRight, FiExternalLink, FiFileText, FiClock, FiCoffee, FiCheckCircle, FiAlertTriangle, FiMapPin, FiUser, FiChevronLeft, FiChevronRight } from 'react-icons/fi';
 import ChapterFrame, { CENTER_PANEL, PAGE_GRID, SIDE_TITLE, SIDE_WIDGET } from './ChapterFrame';
 import { BsQrCodeScan } from 'react-icons/bs';
 import { TbClockEdit } from 'react-icons/tb';
@@ -18,7 +19,9 @@ import { TbClockEdit } from 'react-icons/tb';
 const QrScanner = lazy(() => import('./QrScanner'));
 import AttendPrompt from './AttendPrompt';
 import { readAttendPrompt, type AttendPromptInfo } from '../lib/attendPrompt';
-import { applyClassExceptions, type ClassException } from '../lib/classExceptions';
+import { applyClassExceptions, fetchClassExceptions, type ClassException } from '../lib/classExceptions';
+import { useQuery } from '@tanstack/react-query';
+import { useCurrentUser } from '../hooks/useCurrentUser';
 import { useUnifiedAssignments } from '../hooks/useUnifiedAssignments';
 import { useAttendance, type AttendanceMap } from '../hooks/useAttendance';
 import { type AttendanceSummary } from '../lib/attendance';
@@ -290,10 +293,11 @@ function TodayTimeline({ subjects, now, assignmentCount, attendance }: { subject
 // ------------------------------------------------------------------
 
 /**
- * 週の表のマスを長押ししたときに出す、授業の詳しい内容（スマホではマスが狭く、名前や教室が「…」で省かれるため）。
- * 画面の下から出し、名前・時刻・教室・先生・メモを省かずに見せる
+ * 週の表のマスを長押ししたときの「ピーク」（iPhone の長押しプレビューと同じ形）。
+ * まわりをぼかし、押したマスの位置から授業のカードが大きくなって画面の中ほどに出る。下に操作のメニューを出す。
+ * スマホではマスが狭く、名前や教室が「…」で省かれるので、ここで省かずに見せる。外側を押すと、マスに戻るように閉じる
  */
-function ClassDetailSheet({ subject: s, date, onClose }: { subject: Subject; date: string; onClose: () => void }) {
+function ClassPeek({ subject: s, date, from, onClose }: { subject: Subject; date: string; from: DOMRect; onClose: () => void }) {
   // 長押しで開いた直後、指を離したときの「押した」が背景に当たって閉じてしまわないよう、開いてすぐの押下は無視する
   const [openedAt] = useState(() => Date.now());
   const onBackdrop = () => { if (Date.now() - openedAt > 500) onClose(); };
@@ -307,44 +311,74 @@ function ClassDetailSheet({ subject: s, date, onClose }: { subject: Subject; dat
   const dayChanged = !!(s.timeChanged || s.periodMoved);
   const [y, m, d] = date.split('-').map(Number);
   const wd = ['日', '月', '火', '水', '木', '金', '土'][new Date(y, m - 1, d).getDay()];
+
+  // カードの最後の位置（画面の中ほど）と、押したマスの位置からの差（そこから大きくなって出てくる）
+  const vw = window.innerWidth;
+  const vh = window.innerHeight;
+  const W = Math.min(340, vw - 32);
+  const left = (vw - W) / 2;
+  const top = Math.max(24, Math.round(vh * 0.16));
+  const estH = 190;
+  const fromState = {
+    x: from.left + from.width / 2 - (left + W / 2),
+    y: from.top + from.height / 2 - (top + estH / 2),
+    scale: Math.max(0.2, from.width / W),
+    opacity: 0.6,
+  };
+
   return createPortal(
-    <div className="fixed inset-0 z-[70] flex items-end sm:items-center justify-center bg-black/40" onClick={onBackdrop}>
-      <div
+    <div className="fixed inset-0 z-[70]" onClick={onBackdrop}>
+      {/* まわりをぼかして暗くする */}
+      <motion.div
+        className="absolute inset-0 bg-black/25 backdrop-blur-md"
+        initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
+        transition={{ duration: 0.2 }}
+      />
+      <motion.div
         role="dialog"
         aria-modal="true"
-        aria-labelledby="class-detail-title"
+        aria-labelledby="class-peek-title"
         onClick={(e) => e.stopPropagation()}
-        className="w-full sm:max-w-sm bg-surface rounded-t-2xl sm:rounded-2xl shadow-xl px-5 pt-5 pb-[calc(1.25rem+env(safe-area-inset-bottom))] sm:pb-5"
+        style={{ position: 'fixed', left, top, width: W }}
+        initial={fromState}
+        animate={{ x: 0, y: 0, scale: 1, opacity: 1 }}
+        exit={{ ...fromState, opacity: 0 }}
+        transition={{ type: 'spring', stiffness: 420, damping: 32 }}
       >
-        <p className="flex items-center gap-2 text-sm text-fg-muted">
-          <span className="font-semibold text-fg tabular-nums">{m}/{d}（{wd}）</span>
-          <span className="inline-flex items-center h-5 px-1.5 rounded bg-accent-soft text-accent text-xs font-bold"><span className="pill-text">{s.period}限</span></span>
-          {(s.status === 'cancel' || s.status === 'extra') && <ExceptionBadge status={s.status} personal={isPersonal(s)} />}
-        </p>
-        <h2 id="class-detail-title" className={`mt-2 text-lg font-extrabold leading-snug ${s.status === 'cancel' ? 'line-through text-fg-subtle' : 'text-fg'}`}>{s.name}</h2>
-        <dl className="mt-3 grid grid-cols-[auto_1fr] gap-x-4 gap-y-1.5 text-sm">
-          <dt className="text-fg-muted">時刻</dt>
-          <dd className={`tabular-nums font-semibold ${dayChanged ? 'text-warn' : (s.startTime || s.endTime) ? 'text-accent' : 'text-fg'}`}>
-            {t ? `${formatHm(t.start)}〜${formatHm(t.end)}` : '—'}
-            {dayChanged && <span className="ml-2 text-xs font-normal">この日だけ変更</span>}
-          </dd>
-          <dt className="text-fg-muted">教室</dt>
-          <dd className={s.roomChanged ? 'text-warn font-semibold' : 'text-fg'}>{s.classroom || '未定'}{s.roomChanged && <span className="ml-2 text-xs font-normal">この日だけ変更</span>}</dd>
-          {s.teacher && (<><dt className="text-fg-muted">先生</dt><dd className="text-fg">{s.teacher}</dd></>)}
-          {s.note && (<><dt className="text-fg-muted">メモ</dt><dd className="text-fg">{s.note}</dd></>)}
-        </dl>
-        <div className="mt-5 flex flex-col gap-2">
-          {url && (
-            <a href={url} target="_blank" rel="noopener noreferrer" onClick={onClose} className="inline-flex items-center justify-center gap-2 h-11 rounded-full bg-accent-solid hover:bg-accent-solid-hover text-on-accent transition-colors">
-              <span className="pill-text text-[15px] font-bold">{s.attendanceId ? '出席ページを開く' : 'コースページを開く'}</span>
-              <FiExternalLink size={14} className="opacity-70" aria-hidden="true" />
-            </a>
-          )}
-          <button type="button" onClick={onClose} className="h-10 rounded-full text-fg-muted hover:bg-surface-3 transition-colors">
-            <span className="text-sm font-semibold">閉じる</span>
-          </button>
+        {/* 授業のカード */}
+        <div className="rounded-2xl bg-surface shadow-2xl px-5 py-4">
+          <p className="flex items-center gap-2 text-sm text-fg-muted">
+            <span className="font-semibold text-fg tabular-nums">{m}/{d}（{wd}）</span>
+            <span className="inline-flex items-center h-5 px-1.5 rounded bg-accent-soft text-accent text-xs font-bold"><span className="pill-text">{s.period}限</span></span>
+            {(s.status === 'cancel' || s.status === 'extra') && <ExceptionBadge status={s.status} personal={isPersonal(s)} />}
+          </p>
+          <h2 id="class-peek-title" className={`mt-2 text-lg font-extrabold leading-snug ${s.status === 'cancel' ? 'line-through text-fg-subtle' : 'text-fg'}`}>{s.name}</h2>
+          <dl className="mt-3 grid grid-cols-[auto_1fr] gap-x-4 gap-y-1.5 text-sm">
+            <dt className="text-fg-muted">時刻</dt>
+            <dd className={`tabular-nums font-semibold ${dayChanged ? 'text-warn' : (s.startTime || s.endTime) ? 'text-accent' : 'text-fg'}`}>
+              {t ? `${formatHm(t.start)}〜${formatHm(t.end)}` : '—'}
+              {dayChanged && <span className="ml-2 text-xs font-normal">この日だけ変更</span>}
+            </dd>
+            <dt className="text-fg-muted">教室</dt>
+            <dd className={s.roomChanged ? 'text-warn font-semibold' : 'text-fg'}>{s.classroom || '未定'}{s.roomChanged && <span className="ml-2 text-xs font-normal">この日だけ変更</span>}</dd>
+            {s.teacher && (<><dt className="text-fg-muted">先生</dt><dd className="text-fg">{s.teacher}</dd></>)}
+            {s.note && (<><dt className="text-fg-muted">メモ</dt><dd className="text-fg">{s.note}</dd></>)}
+          </dl>
         </div>
-      </div>
+        {/* 操作のメニュー（iPhone の長押しメニューと同じく、カードの下に） */}
+        {url && (
+          <motion.div
+            className="mt-2 ml-auto w-60 max-w-full overflow-hidden rounded-xl bg-surface/90 backdrop-blur-xl shadow-xl"
+            initial={{ opacity: 0, y: -6, scale: 0.95 }} animate={{ opacity: 1, y: 0, scale: 1 }} exit={{ opacity: 0, scale: 0.95 }}
+            transition={{ delay: 0.06, duration: 0.18 }}
+          >
+            <a href={url} target="_blank" rel="noopener noreferrer" onClick={onClose} className="flex items-center justify-between gap-3 px-4 py-3 text-fg hover:bg-surface-3 transition-colors">
+              <span className="text-[15px]">{s.attendanceId ? '出席ページを開く' : 'コースページを開く'}</span>
+              <FiExternalLink size={16} className="text-fg-muted" aria-hidden="true" />
+            </a>
+          </motion.div>
+        )}
+      </motion.div>
     </div>,
     document.body,
   );
@@ -353,26 +387,34 @@ function ClassDetailSheet({ subject: s, date, onClose }: { subject: Subject; dat
 /** 長押しとみなす時間（ミリ秒） */
 const LONG_PRESS_MS = 450;
 
-function WeekGrid({ weeklySubjects, now, dates }: { weeklySubjects: Record<Day, Subject[]>; now: Date; dates: Record<Day, string> }) {
-  const today = weekdayOf(now);
-  // 長押しで開いた授業の詳しい内容
-  const [detail, setDetail] = useState<{ subject: Subject; date: string } | null>(null);
+function WeekGrid({ weeklySubjects, now, dates, isCurrentWeek = true }: { weeklySubjects: Record<Day, Subject[]>; now: Date; dates: Record<Day, string>; isCurrentWeek?: boolean }) {
+  // 今日の強調と「授業中」は、今週を見ているときだけ
+  const today = isCurrentWeek ? weekdayOf(now) : null;
+  // 長押しで開いた授業（押したマスの位置から大きくなって出る）
+  const [detail, setDetail] = useState<{ subject: Subject; date: string; from: DOMRect } | null>(null);
+  // 押している間のマス（iPhone と同じく、押し続けると少し縮む）
+  const [pressing, setPressing] = useState<string | null>(null);
   // 長押し: 押し続けたら詳しい内容を出し、そのあとの「押した」（LMS を開く）は止める。指が動いたら（スクロール）やめる
   const pressRef = React.useRef<{ timer: number; x: number; y: number; fired: boolean } | null>(null);
   const pressHandlers = (s: Subject, date: string) => ({
     onPointerDown: (e: React.PointerEvent) => {
+      const el = e.currentTarget as HTMLElement;
+      setPressing(s.id);
       const timer = window.setTimeout(() => {
         if (pressRef.current) pressRef.current.fired = true;
-        setDetail({ subject: s, date });
+        setPressing(null);
+        // Android では短く震わせる（iPhone のブラウザでは震わせられない）
+        navigator.vibrate?.(10);
+        setDetail({ subject: s, date, from: el.getBoundingClientRect() });
       }, LONG_PRESS_MS);
       pressRef.current = { timer, x: e.clientX, y: e.clientY, fired: false };
     },
     onPointerMove: (e: React.PointerEvent) => {
       const p = pressRef.current;
-      if (p && !p.fired && Math.hypot(e.clientX - p.x, e.clientY - p.y) > 8) { clearTimeout(p.timer); pressRef.current = null; }
+      if (p && !p.fired && Math.hypot(e.clientX - p.x, e.clientY - p.y) > 8) { clearTimeout(p.timer); pressRef.current = null; setPressing(null); }
     },
-    onPointerUp: () => { if (pressRef.current && !pressRef.current.fired) clearTimeout(pressRef.current.timer); },
-    onPointerCancel: () => { if (pressRef.current) clearTimeout(pressRef.current.timer); pressRef.current = null; },
+    onPointerUp: () => { if (pressRef.current && !pressRef.current.fired) clearTimeout(pressRef.current.timer); setPressing(null); },
+    onPointerCancel: () => { if (pressRef.current) clearTimeout(pressRef.current.timer); pressRef.current = null; setPressing(null); },
     onClick: (e: React.MouseEvent) => {
       // 長押しのあとの「押した」は、LMS を開かない
       if (pressRef.current?.fired) { e.preventDefault(); pressRef.current = null; }
@@ -423,7 +465,7 @@ function WeekGrid({ weeklySubjects, now, dates }: { weeklySubjects: Record<Day, 
                   rel="noopener noreferrer"
                   title={`${s.name}（${s.classroom} / ${s.teacher}）${changed ? `・この日は変更あり${s.note ? `（${s.note}）` : ''}` : ''}`}
                   // 長押しで詳しい内容を出すので、文字の選択と iPhone のリンクの長押しメニューを止める
-                  style={{ WebkitTouchCallout: 'none' }}
+                  style={{ WebkitTouchCallout: 'none', transform: pressing === s.id ? 'scale(0.94)' : undefined, transition: 'transform 0.35s ease-out, background-color 0.15s' }}
                   className={`select-none min-h-16 rounded-md sm:rounded-lg px-1 sm:px-2 py-1 sm:py-1.5 flex flex-col justify-center items-stretch gap-0.5 shadow-sm transition-colors ${
                     // 授業のマスも課題カードと同じ色。休講は薄く
                     isNow ? 'bg-accent-soft ring-2 ring-accent' : 'bg-surface-2 dark:bg-slate-700/80 hover:bg-surface-3 dark:hover:bg-slate-700'
@@ -459,7 +501,9 @@ function WeekGrid({ weeklySubjects, now, dates }: { weeklySubjects: Record<Day, 
         ))}
       </div>
       <p className="mt-2 text-xs text-fg-subtle text-center">授業を長押しすると、詳しい内容が見られます</p>
-      {detail && <ClassDetailSheet subject={detail.subject} date={detail.date} onClose={() => setDetail(null)} />}
+      <AnimatePresence>
+        {detail && <ClassPeek key={detail.subject.id} subject={detail.subject} date={detail.date} from={detail.from} onClose={() => setDetail(null)} />}
+      </AnimatePresence>
     </div>
   );
 }
@@ -613,6 +657,32 @@ export const TimetableContainer: React.FC<TimetableContainerProps> = ({
     return Object.fromEntries(WEEKDAYS.map((d) => [d, applyClassExceptions(regularWeek[d] ?? [], exceptions, weekDates[d], d, all)])) as Record<Day, Subject[]>;
   }, [regularWeek, exceptions, weekDates]);
   const todaySubjects = useMemo(() => (today ? weeklySubjects[today] ?? [] : []), [today, weeklySubjects]);
+
+  // 週の表で見ている週（0 = 今週、-1 = 前の週、1 = 次の週）。今日・次の授業はいつも今週
+  const [weekOffset, setWeekOffset] = useState(0);
+  const shownDates = useMemo(() => {
+    if (weekOffset === 0) return weekDates;
+    const monday = mondayOf(new Date(`${todayYmd}T12:00:00`));
+    monday.setDate(monday.getDate() + weekOffset * 7);
+    return Object.fromEntries(WEEKDAYS.map((d, i) => {
+      const x = new Date(monday); x.setDate(monday.getDate() + i);
+      return [d, toYmd(x)];
+    })) as Record<Day, string>;
+  }, [weekOffset, weekDates, todayYmd]);
+  // 今週以外の週の授業の変更・臨時授業は、その週を開いたときに読む
+  const user = useCurrentUser();
+  const otherWeek = useQuery({
+    queryKey: ['classExceptions', shownDates.Mon, shownDates.Fri],
+    queryFn: () => fetchClassExceptions(user!.id, shownDates.Mon, shownDates.Fri),
+    enabled: weekOffset !== 0 && !!user,
+    staleTime: 5 * 60 * 1000,
+  });
+  const shownWeek = useMemo(() => {
+    if (weekOffset === 0) return weeklySubjects;
+    const all = Object.values(regularWeek).flat();
+    const ex = otherWeek.data ?? NO_EXCEPTIONS;
+    return Object.fromEntries(WEEKDAYS.map((d) => [d, applyClassExceptions(regularWeek[d] ?? [], ex, shownDates[d], d, all)])) as Record<Day, Subject[]>;
+  }, [weekOffset, weeklySubjects, regularWeek, otherWeek.data, shownDates]);
   const { items } = useUnifiedAssignments(subjects);
   const lmsIssue = useLmsIssue();
   // 出席率（LMS の出欠）。1 日 1 回取得し、端末にキャッシュする
@@ -664,7 +734,28 @@ export const TimetableContainer: React.FC<TimetableContainerProps> = ({
         <div className={CENTER_PANEL}>
           {lmsIssue && <div className="px-3 pt-3"><LmsIssueNotice issue={lmsIssue} /></div>}
           {isWeeklyView ? (
-            <WeekGrid weeklySubjects={weeklySubjects} now={now} dates={weekDates} />
+            <>
+              {/* 週の切り替え（前の週・次の週・今週） */}
+              <div className="flex items-center justify-between gap-2 px-2 sm:px-4 pt-2 sm:pt-3">
+                <button type="button" onClick={() => setWeekOffset((w) => w - 1)} aria-label="前の週" className="w-9 h-9 rounded-full flex items-center justify-center text-fg hover:bg-surface-3 transition-colors"><FiChevronLeft size={20} /></button>
+                <div className="flex items-center gap-2">
+                  <p className="text-[15px] font-bold text-fg tabular-nums">
+                    {Number(shownDates.Mon.slice(5, 7))}/{Number(shownDates.Mon.slice(8, 10))}〜{Number(shownDates.Fri.slice(5, 7))}/{Number(shownDates.Fri.slice(8, 10))}
+                  </p>
+                  <button
+                    type="button"
+                    onClick={() => setWeekOffset(0)}
+                    disabled={weekOffset === 0}
+                    aria-label={weekOffset === 0 ? '今週を表示中' : '今週に戻る'}
+                    className="inline-flex items-center h-7 px-3 rounded-full border border-line-strong text-fg hover:bg-surface-3 transition-colors disabled:opacity-40 disabled:hover:bg-transparent disabled:cursor-default"
+                  >
+                    <span className="pill-text text-xs font-bold">今週</span>
+                  </button>
+                </div>
+                <button type="button" onClick={() => setWeekOffset((w) => w + 1)} aria-label="次の週" className="w-9 h-9 rounded-full flex items-center justify-center text-fg hover:bg-surface-3 transition-colors"><FiChevronRight size={20} /></button>
+              </div>
+              <WeekGrid weeklySubjects={shownWeek} now={now} dates={shownDates} isCurrentWeek={weekOffset === 0} />
+            </>
           ) : (
             <TodayTimeline subjects={todaySubjects} now={now} assignmentCount={assignmentCount} attendance={attendance} />
           )}
