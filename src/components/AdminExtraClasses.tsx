@@ -205,12 +205,12 @@ export default function AdminExtraClasses({ onChanged }: { onChanged?: () => voi
                 {selected.map((p) => {
                   const t = draft.times[p] ?? standard(p);
                   return (
-                    <div key={p} className="flex flex-wrap items-center gap-2">
+                    <div key={p} className="flex flex-wrap items-center gap-x-2 gap-y-0.5">
                       <span className="w-10 text-sm font-bold text-accent">{p}限</span>
-                      <input type="time" aria-label={`${p}限の開始`} value={t.start} onChange={(e) => setTime(p, 'start', e.target.value)} className={`${inputClass} tabular-nums`} />
+                      <input type="time" aria-label={`${p}限の開始`} value={t.start} onChange={(e) => setTime(p, 'start', e.target.value)} className={`w-[6.75rem] ${inputClass} tabular-nums`} />
                       <span className="text-fg-muted">〜</span>
-                      <input type="time" aria-label={`${p}限の終了`} value={t.end} onChange={(e) => setTime(p, 'end', e.target.value)} className={`${inputClass} tabular-nums`} />
-                      <span className="text-xs text-fg-subtle tabular-nums">本来 {standard(p).start}〜{standard(p).end}</span>
+                      <input type="time" aria-label={`${p}限の終了`} value={t.end} onChange={(e) => setTime(p, 'end', e.target.value)} className={`w-[6.75rem] ${inputClass} tabular-nums`} />
+                      <span className="basis-full sm:basis-auto pl-12 sm:pl-0 text-xs text-fg-subtle tabular-nums">本来 {standard(p).start}〜{standard(p).end}</span>
                     </div>
                   );
                 })}

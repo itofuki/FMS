@@ -65,6 +65,43 @@ export async function enablePush(): Promise<PushState> {
   return 'enabled';
 }
 
+/**
+ * この端末がすでに通知の購読をしていれば、今ログインしているアカウントの通知先としてサーバーに登録し直す。
+ * アカウントを作り直した（古いアカウントを消した）ときや、同じ端末で別のアカウントに切り替えたときに、
+ * 端末では通知がオンなのにサーバーに登録がなく、通知が届かない（テスト通知も失敗する）のを防ぐ。
+ * 何度呼んでも同じ（同じ端末の登録は上書きされる）。失敗しても画面は止めない
+ */
+export async function syncPushSubscription(): Promise<void> {
+  try {
+    if (!('serviceWorker' in navigator) || !('PushManager' in window) || Notification.permission !== 'granted') return;
+    const registration = await getRegistrationWithTimeout();
+    const subscription = await registration?.pushManager.getSubscription();
+    if (!subscription) return;
+    await supabase.rpc('register_push_subscription', {
+      p_subscription: subscription.toJSON(),
+      p_user_agent: navigator.userAgent.slice(0, 300),
+    });
+  } catch {
+    // 通知の登録し直しに失敗しても、ほかの機能には関係ない
+  }
+}
+
+/**
+ * 通知を送る関数（send-push）のエラーを、画面に出せる文にする。
+ * サーバーに通知先の登録がないとき（404）は、どうすればよいかを伝える
+ */
+export async function pushErrorText(error: unknown): Promise<string> {
+  const ctx = (error as { context?: Response })?.context;
+  if (ctx && typeof ctx.json === 'function') {
+    try {
+      const body = await ctx.clone().json() as { error?: string };
+      if (ctx.status === 404) return 'この端末の通知先が登録されていません。「この端末で受け取る」を一度オフにしてからオンにしてください。';
+      if (body?.error) return body.error;
+    } catch { /* 本文が JSON でないときは下へ */ }
+  }
+  return error instanceof Error ? error.message : String(error);
+}
+
 /** この端末の購読を解除し、サーバーからも削除する */
 export async function disablePush(): Promise<PushState> {
   const subscription = await (await getRegistration()).pushManager.getSubscription();

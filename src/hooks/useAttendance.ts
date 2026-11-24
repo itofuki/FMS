@@ -1,6 +1,7 @@
 /* src/hooks/useAttendance.ts
- * 時間割の科目ごとの出席率（LMS の出欠）を、1 日 1 回だけ取りに行って端末にキャッシュする。
- * LMS に接続していない・出欠ページのない科目は対象外。
+ * 時間割の科目ごとの出席率（LMS の出欠）を取りに行き、端末にキャッシュする。
+ * その日のうちに出席すると記録が増えるので、取ってから 30 分たったら、開いたとき・画面に戻ったときに取り直す
+ * （取り直している間は前の値を見せる）。LMS に接続していない・出欠ページのない科目は対象外。
  */
 import { useQuery } from '@tanstack/react-query';
 import { fetchAttendanceSummary, type AttendanceSummary } from '../lib/attendance';
@@ -11,7 +12,10 @@ import type { Subject } from '../components/Timetable';
 
 /** 出欠ページの id（cmid）→ 出席率 */
 export type AttendanceMap = Record<number, AttendanceSummary>;
-type Cache = { day: string; data: AttendanceMap };
+/** at: 取った時刻（ミリ秒）。以前の形（day だけ）のキャッシュは、取り直しの対象にする */
+type Cache = { day: string; at?: number; data: AttendanceMap };
+/** 取ってからこの時間がたったら取り直す */
+const FRESH_MS = 30 * 60 * 1000;
 
 const readCache = (key: string): Cache | null => {
   try {
@@ -36,10 +40,11 @@ export function useAttendance(subjects: Subject[]): AttendanceMap {
   const today = toYmd(nowInJst());
   const cacheKey = session ? attendanceCacheKey(session.username) : null;
   const cache = cacheKey ? readCache(cacheKey) : null;
-  const cachedToday = cache?.day === today && cmids.every((id) => id in cache.data) ? cache.data : undefined;
+  // 30 分以内に取った値なら、取り直さずにそのまま使う
+  const fresh = !!cache?.at && Date.now() - cache.at < FRESH_MS && cmids.every((id) => id in cache.data);
 
   const { data } = useQuery({
-    queryKey: ['attendance', session?.username, cmids.join(','), today],
+    queryKey: ['attendance', session?.username, cmids.join(',')],
     enabled: !!session && cmids.length > 0,
     queryFn: async () => {
       const results = await Promise.allSettled(
@@ -58,13 +63,16 @@ export function useAttendance(subjects: Subject[]): AttendanceMap {
         return next;
       }
       clearLmsIssue();
-      if (cacheKey) writeCache(cacheKey, { day: today, data: next });
+      if (cacheKey) writeCache(cacheKey, { day: today, at: Date.now(), data: next });
       return next;
     },
-    // 今日すでに取っていれば取りに行かない。日付が変わったら、前日の値を見せながら取り直す
-    initialData: cachedToday,
+    // 30 分以内に取っていれば取りに行かない。古ければ、前の値を見せながら取り直す
+    initialData: fresh ? cache!.data : undefined,
+    initialDataUpdatedAt: fresh ? cache!.at : undefined,
     placeholderData: cache?.data,
-    staleTime: Infinity,
+    staleTime: FRESH_MS,
+    // 画面に戻ったとき（アプリを開き直したとき）に、30 分たっていれば取り直す
+    refetchOnWindowFocus: true,
     retry: false,
   });
   return data ?? {};

@@ -11,7 +11,10 @@ import { createPortal } from 'react-dom';
 import { AnimatePresence, motion } from 'framer-motion';
 import { Link, useSearchParams } from 'react-router-dom';
 import { FiArrowRight, FiExternalLink, FiFileText, FiClock, FiCoffee, FiCheckCircle, FiAlertTriangle, FiMapPin, FiUser, FiChevronLeft, FiChevronRight } from 'react-icons/fi';
-import ChapterFrame, { CENTER_PANEL, PAGE_GRID, SIDE_TITLE, SIDE_WIDGET } from './ChapterFrame';
+import ChapterFrame, { CENTER_PANEL, LIST_GROUP, LIST_GROUP_HEADING, PAGE_GRID, SIDE_TITLE, SIDE_WIDGET } from './ChapterFrame';
+import { supabase } from '../lib/supabaseClient';
+import CourseDetail from './CourseDetail';
+import type { UnifiedAssignment as UnifiedAssignmentItem } from '../lib/assignments';
 import { BsQrCodeScan } from 'react-icons/bs';
 import { TbClockEdit } from 'react-icons/tb';
 
@@ -173,11 +176,26 @@ function TodayTimeline({ subjects, now, assignmentCount, attendance }: { subject
     <ol className="divide-y divide-line">
       {rows.map((row, i) => {
         if (row.kind === 'gaps') {
+          // 続く空き時間は 1 つにまとめ、授業と同じ並び（左に時刻）で「空き ○時間○分」と大きめに出す
+          const from = row.gaps[0].from;
+          const to = row.gaps[row.gaps.length - 1].to;
+          const mins = (() => {
+            const [fh, fm] = from.split(':').map(Number);
+            const [th, tm] = to.split(':').map(Number);
+            return th * 60 + tm - (fh * 60 + fm);
+          })();
+          const length = mins >= 60 ? `${Math.floor(mins / 60)}時間${mins % 60 ? `${mins % 60}分` : ''}` : `${mins}分`;
           return (
-            <li key={`gap-${i}`} className="px-4 sm:px-5 py-2 pl-[5rem] sm:pl-[5.25rem] text-xs text-fg-subtle">
-              {/* 続く空き時間は 1 つの範囲にまとめる（例: 空き 10:55〜13:20（2限・昼休み）） */}
-              空き {row.gaps[0].from}〜{row.gaps[row.gaps.length - 1].to}
-              <span className="ml-1">（{row.gaps.map((g) => g.label).join('・')}）</span>
+            <li key={`gap-${i}`} className="flex gap-4 px-4 sm:px-5 py-2.5">
+              <div className="w-12 flex-shrink-0 text-right tabular-nums text-fg-subtle">
+                <p className="text-xs leading-none">{from}</p>
+                <p className="mt-1 text-xs">{to}</p>
+              </div>
+              <div className="flex-1 min-w-0 flex flex-wrap items-center gap-x-2 gap-y-0.5 text-fg-muted">
+                <FiCoffee size={14} className="flex-shrink-0 text-fg-subtle" aria-hidden="true" />
+                <span className="text-sm font-semibold">空き {length}</span>
+                <span className="text-xs text-fg-subtle">{row.gaps.map((g) => g.label).join('・')}</span>
+              </div>
             </li>
           );
         }
@@ -625,6 +643,115 @@ function NextClassCard({ subjects, now, attendance }: { subjects: Subject[]; now
 // メイン
 // ------------------------------------------------------------------
 
+// ------------------------------------------------------------------
+// コース（Open LMS のアプリの「マイコース」と同じく、今学期の自分のコースの一覧）
+// ------------------------------------------------------------------
+
+/** 「コース」タブ（マイコース）を出すか。作ってあるが、まだ出さない（使うときは true にする） */
+const SHOW_COURSES_TAB = false;
+
+type MyCourse = { course_id: number; name: string; fullname: string; attendance_id: number | null };
+
+/**
+ * 今学期の自分のコース（LMS から取り込んだもの）。時間割に出る授業は曜日・時限の順に、
+ * それ以外（お知らせ用など授業ではないコース・時間割に出さないコース）は「その他のコース」にまとめる。
+ * 押すと、FMS の中でコースの内容（課題・お知らせ・資料）を見る画面を開く
+ */
+function CourseList({ weeklySubjects, attendance, assignmentCount, assignments }: { weeklySubjects: Record<Day, Subject[]>; attendance: AttendanceMap; assignmentCount: (name: string) => number; assignments: UnifiedAssignmentItem[] }) {
+  const user = useCurrentUser();
+  // 開いているコース（FMS の中でコースの内容を見る）
+  const [opened, setOpened] = useState<MyCourse | null>(null);
+  const { data: courses, isLoading } = useQuery({
+    queryKey: ['myCourses', user?.id],
+    enabled: !!user,
+    queryFn: async () => {
+      const { data, error } = await supabase.from('user_lms_courses').select('course_id, name, fullname, attendance_id').eq('user_id', user!.id).order('name');
+      if (error) throw error;
+      return (data ?? []) as MyCourse[];
+    },
+  });
+
+  // コースごとの曜日・時限（例: 月 1・2限 / 木 3限）と、並べる順（最初の曜日・時限）
+  const slots = useMemo(() => {
+    const map = new Map<number, { text: string[]; order: number }>();
+    WEEKDAYS.forEach((d, di) => {
+      const byCourse = new Map<number, number[]>();
+      for (const s of weeklySubjects[d] ?? []) {
+        const id = Number(s.id.split('-')[0]);
+        byCourse.set(id, [...(byCourse.get(id) ?? []), s.period]);
+      }
+      for (const [id, periods] of byCourse) {
+        const sorted = periods.sort((a, b) => a - b);
+        const cur = map.get(id) ?? { text: [], order: di * 10 + sorted[0] };
+        cur.text.push(`${WEEKDAY_LABELS[d]} ${sorted.join('・')}限`);
+        map.set(id, cur);
+      }
+    });
+    return map;
+  }, [weeklySubjects]);
+
+  if (isLoading || !courses) return <p className="px-5 py-10 text-center text-sm text-fg-muted">読み込み中...</p>;
+  if (courses.length === 0) return <p className="px-5 py-10 text-center text-sm text-fg-muted">LMS のコースがまだ取り込まれていません。</p>;
+
+  if (opened) {
+    const slot = slots.get(opened.course_id);
+    return (
+      <CourseDetail
+        course={{ course_id: opened.course_id, name: opened.name, slot: slot?.text.join(' / '), attendance: opened.attendance_id ? attendance[opened.attendance_id] : undefined }}
+        assignments={assignments.filter((a) => a.subject_name === opened.name)}
+        onBack={() => setOpened(null)}
+      />
+    );
+  }
+
+  const inTimetable = courses.filter((c) => slots.has(c.course_id)).sort((a, b) => slots.get(a.course_id)!.order - slots.get(b.course_id)!.order);
+  const others = courses.filter((c) => !slots.has(c.course_id));
+
+  const row = (c: MyCourse) => {
+    const slot = slots.get(c.course_id);
+    const summary = c.attendance_id ? attendance[c.attendance_id] : undefined;
+    const count = assignmentCount(c.name);
+    return (
+      <li key={c.course_id}>
+        <button
+          type="button"
+          onClick={() => { setOpened(c); document.querySelector('[data-scroll-root]')?.scrollTo({ top: 0 }); }}
+          className="w-full text-left flex items-start gap-3 px-4 sm:px-5 py-3.5 hover:bg-surface-2 transition-colors"
+        >
+          <div className="flex-1 min-w-0">
+            <p className="text-base font-bold text-fg leading-snug break-words">{c.name}</p>
+            <div className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-1 text-[13px] text-fg-muted">
+              {slot && <span className="inline-flex items-center h-5 px-1.5 rounded bg-accent-soft text-accent text-xs font-bold"><span className="pill-text">{slot.text.join(' / ')}</span></span>}
+              {summary && summary.percent !== null && (
+                <span className="inline-flex items-center gap-1"><FiCheckCircle size={12} className="text-up" aria-hidden="true" />出席率 {Math.round(summary.percent)}%</span>
+              )}
+              {count > 0 && <span className="inline-flex items-center gap-1 font-semibold text-warn"><FiFileText size={12} aria-hidden="true" />課題 {count}件</span>}
+            </div>
+          </div>
+          <FiChevronRight size={18} className="mt-1 flex-shrink-0 text-fg-subtle" aria-hidden="true" />
+        </button>
+      </li>
+    );
+  };
+
+  return (
+    <div>
+      {inTimetable.length > 0 && (
+        <section className={LIST_GROUP}>
+          <h3 className={LIST_GROUP_HEADING}>時間割の授業<span className="text-sm font-normal text-fg-muted">{inTimetable.length}件</span></h3>
+          <ul className="divide-y divide-line">{inTimetable.map(row)}</ul>
+        </section>
+      )}
+      {others.length > 0 && (
+        <section className={LIST_GROUP}>
+          <h3 className={LIST_GROUP_HEADING}>その他のコース<span className="text-sm font-normal text-fg-muted">{others.length}件</span></h3>
+          <ul className="divide-y divide-line">{others.map(row)}</ul>
+        </section>
+      )}
+    </div>
+  );
+}
+
 interface TimetableContainerProps {
   isWeeklyView: boolean;
   onChangeView: (weekly: boolean) => void;
@@ -658,7 +785,9 @@ export const TimetableContainer: React.FC<TimetableContainerProps> = ({
   }, [regularWeek, exceptions, weekDates]);
   const todaySubjects = useMemo(() => (today ? weeklySubjects[today] ?? [] : []), [today, weeklySubjects]);
 
-  // 週の表で見ている週（0 = 今週、-1 = 前の週、1 = 次の週）。今日・次の授業はいつも今週
+  // 「コース」タブを開いているか
+  const [showCourses, setShowCourses] = useState(false);
+  // 週の表で見ている週（0 = 今週、1 = 次の週…）。今日・次の授業はいつも今週
   const [weekOffset, setWeekOffset] = useState(0);
   const shownDates = useMemo(() => {
     if (weekOffset === 0) return weekDates;
@@ -701,9 +830,11 @@ export const TimetableContainer: React.FC<TimetableContainerProps> = ({
     </span>
   );
   // 列の見出しの下線タブ: 今日 / 週
+  // 列の見出しの下線タブ: 今日 / 週 / コース（Open LMS のアプリの「マイコース」にあたる、今学期のコースの一覧）
   const tabs = [
-    { key: 'today', label: '今日', active: !isWeeklyView, onSelect: () => onChangeView(false) },
-    { key: 'week', label: '週', active: isWeeklyView, onSelect: () => onChangeView(true) },
+    { key: 'today', label: '今日', active: !isWeeklyView && !showCourses, onSelect: () => { setShowCourses(false); onChangeView(false); } },
+    { key: 'week', label: '週', active: isWeeklyView && !showCourses, onSelect: () => { setShowCourses(false); onChangeView(true); } },
+    ...(SHOW_COURSES_TAB ? [{ key: 'courses', label: 'コース', active: showCourses, onSelect: () => setShowCourses(true) }] : []),
   ];
 
   if (!isProfileSet) {
@@ -727,17 +858,20 @@ export const TimetableContainer: React.FC<TimetableContainerProps> = ({
       <div className={PAGE_GRID}>
         {/* 右の列（スマホでは見出しのすぐ下）: 授業中・次の授業。週の表のときは出さない（表を広く使う）。
             通知から来たときの出席の選択・QR の読み取りはこの中で扱うので、消さずに隠すだけにする */}
-        <aside className={`${SIDE_WIDGET} ${isWeeklyView ? '!hidden' : 'hidden lg:block'}`}>
+        <aside className={`${SIDE_WIDGET} ${isWeeklyView || showCourses ? '!hidden' : 'hidden lg:block'}`}>
           <NextClassCard subjects={todaySubjects.filter(x => x.status !== 'cancel')} now={now} attendance={attendance} />
         </aside>
         {/* 真ん中の列: 白い 1 枚の面に、今日の授業（区切り線）または週の表 */}
         <div className={CENTER_PANEL}>
           {lmsIssue && <div className="px-3 pt-3"><LmsIssueNotice issue={lmsIssue} /></div>}
-          {isWeeklyView ? (
+          {showCourses ? (
+            <CourseList weeklySubjects={regularWeek} attendance={attendance} assignmentCount={assignmentCount} assignments={items} />
+          ) : isWeeklyView ? (
             <>
               {/* 週の切り替え（前の週・次の週・今週） */}
               <div className="flex items-center justify-between gap-2 px-2 sm:px-4 pt-2 sm:pt-3">
-                <button type="button" onClick={() => setWeekOffset((w) => w - 1)} aria-label="前の週" className="w-9 h-9 rounded-full flex items-center justify-center text-fg hover:bg-surface-3 transition-colors"><FiChevronLeft size={20} /></button>
+                {/* 今週より前には戻らない（課題のカレンダーと同じ） */}
+                <button type="button" onClick={() => setWeekOffset((w) => Math.max(0, w - 1))} disabled={weekOffset <= 0} aria-label="前の週" className="w-9 h-9 rounded-full flex items-center justify-center text-fg hover:bg-surface-3 transition-colors disabled:opacity-30 disabled:hover:bg-transparent disabled:cursor-default"><FiChevronLeft size={20} /></button>
                 <div className="flex items-center gap-2">
                   <p className="text-[15px] font-bold text-fg tabular-nums">
                     {Number(shownDates.Mon.slice(5, 7))}/{Number(shownDates.Mon.slice(8, 10))}〜{Number(shownDates.Fri.slice(5, 7))}/{Number(shownDates.Fri.slice(8, 10))}

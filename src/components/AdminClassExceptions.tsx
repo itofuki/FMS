@@ -366,13 +366,13 @@ export default function AdminClassExceptions({ onChanged }: { onChanged?: () => 
                   <span className="ml-2 font-normal text-fg-muted">教室 {usual?.classroom || '未設定'}</span>
                 </p>
                 {!!usual?.periods.length && (
-                  <p className="mt-0.5 text-fg-muted tabular-nums">
+                  <p className="mt-0.5 flex flex-wrap gap-x-3 text-fg-muted tabular-nums">
                     {usual.periods.map((p) => {
                       const t = usual.times[p];
                       const base = periodTime(p);
                       const shifted = base && t && (t.start !== hhmm(base.start) || t.end !== hhmm(base.end));
                       return (
-                        <span key={p} className="mr-3 whitespace-nowrap">
+                        <span key={p} className="whitespace-nowrap">
                           {p}限 <span className={shifted ? 'text-warn font-semibold' : ''}>{t?.start}〜{t?.end}</span>
                         </span>
                       );
@@ -432,12 +432,12 @@ export default function AdminClassExceptions({ onChanged }: { onChanged?: () => 
                       const t = draft.times[p] ?? usualTimeOf(usual, p, draft?.kind === 'extra');
                       const u = usualTimeOf(usual, p, draft?.kind === 'extra');
                       return (
-                        <div key={p} className="flex flex-wrap items-center gap-2">
+                        <div key={p} className="flex flex-wrap items-center gap-x-2 gap-y-0.5">
                           <span className="w-10 text-sm font-bold text-accent">{p}限</span>
-                          <input type="time" aria-label={`${p}限の開始`} value={t.start} onChange={(e) => setTime(p, 'start', e.target.value)} className={`${inputClass} tabular-nums ${timeChanged(p, 'start') ? '!border-warn !bg-warn-soft' : ''}`} />
+                          <input type="time" aria-label={`${p}限の開始`} value={t.start} onChange={(e) => setTime(p, 'start', e.target.value)} className={`w-[6.75rem] ${inputClass} tabular-nums ${timeChanged(p, 'start') ? '!border-warn !bg-warn-soft' : ''}`} />
                           <span className="text-fg-muted">〜</span>
-                          <input type="time" aria-label={`${p}限の終了`} value={t.end} onChange={(e) => setTime(p, 'end', e.target.value)} className={`${inputClass} tabular-nums ${timeChanged(p, 'end') ? '!border-warn !bg-warn-soft' : ''}`} />
-                          <span className="text-xs text-fg-subtle tabular-nums">{usual?.times[p] ? '既定' : '本来'} {u.start}〜{u.end}</span>
+                          <input type="time" aria-label={`${p}限の終了`} value={t.end} onChange={(e) => setTime(p, 'end', e.target.value)} className={`w-[6.75rem] ${inputClass} tabular-nums ${timeChanged(p, 'end') ? '!border-warn !bg-warn-soft' : ''}`} />
+                          <span className="basis-full sm:basis-auto pl-12 sm:pl-0 text-xs text-fg-subtle tabular-nums">{usual?.times[p] ? '既定' : '本来'} {u.start}〜{u.end}</span>
                         </div>
                       );
                     })}

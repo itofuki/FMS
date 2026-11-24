@@ -19,7 +19,7 @@ import RootMenuVisibility from "./RootMenuVisibility";
 import { useUserProfile } from "../hooks/useUserProfile";
 import { ThemeSelector } from "./ThemeToggle";
 import { useQueryClient } from "@tanstack/react-query";
-import { getPushState, enablePush, disablePush, sendTestPush, sendClassTestPush, type PushState } from "../lib/push";
+import { getPushState, enablePush, disablePush, sendTestPush, sendClassTestPush, syncPushSubscription, pushErrorText, type PushState } from "../lib/push";
 import { clearLmsSession, getLmsSession, purgeLegacyLmsSecrets } from "../lib/lms";
 import { onSettingsSectionRequest, takeSettingsSection } from "../lib/menu";
 import { useLmsIssue } from "../lib/lmsStatus";
@@ -214,6 +214,8 @@ export default function Setting({ onSettingsSaved }: SettingProps) {
 
   useEffect(() => {
     getPushState().then(setPushState).catch(() => setPushState('unsupported'));
+    // 端末で通知がオンなら、今のアカウントの通知先として登録し直す（古いアカウントの登録が残っていない場合に備えて）
+    syncPushSubscription();
   }, []);
 
   const handleTogglePush = async () => {
@@ -239,7 +241,7 @@ export default function Setting({ onSettingsSaved }: SettingProps) {
       const { sent } = await sendTestPush(user.id);
       toast.success(`テスト通知を送信しました（${sent}台）`);
     } catch (e) {
-      toast.error(`テスト通知の送信に失敗しました: ${e instanceof Error ? e.message : String(e)}`);
+      toast.error(`テスト通知の送信に失敗しました: ${await pushErrorText(e)}`);
     }
   };
 
@@ -250,7 +252,7 @@ export default function Setting({ onSettingsSaved }: SettingProps) {
       const { sent } = await sendClassTestPush(user.id);
       toast.success(`授業前の通知を送信しました（${sent}台）`);
     } catch (e) {
-      toast.error(`送信に失敗しました: ${e instanceof Error ? e.message : String(e)}`);
+      toast.error(`送信に失敗しました: ${await pushErrorText(e)}`);
     }
   };
 

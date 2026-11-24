@@ -53,8 +53,12 @@ export default function AssignmentCalendar({ items, selected, onSelect }: {
   // 最後の週がまるごと次の月なら出さない（5 週の月を 5 行に）
   const rows = cells.slice(35).every((c) => !c.inMonth) ? cells.slice(0, 35) : cells;
 
+  // 今月より前には戻らない（過ぎた月の締切は見なくてよいため）
+  const thisMonth = Number(today.slice(0, 4)) * 12 + Number(today.slice(5, 7));
+  const atThisMonth = month.y * 12 + month.m <= thisMonth;
   const move = (diff: number) => setMonth(({ y, m }) => {
     const d = new Date(y, m - 1 + diff, 1);
+    if (d.getFullYear() * 12 + d.getMonth() + 1 < thisMonth) return { y, m };
     return { y: d.getFullYear(), m: d.getMonth() + 1 };
   });
   const goToday = () => {
@@ -67,7 +71,7 @@ export default function AssignmentCalendar({ items, selected, onSelect }: {
     <div className="px-2 sm:px-4 pt-3 pb-4 border-b border-line">
       {/* 月の切り替え */}
       <div className="flex items-center justify-between px-2 mb-2">
-        <button type="button" onClick={() => move(-1)} aria-label="前の月" className="w-9 h-9 rounded-full flex items-center justify-center text-fg hover:bg-surface-3 transition-colors">
+        <button type="button" onClick={() => move(-1)} disabled={atThisMonth} aria-label="前の月" className="w-9 h-9 rounded-full flex items-center justify-center text-fg hover:bg-surface-3 transition-colors disabled:opacity-30 disabled:hover:bg-transparent disabled:cursor-default">
           <FiChevronLeft size={20} />
         </button>
         <div className="flex items-center gap-3">

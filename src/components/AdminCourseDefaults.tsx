@@ -290,12 +290,12 @@ function DefaultEditor({ draft, coursePeriods, courseOptions, onCancel, onSave }
               const base = periodTime(p);
               const bad = t.start && t.end && t.start >= t.end;
               return (
-                <div key={p} className="flex flex-wrap items-center gap-2">
+                <div key={p} className="flex flex-wrap items-center gap-x-2 gap-y-0.5">
                   <span className="w-10 text-sm font-bold text-accent">{p}限</span>
-                  <input type="time" aria-label={`${p}限の開始`} value={t.start ?? ''} onChange={(e) => setTime(p, 'start', e.target.value)} className={`h-9 bg-surface border rounded-md px-2 text-sm text-fg tabular-nums ${bad ? 'border-down' : 'border-line-strong'}`} />
+                  <input type="time" aria-label={`${p}限の開始`} value={t.start ?? ''} onChange={(e) => setTime(p, 'start', e.target.value)} className={`w-[6.75rem] h-9 bg-surface border rounded-md px-2 text-sm text-fg tabular-nums ${bad ? 'border-down' : 'border-line-strong'}`} />
                   <span className="text-fg-muted">〜</span>
-                  <input type="time" aria-label={`${p}限の終了`} value={t.end ?? ''} onChange={(e) => setTime(p, 'end', e.target.value)} className={`h-9 bg-surface border rounded-md px-2 text-sm text-fg tabular-nums ${bad ? 'border-down' : 'border-line-strong'}`} />
-                  {base && <span className="text-xs text-fg-subtle tabular-nums">本来 {formatHm(base.start)}〜{formatHm(base.end)}</span>}
+                  <input type="time" aria-label={`${p}限の終了`} value={t.end ?? ''} onChange={(e) => setTime(p, 'end', e.target.value)} className={`w-[6.75rem] h-9 bg-surface border rounded-md px-2 text-sm text-fg tabular-nums ${bad ? 'border-down' : 'border-line-strong'}`} />
+                  {base && <span className="basis-full sm:basis-auto pl-12 sm:pl-0 text-xs text-fg-subtle tabular-nums">本来 {formatHm(base.start)}〜{formatHm(base.end)}</span>}
                 </div>
               );
             })}

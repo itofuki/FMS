@@ -22,6 +22,7 @@ import { mondayOf, nowInJst, subjectTime, toYmd, weekdayOf } from '../lib/schedu
 import { applyClassExceptions, fetchClassExceptions, type ClassException } from '../lib/classExceptions';
 import { useLmsCourseSync } from '../hooks/useLmsCourseSync';
 import { TOGGLEABLE_MENUS, useMenuVisibility } from '../hooks/useMenuVisibility';
+import { syncPushSubscription } from '../lib/push';
 
 const VALID_DAYS: Day[] = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri'];
 function isDay(key: unknown): key is Day {
@@ -167,6 +168,10 @@ export default function MyPage() {
 
   // LMS の今学期のコースを 1 日 1 回サーバーへ同期し、変わっていたら時間割を読み直す
   useLmsCourseSync(useCallback(() => setRefreshKey(prev => prev + 1), []));
+
+  // 端末で通知がオンなら、今のアカウントの通知先としてサーバーに登録し直す（1 回だけ）。
+  // 古いアカウントを消したときなどに、端末ではオンなのに通知が届かなくなるのを防ぐ
+  useEffect(() => { syncPushSubscription(); }, []);
 
   useEffect(() => {
     const fetchUserTimetable = async () => {
