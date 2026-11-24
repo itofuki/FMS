@@ -62,13 +62,15 @@ export type Subject = {
 export type Day = 'Mon' | 'Tue' | 'Wed' | 'Thu' | 'Fri';
 
 const LMS_BASE = 'https://lms-tokyo.iput.ac.jp';
-/** 出席IDがあれば出席ページ、なければコースページ */
+/** コースのトップページ（授業名・週の表のマスを押したとき） */
 const courseUrl = (s: Subject) => `${LMS_BASE}/course/view.php?id=${s.id.split('-')[0]}`;
 /** 臨時授業（臨時授業など。LMS のコースではないので id が「x」で始まる） */
 const isPersonal = (s: Subject) => s.id.startsWith('x');
-/** 出席ページ（なければコースページ）。臨時授業は LMS にないので空 */
+/** 出席ページ（なければコースページ）。「出席する」ボタン用。臨時授業は LMS にないので空 */
 const attendanceUrl = (s: Subject) =>
   isPersonal(s) ? '' : s.attendanceId ? `${LMS_BASE}/mod/attendance/view.php?id=${s.attendanceId}` : courseUrl(s);
+/** 授業名を押したときに開くページ（コースのトップ）。臨時授業は LMS にないので空 */
+const subjectUrl = (s: Subject) => (isPersonal(s) ? '' : courseUrl(s));
 
 /** 出席を取る時間（開始10分前〜授業中）。この間だけ右の列の出席ボタンを目立たせる */
 const ATTENDANCE_LEAD_MIN = 10;
@@ -231,14 +233,14 @@ function TodayTimeline({ subjects, now, assignmentCount, attendance }: { subject
             </div>
             {/* 右: 授業 */}
             <div className="flex-1 min-w-0">
-              {/* 1 行目: 授業名（押すと出席ページ、なければコースページ）と、いま注目する授業の残り時間・休講・補講 */}
+              {/* 1 行目: 授業名（押すとコースのトップ）と、いま注目する授業の残り時間・休講・補講 */}
               <div className="flex items-start justify-between gap-2">
-                {attendanceUrl(s) ? (
+                {subjectUrl(s) ? (
                   <a
-                    href={attendanceUrl(s)}
+                    href={subjectUrl(s)}
                     target="_blank"
                     rel="noopener noreferrer"
-                    title={s.attendanceId ? '出席ページを開く' : 'コースページを開く'}
+                    title="コースページを開く"
                     className={`min-w-0 text-base font-bold leading-snug break-words hover:text-link hover:underline ${cancelled ? 'line-through text-fg-subtle' : 'text-fg'}`}
                   >
                     {s.name}
@@ -325,7 +327,7 @@ function ClassPeek({ subject: s, date, from, onClose }: { subject: Subject; date
     return () => window.removeEventListener('keydown', onKey);
   }, [onClose]);
   const t = subjectTime(s);
-  const url = attendanceUrl(s);
+  const url = subjectUrl(s);
   const dayChanged = !!(s.timeChanged || s.periodMoved);
   const [y, m, d] = date.split('-').map(Number);
   const wd = ['日', '月', '火', '水', '木', '金', '土'][new Date(y, m - 1, d).getDay()];
@@ -391,9 +393,15 @@ function ClassPeek({ subject: s, date, from, onClose }: { subject: Subject; date
             transition={{ delay: 0.06, duration: 0.18 }}
           >
             <a href={url} target="_blank" rel="noopener noreferrer" onClick={onClose} className="flex items-center justify-between gap-3 px-4 py-3 text-fg hover:bg-surface-3 transition-colors">
-              <span className="text-[15px]">{s.attendanceId ? '出席ページを開く' : 'コースページを開く'}</span>
+              <span className="text-[15px]">コースページを開く</span>
               <FiExternalLink size={16} className="text-fg-muted" aria-hidden="true" />
             </a>
+            {s.attendanceId && (
+              <a href={attendanceUrl(s)} target="_blank" rel="noopener noreferrer" onClick={onClose} className="flex items-center justify-between gap-3 px-4 py-3 border-t border-line text-fg hover:bg-surface-3 transition-colors">
+                <span className="text-[15px]">出席ページを開く</span>
+                <FiCheckCircle size={16} className="text-fg-muted" aria-hidden="true" />
+              </a>
+            )}
           </motion.div>
         )}
       </motion.div>
@@ -478,8 +486,8 @@ function WeekGrid({ weeklySubjects, now, dates, isCurrentWeek = true }: { weekly
                   key={d}
                   {...pressHandlers(s, dates[d])}
                   // 臨時授業は LMS にないのでリンクにしない
-                  href={attendanceUrl(s) || undefined}
-                  target={attendanceUrl(s) ? '_blank' : undefined}
+                  href={subjectUrl(s) || undefined}
+                  target={subjectUrl(s) ? '_blank' : undefined}
                   rel="noopener noreferrer"
                   title={`${s.name}（${s.classroom} / ${s.teacher}）${changed ? `・この日は変更あり${s.note ? `（${s.note}）` : ''}` : ''}`}
                   // 長押しで詳しい内容を出すので、文字の選択と iPhone のリンクの長押しメニューを止める
