@@ -21,6 +21,10 @@ import { TbClockEdit } from 'react-icons/tb';
 // QR の読み取り（カメラと jsQR）は、押したときだけ読み込む
 const QrScanner = lazy(() => import('./QrScanner'));
 import AttendPrompt from './AttendPrompt';
+import AttendDialog, { AttendForm } from './AttendDialog';
+import type { AttendTarget } from '../hooks/useOpenAttendance';
+import { cmidFromUrl } from '../lib/attendanceMark';
+import { isDebugAttend } from '../lib/debugAttend';
 import { readAttendPrompt, type AttendPromptInfo } from '../lib/attendPrompt';
 import { applyClassExceptions, fetchClassExceptions, type ClassException } from '../lib/classExceptions';
 import { useQuery } from '@tanstack/react-query';
@@ -69,6 +73,14 @@ const isPersonal = (s: Subject) => s.id.startsWith('x');
 /** 出席ページ（なければコースページ）。「出席する」ボタン用。臨時授業は LMS にないので空 */
 const attendanceUrl = (s: Subject) =>
   isPersonal(s) ? '' : s.attendanceId ? `${LMS_BASE}/mod/attendance/view.php?id=${s.attendanceId}` : courseUrl(s);
+/** 「出席する」で FMS の中から出席を入れるときの対象 */
+const attendTargetOf = (s: Subject): AttendTarget => ({
+  name: s.name,
+  cmid: s.attendanceId!,
+  courseId: Number(s.id.split('-')[0]),
+  url: attendanceUrl(s),
+  subtitle: `${s.period}限${s.classroom ? ` · ${s.classroom}` : ''}`,
+});
 /** 授業名を押したときに開くページ（コースのトップ）。臨時授業は LMS にないので空 */
 const subjectUrl = (s: Subject) => (isPersonal(s) ? '' : courseUrl(s));
 
@@ -215,7 +227,8 @@ function TodayTimeline({ subjects, now, assignmentCount, attendance }: { subject
         const dayChanged = !!(s.timeChanged || s.periodMoved);
         const timeColor = dayChanged ? 'text-warn' : (s.startTime || s.endTime) ? 'text-accent' : '';
         // 出欠を打てる時間（開始 10 分前〜授業中）
-        const canAttend = isFocus && (state === 'current' || left <= ATTENDANCE_LEAD_MIN);
+        // 出席の見た目を試しているときは、時刻に関係なく次の授業（授業中の授業）に出す
+        const canAttend = isFocus && (state === 'current' || left <= ATTENDANCE_LEAD_MIN || isDebugAttend());
         return (
           <li
             key={s.id}
@@ -280,20 +293,17 @@ function TodayTimeline({ subjects, now, assignmentCount, attendance }: { subject
               {s.note && <p className="mt-0.5 text-[13px] text-fg-muted">{s.note}</p>}
               {/* 出席率（LMS の出欠） */}
               {summary && (
-                <p className="mt-1 inline-flex flex-wrap items-center gap-1 text-xs text-fg-muted" title="LMS の出欠より・1日1回更新">
+                <p className="mt-1 inline-flex flex-wrap items-center gap-1 text-xs text-fg-muted" title="LMS の出欠より">
                   <FiCheckCircle size={12} className="text-up" aria-hidden="true" />
                   {summary.percent === null ? '出席の記録なし' : `出席率 ${Math.round(summary.percent)}%（${summary.completed}/${summary.total}回）`}
                 </p>
               )}
               {/* スマホ: 出席の操作（広い画面では右の列にある） */}
-              {canAttend && (
+              {/* 出席の受け付けが始まると、パスワードの入力バー（QR もその中）がここに出る（1 分ごとに確かめる）。
+                  出欠ページのない授業は QR の読み取りだけ */}
+              {canAttend && s.attendanceId && <div className="lg:hidden"><AttendForm target={attendTargetOf(s)} inline onScan={startScan} /></div>}
+              {canAttend && !s.attendanceId && (
                 <div className="mt-2 flex flex-wrap gap-2 lg:hidden">
-                  {s.attendanceId && (
-                    <a href={attendanceUrl(s)} target="_blank" rel="noopener noreferrer" className="inline-flex items-center gap-1.5 h-8 px-3.5 rounded-full bg-accent-solid hover:bg-accent-solid-hover text-on-accent transition-colors">
-                      <FiCheckCircle size={14} aria-hidden="true" />
-                      <span className="pill-text text-[13px] font-bold">出席する</span>
-                    </a>
-                  )}
                   <button type="button" onClick={startScan} className="inline-flex items-center gap-1.5 h-8 px-3.5 rounded-full border border-line-strong text-fg hover:bg-surface-3 transition-colors">
                     <BsQrCodeScan size={14} aria-hidden="true" />
                     <span className="pill-text text-[13px] font-bold">QR を読み取る</span>
@@ -584,6 +594,8 @@ function NextClassCard({ subjects, now, attendance }: { subjects: Subject[]; now
     setSearchParams(next, { replace: true });
   }, [searchParams, setSearchParams]);
   const closeAttendPrompt = useCallback(() => setAttendPrompt(null), []);
+  // 通知から来たとき: 通知の出席ページ（cmid）と同じ授業が今日の時間割にあれば、FMS の中で出席を入れられる
+  const promptSubject = attendPrompt ? subjects.find((x) => x.attendanceId && x.attendanceId === cmidFromUrl(attendPrompt.link)) : undefined;
   const closeScanner = useCallback(() => setScanning(false), []);
   // 授業中・次の授業（授業ごとの時刻に従う）
   const focus = focusSubject(subjects, now);
@@ -607,21 +619,12 @@ function NextClassCard({ subjects, now, attendance }: { subjects: Subject[]; now
             </div>
           )}
           {/* 出欠を打てる時間（開始10分前〜授業中）だけ、出席の操作を出す。
-              「出席する」は出席ページがある科目のときだけ。「QR を読み取る」は出欠の QR コード用 */}
-          {(focus!.state === 'current' || minutesLeft(t, now) <= ATTENDANCE_LEAD_MIN) && (
+              出席の受け付けが始まると、パスワードの入力バー（QR もその中）がそのまま出る（1 分ごとに確かめる）。出欠ページのない授業は QR だけ */}
+          {(focus!.state === 'current' || minutesLeft(t, now) <= ATTENDANCE_LEAD_MIN || isDebugAttend()) && s.attendanceId && (
+            <AttendForm target={attendTargetOf(s)} inline onScan={() => setScanning(true)} />
+          )}
+          {(focus!.state === 'current' || minutesLeft(t, now) <= ATTENDANCE_LEAD_MIN) && !s.attendanceId && (
             <div className="mt-3 flex flex-wrap gap-2">
-              {s.attendanceId && (
-                <a
-                  href={attendanceUrl(s)}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="inline-flex items-center gap-1.5 h-9 px-4 rounded-md bg-accent-solid hover:bg-accent-solid-hover text-on-accent shadow-sm transition-colors"
-                >
-                  <FiCheckCircle size={15} aria-hidden="true" />
-                  <span className="text-sm font-bold">出席する</span>
-                  <FiExternalLink size={13} className="opacity-70" aria-hidden="true" />
-                </a>
-              )}
               <button
                 type="button"
                 onClick={() => setScanning(true)}
@@ -636,7 +639,11 @@ function NextClassCard({ subjects, now, attendance }: { subjects: Subject[]; now
       ) : (
         <p className="mt-2 text-sm text-fg-muted">{weekdayOf(now) ? (subjects.length ? '今日の授業は終わりました' : '今日の授業はありません') : '今日は授業がありません'}</p>
       )}
-      {attendPrompt && <AttendPrompt info={attendPrompt} onScan={() => setScanning(true)} onClose={closeAttendPrompt} />}
+      {/* 通知から来たとき: 授業が分かれば、選ぶ画面を出さずにパスワードの画面を開く（QR はその中から） */}
+      {attendPrompt && promptSubject && (
+        <AttendDialog target={attendTargetOf(promptSubject)} onScan={() => setScanning(true)} onClose={closeAttendPrompt} />
+      )}
+      {attendPrompt && !promptSubject && <AttendPrompt info={attendPrompt} onScan={() => setScanning(true)} onClose={closeAttendPrompt} />}
       {/* 読み取りの画面（通知から来たときは、授業の表示に関係なく開く） */}
       {scanning && (
         <Suspense fallback={null}>

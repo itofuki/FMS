@@ -12,6 +12,7 @@ import { Outlet, Link } from "react-router-dom";
 import { ThemeToggleButton } from "./ThemeToggle";
 import { SETTINGS_ACCOUNT_SECTION, SUB_MENU_IDS, requestSettingsSection } from "../lib/menu";
 import { clearDebugTime, isDebugTime } from "../lib/schedule";
+import { clearDebugAttend, isDebugAttend } from "../lib/debugAttend";
 import { Toaster } from 'sonner';
 import { useSidebar, type ChapterLink } from "../contexts/SidebarContext";
 import Avatar from "./Avatar";
@@ -206,13 +207,17 @@ function TopBar({ onOpenMenu, onOpenSettings, hidden = false, className = '' }: 
 function DebugTimeBanner() {
   const reset = () => {
     clearDebugTime();
+    clearDebugAttend();
     const url = new URL(window.location.href);
     url.searchParams.delete('debugTime');
+    url.searchParams.delete('debugAttend');
     window.location.replace(url.toString());
   };
+  // 出席のテストは LMS に送らない（帯に「送信なし」と出す）
+  const label = [isDebugTime() && 'デバッグ時刻', isDebugAttend() && '出席テスト（送信なし）'].filter(Boolean).join('・');
   return (
     <div role="status" className="sticky top-0 z-40 flex items-center justify-center gap-3 px-4 py-1.5 bg-amber-400 text-slate-900 text-xs sm:text-sm font-bold">
-      <span>デバッグ用の時刻で表示中</span>
+      <span>{label}</span>
       <button type="button" onClick={reset} className="underline underline-offset-2 hover:no-underline">元に戻す</button>
     </div>
   );
@@ -315,7 +320,7 @@ export default function Layout() {
           style={{ ['--chrome-top' as string]: chromeHidden ? '0px' : '53px' }}
           className={`flex-1 overflow-y-auto w-full ${hasNav ? 'pb-[calc(53px+max(env(safe-area-inset-bottom),0.5rem)+0.75rem)] md:pb-0 [scrollbar-gutter:stable]' : ''}`}
         >
-          {isDebugTime() && <DebugTimeBanner />}
+          {(isDebugTime() || isDebugAttend()) && <DebugTimeBanner />}
           {/* スマホでは上のバー（ログイン画面には出さない。ロゴとテーマの切り替えはログイン画面の中に置く） */}
           {hasNav && (
             <TopBar
