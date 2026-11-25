@@ -122,8 +122,8 @@ async function runClassReminders(supabase: SupabaseClient, now: Date) {
 
       await sendToUser(supabase, user_id, {
         title: `まもなく${subject.period}限「${subject.name}」`,
-        body: `${startLabel} 開始${subject.classroom ? `（${subject.classroom}）` : ""}。出席ページか QR コードで出席できます。`,
-        // 本文を押したとき（iPhone は通知にボタンがないので必ずこちら）: FMS を開いて出席のしかたを選ぶ画面を出す
+        body: `${startLabel} 開始${subject.classroom ? `（${subject.classroom}）` : ""}。押すと FMS の時間割が開き、パスワードか QR コードで出席できます。`,
+        // 本文を押したとき（iPhone は通知にボタンがないので必ずこちら）: FMS の時間割を開き、その授業の行（パスワード欄）へ移る
         // 臨時授業（id が負の数）は LMS にないので、出席ページのリンクは付けない
         url: "/mypage?" + new URLSearchParams({
           tab: "timetable", attend: "1", name: subject.name, period: String(subject.period),

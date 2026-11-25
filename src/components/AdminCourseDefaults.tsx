@@ -14,7 +14,7 @@ import { fetchCourseOptions } from '../lib/courses';
 
 type LmsCourse = { course_id: number; name: string; fullname: string; wday: Weekday | null; periods: number[] | null; users: number };
 /** 時限ごとの時刻（'HH:MM'。空なら時限の本来の時刻）。ずれている時限だけ入れる */
-type PeriodTimes = Record<string, { start?: string; end?: string }>;
+type PeriodTimes = Record<string, { start?: string; end?: string; room?: string }>;
 type Default = {
   id: number; course_id: number; course_code: string | null; wday: Weekday | null; periods: number[] | null;
   classroom: string | null; teacher: string | null;
@@ -48,6 +48,14 @@ function timesText(times: PeriodTimes | null | undefined): string {
     .filter(([, t]) => t?.start || t?.end)
     .sort(([a], [b]) => Number(a) - Number(b));
   return entries.map(([p, t]) => `${p}限 ${t.start ?? ''}〜${t.end ?? ''}`).join('・');
+}
+
+/** 一覧に出す、時限ごとの教室の要約（例: 「1限 353・2限 361」） */
+function roomsText(times: PeriodTimes | null | undefined): string {
+  return Object.entries(times ?? {})
+    .filter(([, t]) => t?.room)
+    .sort(([a], [b]) => Number(a) - Number(b))
+    .map(([p, t]) => `${p}限 ${t.room}`).join('・');
 }
 
 const slotText = (wday: Weekday | null, periods: number[] | null) =>
@@ -84,12 +92,18 @@ export default function AdminCourseDefaults({ onChanged }: { onChanged?: () => v
       periods: draft.periods.length ? [...draft.periods].sort((a, b) => a - b) : null,
       classroom: draft.classroom.trim() || null,
       teacher: draft.teacher.trim() || null,
-      // 時刻は時限ごとの形で保存する（入っている時限だけ）。以前の形は使わないので空にする
+      // 時刻・教室は時限ごとの形で保存する（入っている時限だけ。教室はコース全体の教室と違うときだけ）。
+      // 以前の形は使わないので空にする
       period_times: (() => {
+        const whole = draft.classroom.trim();
         const kept = Object.fromEntries(
           Object.entries(draft.times)
-            .filter(([, t]) => t?.start || t?.end)
-            .map(([p, t]) => [p, { ...(t.start ? { start: t.start } : {}), ...(t.end ? { end: t.end } : {}) }]),
+            .filter(([p]) => draft.periods.includes(Number(p)))
+            .map(([p, t]) => {
+              const room = t.room?.trim();
+              return [p, { ...(t.start ? { start: t.start } : {}), ...(t.end ? { end: t.end } : {}), ...(room && room !== whole ? { room } : {}) }];
+            })
+            .filter(([, t]) => Object.keys(t as object).length > 0),
         );
         return Object.keys(kept).length ? kept : null;
       })(),
@@ -175,7 +189,7 @@ export default function AdminCourseDefaults({ onChanged }: { onChanged?: () => v
                       <li key={d.id} className="flex items-center justify-between gap-2 rounded-md bg-surface-2 px-3 py-2 text-sm">
                         <span className="min-w-0">
                           <span className="font-semibold text-fg">{courseName(d.course_code)}</span>
-                          <span className="ml-2 text-fg-muted">{[d.not_a_class && '授業ではない', slotText(d.wday, d.periods), timesText(timesOf(d, d.periods ?? c.periods ?? [])) && `時刻 ${timesText(timesOf(d, d.periods ?? c.periods ?? []))}`, d.classroom && `教室 ${d.classroom}`, d.teacher && `担当 ${d.teacher}`].filter(Boolean).join('・') || '（値なし）'}</span>
+                          <span className="ml-2 text-fg-muted">{[d.not_a_class && '授業ではない', slotText(d.wday, d.periods), timesText(timesOf(d, d.periods ?? c.periods ?? [])) && `時刻 ${timesText(timesOf(d, d.periods ?? c.periods ?? []))}`, d.classroom && `教室 ${d.classroom}`, roomsText(d.period_times) && `教室（時限ごと） ${roomsText(d.period_times)}`, d.teacher && `担当 ${d.teacher}`].filter(Boolean).join('・') || '（値なし）'}</span>
                         </span>
                         <span className="flex-shrink-0 flex items-center gap-1">
                           <button type="button" aria-label="編集" onClick={() => setEditing({ courseId: c.course_id, draft: { id: d.id, course_code: d.course_code, wday: d.wday, periods: d.periods ?? [], classroom: d.classroom ?? '', teacher: d.teacher ?? '', times: timesOf(d, d.periods ?? c.periods ?? []), notAClass: d.not_a_class } })} className="p-1.5 rounded-md text-fg-muted hover:text-fg hover:bg-surface-3"><FiEdit2 size={14} /></button>
@@ -216,7 +230,7 @@ function DefaultEditor({ draft, coursePeriods, courseOptions, onCancel, onSave }
   const toggle = (p: number) => setD((x) => ({ ...x, periods: x.periods.includes(p) ? x.periods.filter((y) => y !== p) : [...x.periods, p] }));
   // 時刻を入れる時限: この既定値で選んだ時限、なければコース名から読み取った時限
   const timePeriods = [...(d.periods.length ? d.periods : coursePeriods)].sort((a, b) => a - b);
-  const setTime = (p: number, key: 'start' | 'end', value: string) =>
+  const setTime = (p: number, key: 'start' | 'end' | 'room', value: string) =>
     setD((x) => ({ ...x, times: { ...x.times, [String(p)]: { ...x.times[String(p)], [key]: value } } }));
   // 開始が終了より後になっている時限がないか
   const badPeriod = timePeriods.find((p) => { const t = d.times[String(p)]; return t?.start && t?.end && t.start >= t.end; });
@@ -259,7 +273,7 @@ function DefaultEditor({ draft, coursePeriods, courseOptions, onCancel, onSave }
           </select>
         </div>
         <div>
-          <label className="block text-sm font-semibold text-fg mb-1">教室</label>
+          <label className="block text-sm font-semibold text-fg mb-1">教室（全時限）</label>
           <input value={d.classroom} maxLength={50} onChange={(e) => setD({ ...d, classroom: e.target.value })} placeholder="例: 353" className="w-32 h-9 bg-surface border border-line-strong rounded-md px-3 text-sm text-fg" />
         </div>
         <div>
@@ -280,7 +294,7 @@ function DefaultEditor({ draft, coursePeriods, courseOptions, onCancel, onSave }
       </fieldset>
       {/* 授業の時刻: 時限ごとに、本来の時刻とずれているときだけ入れる（例: 水曜 1〜4 限がすべてずれている授業） */}
       <fieldset>
-        <legend className="text-sm font-semibold text-fg mb-1">時刻（本来の時限とずれている時限だけ）</legend>
+        <legend className="text-sm font-semibold text-fg mb-1">時刻・教室（本来の時刻とずれている時限・教室が違う時限だけ）</legend>
         {timePeriods.length === 0 ? (
           <p className="text-xs text-fg-subtle">先に時限を選ぶと、時限ごとの時刻を入れられます。</p>
         ) : (
@@ -290,21 +304,28 @@ function DefaultEditor({ draft, coursePeriods, courseOptions, onCancel, onSave }
               const base = periodTime(p);
               const bad = t.start && t.end && t.start >= t.end;
               return (
-                <div key={p} className="flex flex-wrap items-center gap-x-2 gap-y-0.5">
-                  <span className="w-10 text-sm font-bold text-accent">{p}限</span>
-                  <input type="time" aria-label={`${p}限の開始`} value={t.start ?? ''} onChange={(e) => setTime(p, 'start', e.target.value)} className={`w-[6.75rem] h-9 bg-surface border rounded-md px-2 text-sm text-fg tabular-nums ${bad ? 'border-down' : 'border-line-strong'}`} />
-                  <span className="text-fg-muted">〜</span>
-                  <input type="time" aria-label={`${p}限の終了`} value={t.end ?? ''} onChange={(e) => setTime(p, 'end', e.target.value)} className={`w-[6.75rem] h-9 bg-surface border rounded-md px-2 text-sm text-fg tabular-nums ${bad ? 'border-down' : 'border-line-strong'}`} />
-                  {base && <span className="basis-full sm:basis-auto pl-12 sm:pl-0 text-xs text-fg-subtle tabular-nums">本来 {formatHm(base.start)}〜{formatHm(base.end)}</span>}
+                // 1 行目: 時限と時刻、2 行目: 教室（この時限だけ違うとき。空なら「教室（全時限）」）と本来の時刻
+                <div key={p} className="space-y-1">
+                  <div className="flex items-center gap-1.5">
+                    <span className="w-9 flex-shrink-0 text-sm font-bold text-accent">{p}限</span>
+                    <input type="time" aria-label={`${p}限の開始`} value={t.start ?? ''} onChange={(e) => setTime(p, 'start', e.target.value)} className={`w-[6.5rem] min-w-0 h-9 bg-surface border rounded-md px-2 text-sm text-fg tabular-nums ${bad ? 'border-down' : 'border-line-strong'}`} />
+                    <span className="text-fg-muted">〜</span>
+                    <input type="time" aria-label={`${p}限の終了`} value={t.end ?? ''} onChange={(e) => setTime(p, 'end', e.target.value)} className={`w-[6.5rem] min-w-0 h-9 bg-surface border rounded-md px-2 text-sm text-fg tabular-nums ${bad ? 'border-down' : 'border-line-strong'}`} />
+                  </div>
+                  <div className="flex items-center gap-1.5 pl-[2.625rem]">
+                    <span className="text-xs text-fg-muted">教室</span>
+                    <input aria-label={`${p}限の教室`} value={t.room ?? ''} maxLength={50} onChange={(e) => setTime(p, 'room', e.target.value)} placeholder={d.classroom.trim() || '教室'} className="w-20 h-8 bg-surface border border-line-strong rounded-md px-2 text-sm text-fg" />
+                    {base && <span className="ml-1 text-xs text-fg-subtle tabular-nums">本来 {formatHm(base.start)}〜{formatHm(base.end)}</span>}
+                  </div>
                 </div>
               );
             })}
             {Object.values(d.times).some((t) => t?.start || t?.end) && (
-              <button type="button" onClick={() => setD({ ...d, times: {} })} className="h-8 px-3 rounded-md text-fg-muted hover:bg-surface-3"><span className="text-xs font-bold">すべて本来の時刻に戻す</span></button>
+              <button type="button" onClick={() => setD({ ...d, times: Object.fromEntries(Object.entries(d.times).map(([p, t]) => [p, t.room ? { room: t.room } : {}])) })} className="h-8 px-3 rounded-md text-fg-muted hover:bg-surface-3"><span className="text-xs font-bold">すべて本来の時刻に戻す</span></button>
             )}
           </div>
         )}
-        <p className="mt-1 text-xs text-fg-subtle">空のままの時限は本来の時刻です。時間割・授業前の通知・カレンダー連携がこの時刻に合います。</p>
+        <p className="mt-1 text-xs text-fg-subtle">時刻が空の時限は本来の時刻、教室が空の時限は「教室（全時限）」です。時間割・授業前の通知・カレンダー連携がこれに合います。</p>
         {timeError && <p role="alert" className="mt-1 text-xs text-down font-semibold">{timeError}</p>}
       </fieldset>
       </>)}

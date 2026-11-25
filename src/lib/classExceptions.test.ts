@@ -23,6 +23,15 @@ describe('画面の時間割へのイレギュラーな授業回の当てはめ�
     expect(list.every((s) => !s.status)).toBe(true);
   });
 
+  it('時限ごとに別の教室（時限の教室 > 全体の教室 > いつもの教室）', () => {
+    const list = applyClassExceptions(day, [ex({ periods: [1, 2], period_times: { '1': { room: '501' }, '2': { room: '361' } } })], '2026-11-25', 'Wed', day);
+    expect(list[0]).toMatchObject({ classroom: '501', roomChanged: true });
+    // いつもと同じ教室なら「変更」にしない
+    expect(list[1]).toMatchObject({ classroom: '361', roomChanged: false });
+    const withAll = applyClassExceptions(day, [ex({ periods: [1, 2], period_times: { '1': { room: '501' } }, classroom: '401' })], '2026-11-25', 'Wed', day);
+    expect(withAll.slice(0, 2).map((s) => s.classroom)).toEqual(['501', '401']);
+  });
+
   it('1 件で 2 つの時限の時刻と教室を変える（指定のない時限はいつもの時刻）', () => {
     const list = applyClassExceptions(day, [ex({ periods: [1, 2], period_times: { '2': { start: '11:00' } }, classroom: '401' })], '2026-11-25', 'Wed', day);
     expect(list[0]).toMatchObject({ status: 'change', startTime: '09:30', classroom: '401' });

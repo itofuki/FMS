@@ -138,8 +138,8 @@ export async function sendClassTestPush(userId: string) {
     body: {
       user_id: userId,
       title: `（テスト）まもなく${s?.period ?? 1}限「${s?.name ?? '授業'}」`,
-      body: `5 分後に開始${s?.classroom ? `（${s.classroom}）` : ''}。出席ページか QR コードで出席できます。`,
-      // 本文を押したとき（iPhone はこちら）: 出席のしかたを選ぶ画面を出す
+      body: `5 分後に開始${s?.classroom ? `（${s.classroom}）` : ''}。押すと FMS の時間割が開き、パスワードか QR コードで出席できます。`,
+      // 本文を押したとき（iPhone はこちら）: FMS の時間割を開き、その授業の行（パスワード欄）へ移る
       url: '/mypage?' + new URLSearchParams({
         tab: 'timetable', attend: '1', name: s?.name ?? '授業', period: String(s?.period ?? 1),
         start: '', room: s?.classroom ?? '', link: attendUrl,

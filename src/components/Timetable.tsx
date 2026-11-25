@@ -21,9 +21,8 @@ import { TbClockEdit } from 'react-icons/tb';
 // QR の読み取り（カメラと jsQR）は、押したときだけ読み込む
 const QrScanner = lazy(() => import('./QrScanner'));
 import AttendPrompt from './AttendPrompt';
-import AttendDialog, { AttendForm } from './AttendDialog';
+import { AttendForm } from './AttendDialog';
 import type { AttendTarget } from '../hooks/useOpenAttendance';
-import { cmidFromUrl } from '../lib/attendanceMark';
 import { isDebugAttend } from '../lib/debugAttend';
 import { readAttendPrompt, type AttendPromptInfo } from '../lib/attendPrompt';
 import { applyClassExceptions, fetchClassExceptions, type ClassException } from '../lib/classExceptions';
@@ -232,6 +231,8 @@ function TodayTimeline({ subjects, now, assignmentCount, attendance }: { subject
         return (
           <li
             key={s.id}
+            // 授業前の通知から来たとき、この行までスクロールする目印
+            data-class-period={s.period}
             aria-current={state === 'current' ? 'time' : undefined}
             className={`relative flex gap-4 px-4 sm:px-5 py-3.5 transition-colors ${
               state === 'current'
@@ -291,13 +292,6 @@ function TodayTimeline({ subjects, now, assignmentCount, attendance }: { subject
               </div>
               {/* イレギュラーな授業回のメモ（例: 第5回の振替） */}
               {s.note && <p className="mt-0.5 text-[13px] text-fg-muted">{s.note}</p>}
-              {/* 出席率（LMS の出欠） */}
-              {summary && (
-                <p className="mt-1 inline-flex flex-wrap items-center gap-1 text-xs text-fg-muted" title="LMS の出欠より">
-                  <FiCheckCircle size={12} className="text-up" aria-hidden="true" />
-                  {summary.percent === null ? '出席の記録なし' : `出席率 ${Math.round(summary.percent)}%（${summary.completed}/${summary.total}回）`}
-                </p>
-              )}
               {/* スマホ: 出席の操作（広い画面では右の列にある） */}
               {/* 出席の受け付けが始まると、パスワードの入力バー（QR もその中）がここに出る（1 分ごとに確かめる）。
                   出欠ページのない授業は QR の読み取りだけ */}
@@ -309,6 +303,13 @@ function TodayTimeline({ subjects, now, assignmentCount, attendance }: { subject
                     <span className="pill-text text-[13px] font-bold">QR を読み取る</span>
                   </button>
                 </div>
+              )}
+              {/* 出席率（LMS の出欠）。出席の操作（パスワードの入力）があるときは、その下に出す */}
+              {summary && (
+                <p className="mt-1 inline-flex flex-wrap items-center gap-1 text-xs text-fg-muted" title="LMS の出欠より">
+                  <FiCheckCircle size={12} className="text-up" aria-hidden="true" />
+                  {summary.percent === null ? '出席の記録なし' : `出席率 ${Math.round(summary.percent)}%（${summary.completed}/${summary.total}回）`}
+                </p>
               )}
             </div>
           </li>
@@ -576,11 +577,15 @@ function attendanceLabel(a: AttendanceSummary) {
 // 右の列: 授業中・次の授業
 // ------------------------------------------------------------------
 
-function NextClassCard({ subjects, now, attendance }: { subjects: Subject[]; now: Date; attendance: AttendanceMap }) {
+/** 通知から来たときに、その授業の行を少しのあいだ目立たせる枠 */
+const ARRIVAL_HIGHLIGHT = ['ring-2', 'ring-inset', 'ring-accent'];
+
+function NextClassCard({ subjects, now, attendance, onShowToday }: { subjects: Subject[]; now: Date; attendance: AttendanceMap; onShowToday: () => void }) {
   // 授業前の通知の「出席する」（設定で「QR コード」を選んだとき）は ?scan=1 で来るので、すぐ読み取りを始める
   const [searchParams, setSearchParams] = useSearchParams();
   const [scanning, setScanning] = useState(() => searchParams.get('scan') === '1');
-  // 通知の本文を押して来たとき（?attend=1）: 出席ページか QR かを選ぶ画面を出す（iPhone は通知にボタンがないため）
+  // 通知の本文を押して来たとき（?attend=1）: 時間割の「今日」で、その授業の行（パスワード欄のあるところ）まで
+  // スクロールして少しのあいだ目立たせる。その授業が今日の時間割に見つからないときだけ、出席のしかたを選ぶ画面を出す
   const [attendPrompt, setAttendPrompt] = useState<AttendPromptInfo | null>(() => readAttendPrompt(searchParams));
   useEffect(() => {
     const scan = searchParams.get('scan') === '1';
@@ -594,8 +599,24 @@ function NextClassCard({ subjects, now, attendance }: { subjects: Subject[]; now
     setSearchParams(next, { replace: true });
   }, [searchParams, setSearchParams]);
   const closeAttendPrompt = useCallback(() => setAttendPrompt(null), []);
-  // 通知から来たとき: 通知の出席ページ（cmid）と同じ授業が今日の時間割にあれば、FMS の中で出席を入れられる
-  const promptSubject = attendPrompt ? subjects.find((x) => x.attendanceId && x.attendanceId === cmidFromUrl(attendPrompt.link)) : undefined;
+  const promptPeriod = attendPrompt ? Number(attendPrompt.period) : null;
+  const promptFound = promptPeriod !== null && subjects.some((x) => x.period === promptPeriod);
+  useEffect(() => {
+    if (!attendPrompt || !promptFound) return;
+    onShowToday();
+    // 「今日」の表示が出てから、その行（広い画面では右の「授業中・次の授業」の欄）へ動かす
+    const timer = window.setTimeout(() => {
+      const wide = window.matchMedia('(min-width: 1024px)').matches;
+      const el = document.querySelector<HTMLElement>(wide ? '[data-attend-card]' : `[data-class-period="${promptPeriod}"]`);
+      if (el) {
+        el.scrollIntoView({ block: 'center', behavior: 'smooth' });
+        el.classList.add(...ARRIVAL_HIGHLIGHT);
+        window.setTimeout(() => el.classList.remove(...ARRIVAL_HIGHLIGHT), 2500);
+      }
+      setAttendPrompt(null);
+    }, 300);
+    return () => window.clearTimeout(timer);
+  }, [attendPrompt, promptFound, promptPeriod, onShowToday]);
   const closeScanner = useCallback(() => setScanning(false), []);
   // 授業中・次の授業（授業ごとの時刻に従う）
   const focus = focusSubject(subjects, now);
@@ -613,15 +634,13 @@ function NextClassCard({ subjects, now, attendance }: { subjects: Subject[]; now
               ? <>{formatHm(t.end)} まで</>
               : <>{formatHm(t.start)} 開始</>}
           </p>
-          {s.attendanceId && attendance[s.attendanceId] && (
-            <div className="mt-2 pt-2 border-t border-line text-sm">
-              <p className="text-fg-muted">{attendanceLabel(attendance[s.attendanceId])}</p>
-            </div>
-          )}
           {/* 出欠を打てる時間（開始10分前〜授業中）だけ、出席の操作を出す。
               出席の受け付けが始まると、パスワードの入力バー（QR もその中）がそのまま出る（1 分ごとに確かめる）。出欠ページのない授業は QR だけ */}
+          {/* 区切りの線は出席の操作（パスワード欄）の上。出席率は線を付けず、その下に続ける */}
           {(focus!.state === 'current' || minutesLeft(t, now) <= ATTENDANCE_LEAD_MIN || isDebugAttend()) && s.attendanceId && (
-            <AttendForm target={attendTargetOf(s)} inline onScan={() => setScanning(true)} />
+            <div className="mt-3 pt-1 border-t border-line">
+              <AttendForm target={attendTargetOf(s)} inline onScan={() => setScanning(true)} />
+            </div>
           )}
           {(focus!.state === 'current' || minutesLeft(t, now) <= ATTENDANCE_LEAD_MIN) && !s.attendanceId && (
             <div className="mt-3 flex flex-wrap gap-2">
@@ -635,15 +654,18 @@ function NextClassCard({ subjects, now, attendance }: { subjects: Subject[]; now
               </button>
             </div>
           )}
+          {/* 出席率（パスワードの入力欄の下）。出席の操作がない時間は、ここに区切りの線を付ける */}
+          {s.attendanceId && attendance[s.attendanceId] && (
+            <div className={`text-sm ${focus!.state === 'current' || minutesLeft(t, now) <= ATTENDANCE_LEAD_MIN || isDebugAttend() ? 'mt-1.5' : 'mt-3 pt-2 border-t border-line'}`}>
+              <p className="text-fg-muted">{attendanceLabel(attendance[s.attendanceId])}</p>
+            </div>
+          )}
         </>
       ) : (
         <p className="mt-2 text-sm text-fg-muted">{weekdayOf(now) ? (subjects.length ? '今日の授業は終わりました' : '今日の授業はありません') : '今日は授業がありません'}</p>
       )}
-      {/* 通知から来たとき: 授業が分かれば、選ぶ画面を出さずにパスワードの画面を開く（QR はその中から） */}
-      {attendPrompt && promptSubject && (
-        <AttendDialog target={attendTargetOf(promptSubject)} onScan={() => setScanning(true)} onClose={closeAttendPrompt} />
-      )}
-      {attendPrompt && !promptSubject && <AttendPrompt info={attendPrompt} onScan={() => setScanning(true)} onClose={closeAttendPrompt} />}
+      {/* 通知の授業が今日の時間割に見つからないとき（時間割の読み込み後）だけ、出席のしかたを選ぶ画面を出す */}
+      {attendPrompt && subjects.length > 0 && !promptFound && <AttendPrompt info={attendPrompt} onScan={() => setScanning(true)} onClose={closeAttendPrompt} />}
       {/* 読み取りの画面（通知から来たときは、授業の表示に関係なく開く） */}
       {scanning && (
         <Suspense fallback={null}>
@@ -802,6 +824,8 @@ export const TimetableContainer: React.FC<TimetableContainerProps> = ({
 
   // 「コース」タブを開いているか
   const [showCourses, setShowCourses] = useState(false);
+  // 通知から来たときに「今日」を出す
+  const showToday = useCallback(() => { setShowCourses(false); onChangeView(false); }, [onChangeView]);
   // 週の表で見ている週（0 = 今週、1 = 次の週…）。今日・次の授業はいつも今週
   const [weekOffset, setWeekOffset] = useState(0);
   const shownDates = useMemo(() => {
@@ -873,8 +897,8 @@ export const TimetableContainer: React.FC<TimetableContainerProps> = ({
       <div className={PAGE_GRID}>
         {/* 右の列（スマホでは見出しのすぐ下）: 授業中・次の授業。週の表のときは出さない（表を広く使う）。
             通知から来たときの出席の選択・QR の読み取りはこの中で扱うので、消さずに隠すだけにする */}
-        <aside className={`${SIDE_WIDGET} ${isWeeklyView || showCourses ? '!hidden' : 'hidden lg:block'}`}>
-          <NextClassCard subjects={todaySubjects.filter(x => x.status !== 'cancel')} now={now} attendance={attendance} />
+        <aside data-attend-card className={`${SIDE_WIDGET} ${isWeeklyView || showCourses ? '!hidden' : 'hidden lg:block'}`}>
+          <NextClassCard subjects={todaySubjects.filter(x => x.status !== 'cancel')} now={now} attendance={attendance} onShowToday={showToday} />
         </aside>
         {/* 真ん中の列: 白い 1 枚の面に、今日の授業（区切り線）または週の表 */}
         <div className={CENTER_PANEL}>

@@ -20,23 +20,23 @@ import { Segmented } from './ui/SettingControls';
 
 type Kind = 'change' | 'cancel' | 'extra';
 type LmsCourse = { course_id: number; name: string; fullname: string; wday: Weekday | null; periods: number[] | null };
-type PeriodTimes = Record<string, { start?: string; end?: string }>;
+type PeriodTimes = Record<string, { start?: string; end?: string; room?: string }>;
 /** コースの既定値（lms_course_defaults）のうち、いつもの授業を決めるのに使うもの */
 type CourseDefault = {
   course_id: number; course_code: string | null; wday: Weekday | null; periods: number[] | null;
   classroom: string | null; period_times: PeriodTimes | null; start_time: string | null; end_time: string | null;
   not_a_class: boolean;
 };
-/** いつもの授業（曜日・時限・時限ごとの時刻・教室） */
-type Usual = { wday: Weekday | null; periods: number[]; times: Record<number, { start: string; end: string }>; classroom: string };
+/** いつもの授業（曜日・時限・時限ごとの時刻・教室）。rooms は時限ごとの教室（時限ごとの設定 > コース全体の教室） */
+type Usual = { wday: Weekday | null; periods: number[]; times: Record<number, { start: string; end: string }>; classroom: string; rooms: Record<number, string> };
 /** 登録済みの授業の変更（1 つの授業・1 日・1 対象につき 1 件） */
 type Row = {
   id: number; course_id: number; course_code: string | null; date: string; kind: Kind;
   periods: number[] | null; period_times: PeriodTimes | null; classroom: string | null; note: string | null;
 };
-/** periods: 対象の時限（コースの既定値と同じボタンで選ぶ）。times: 時限ごとの時刻（いつもの時刻が入っていて、そこから変える） */
+/** periods: 対象の時限（コースの既定値と同じボタンで選ぶ）。times・rooms: 時限ごとの時刻・教室（いつもの値が入っていて、そこから変える） */
 /** id: 編集中の登録（新しく登録するときは空） */
-type Draft = { id?: number; courseId: string; courseCode: string; kind: Kind; date: string; periods: number[]; times: Record<number, { start: string; end: string }>; classroom: string; note: string };
+type Draft = { id?: number; courseId: string; courseCode: string; kind: Kind; date: string; periods: number[]; times: Record<number, { start: string; end: string }>; rooms: Record<number, string>; note: string };
 
 const KIND_OPTIONS: { value: Kind; label: string }[] = [
   { value: 'change', label: '時刻・教室の変更' },
@@ -55,7 +55,7 @@ const dateLabel = (ymd: string) => {
   const [y, m, d] = ymd.split('-').map(Number);
   return `${m}/${d}（${WD[new Date(y, m - 1, d).getDay()]}）`;
 };
-const emptyDraft = (): Draft => ({ courseId: '', courseCode: '', kind: 'change', date: '', periods: [], times: {}, classroom: '', note: '' });
+const emptyDraft = (): Draft => ({ courseId: '', courseCode: '', kind: 'change', date: '', periods: [], times: {}, rooms: {}, note: '' });
 
 const pad = (n: number) => String(n).padStart(2, '0');
 const hhmm = (t: { h: number; m: number }) => `${pad(t.h)}:${pad(t.m)}`;
@@ -71,7 +71,10 @@ function usualOf(course: LmsCourse | undefined, defaults: CourseDefault[], code:
   const da = defaults.find((d) => d.course_id === course.course_id && d.course_code === null);
   const periods = [...(dc?.periods ?? da?.periods ?? course.periods ?? [])].sort((a, b) => a - b);
   const times: Usual['times'] = {};
+  const classroom = dc?.classroom ?? da?.classroom ?? '';
+  const rooms: Usual['rooms'] = {};
   periods.forEach((p, i) => {
+    rooms[p] = (dc?.period_times?.[String(p)]?.room ?? da?.period_times?.[String(p)]?.room ?? '').trim() || classroom;
     const base = periodTime(p);
     if (!base) return;
     const own = dc?.period_times?.[String(p)] ?? da?.period_times?.[String(p)];
@@ -80,7 +83,7 @@ function usualOf(course: LmsCourse | undefined, defaults: CourseDefault[], code:
     const legacyEnd = i === periods.length - 1 ? hm(dc?.end_time ?? da?.end_time ?? null) : '';
     times[p] = { start: own?.start || legacyStart || hhmm(base.start), end: own?.end || legacyEnd || hhmm(base.end) };
   });
-  return { wday: dc?.wday ?? da?.wday ?? course.wday, periods, times, classroom: dc?.classroom ?? da?.classroom ?? '' };
+  return { wday: dc?.wday ?? da?.wday ?? course.wday, periods, times, classroom, rooms };
 }
 
 /** その曜日の、今日以降でいちばん近い日（YYYY-MM-DD） */
@@ -103,6 +106,9 @@ function usualTimeOf(usual: Usual | null, p: number, plain = false): { start: st
   const base = periodTime(p);
   return base ? { start: hhmm(base.start), end: hhmm(base.end) } : { start: '', end: '' };
 }
+
+/** その時限のいつもの教室（既定値にない時限なら、コース全体の教室） */
+const usualRoomOf = (usual: Usual | null, p: number) => usual?.rooms[p] ?? usual?.classroom ?? '';
 
 const inputClass = 'h-9 bg-surface border border-line-strong rounded-md px-2.5 text-sm text-fg';
 
@@ -144,7 +150,6 @@ export default function AdminClassExceptions({ onChanged }: { onChanged?: () => 
     () => (draft ? usualOf(courses.find((c) => String(c.course_id) === draft.courseId), courseDefaults, draft.courseCode) : null),
     [draft, courses, courseDefaults],
   );
-  const usualRoom = usual?.classroom ?? '';
   // 変更・休講で、選んだ日がいつもの曜日でないとき
   const offDay = !!(draft && usual?.wday && draft.date && draft.kind !== 'extra'
     && new Date(`${draft.date}T12:00:00`).getDay() !== WEEKDAY_INDEX[usual.wday]);
@@ -152,6 +157,7 @@ export default function AdminClassExceptions({ onChanged }: { onChanged?: () => 
   // 既定値の時限から選び直したか（時限を動かした・減らした・増やした）
   const periodsChanged = !!draft && JSON.stringify(selected) !== JSON.stringify(usual?.periods ?? []);
   const timeChanged = (p: number, key: 'start' | 'end') => !!draft && (draft.times[p]?.[key] ?? '') !== usualTimeOf(usual, p, draft?.kind === 'extra')[key];
+  const roomChanged = (p: number) => !!draft && (draft.rooms[p] ?? usualRoomOf(usual, p)).trim() !== usualRoomOf(usual, p);
 
   // 入力の確認（足りないものがあれば、その理由）
   const problem = useMemo(() => {
@@ -161,11 +167,11 @@ export default function AdminClassExceptions({ onChanged }: { onChanged?: () => 
     if (selected.length === 0) return '時限を選んでください';
     const bad = selected.find((p) => { const t = draft.times[p]; return t?.start && t?.end && t.start >= t.end; });
     if (bad) return `${bad}限: 終了は開始より後にしてください`;
-    if (draft.kind === 'change' && !periodsChanged && !selected.some((p) => timeChanged(p, 'start') || timeChanged(p, 'end')) && draft.classroom.trim() === usualRoom)
+    if (draft.kind === 'change' && !periodsChanged && !selected.some((p) => timeChanged(p, 'start') || timeChanged(p, 'end') || roomChanged(p)))
       return '既定値から、時限・時刻・教室のどれかを変えてください';
     return null;
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [draft, usual, usualRoom]);
+  }, [draft, usual]);
 
   const save = async () => {
     if (!draft || problem) return;
@@ -185,14 +191,15 @@ export default function AdminClassExceptions({ onChanged }: { onChanged?: () => 
     setSaving(true);
     // 時限: 既定値の時限と同じなら空（既定値どおり）。補講は足す時限
     const periods = draft.kind !== 'extra' && !periodsChanged ? null : selected;
-    // 時刻: 既定値（補講は本来の時刻）と違う時限の、違うところだけ
+    // 時刻・教室: 既定値（補講は本来の時刻）と違う時限の、違うところだけ。教室も時限ごとに持つ
     const times: PeriodTimes = {};
     if (draft.kind !== 'cancel') {
       for (const p of selected) {
-        const t: { start?: string; end?: string } = {};
+        const t: { start?: string; end?: string; room?: string } = {};
         if (timeChanged(p, 'start') && draft.times[p]?.start) t.start = draft.times[p].start;
         if (timeChanged(p, 'end') && draft.times[p]?.end) t.end = draft.times[p].end;
-        if (t.start || t.end) times[String(p)] = t;
+        if (roomChanged(p) && draft.rooms[p]?.trim()) t.room = draft.rooms[p].trim();
+        if (t.start || t.end || t.room) times[String(p)] = t;
       }
     }
     const row = {
@@ -202,7 +209,8 @@ export default function AdminClassExceptions({ onChanged }: { onChanged?: () => 
       kind: draft.kind,
       periods,
       period_times: Object.keys(times).length ? times : null,
-      classroom: draft.kind === 'cancel' || !draft.classroom.trim() || draft.classroom.trim() === usualRoom ? null : draft.classroom.trim(),
+      // 教室は時限ごと（period_times の room）に入れるので、全体の教室は使わない
+      classroom: null,
       note: draft.note.trim() || null,
     };
     const { error } = existing
@@ -247,7 +255,7 @@ export default function AdminClassExceptions({ onChanged }: { onChanged?: () => 
           ...next,
           periods,
           times: Object.fromEntries(periods.map((p) => [p, usualTimeOf(u, p, next.kind === 'extra')])),
-          classroom: u?.classroom ?? '',
+          rooms: Object.fromEntries(periods.map((p) => [p, usualRoomOf(u, p)])),
           date: courseChanged && next.kind !== 'extra' ? nextDateOf(u?.wday ?? null, today) : next.date,
         };
       }
@@ -271,7 +279,8 @@ export default function AdminClassExceptions({ onChanged }: { onChanged?: () => 
         const own = r.period_times?.[String(p)];
         return [p, { start: own?.start || base.start, end: own?.end || base.end }];
       })),
-      classroom: r.classroom ?? u?.classroom ?? '',
+      // 時限ごとの教室 > 以前の形（変更全体の教室）> いつもの教室
+      rooms: Object.fromEntries(periods.map((p) => [p, r.period_times?.[String(p)]?.room || r.classroom || usualRoomOf(u, p)])),
       note: r.note ?? '',
     });
     requestAnimationFrame(() => document.getElementById('ex-form')?.scrollIntoView({ behavior: 'smooth', block: 'start' }));
@@ -286,9 +295,11 @@ export default function AdminClassExceptions({ onChanged }: { onChanged?: () => 
         ...d,
         periods: on ? d.periods.filter((x) => x !== p) : [...d.periods, p],
         times: on ? d.times : { ...d.times, [p]: d.times[p] ?? usualTimeOf(usual, p, d.kind === 'extra') },
+        rooms: on ? d.rooms : { ...d.rooms, [p]: d.rooms[p] ?? usualRoomOf(usual, p) },
       };
     });
   };
+  const setRoom = (p: number, value: string) => setDraft((d) => (d ? { ...d, rooms: { ...d.rooms, [p]: value } } : d));
   const setTime = (p: number, key: 'start' | 'end', value: string) =>
     setDraft((d) => (d ? { ...d, times: { ...d.times, [p]: { ...(d.times[p] ?? usualTimeOf(usual, p, d.kind === 'extra')), [key]: value } } } : d));
 
@@ -315,9 +326,14 @@ export default function AdminClassExceptions({ onChanged }: { onChanged?: () => 
                     <span className="font-semibold text-fg tabular-nums">{dateLabel(r.date)}</span>
                     {[
                       ps.length > 0 && `${[...ps].sort((a, b) => a - b).join('・')}限`,
-                      Object.keys(r.period_times ?? {}).length > 0 && `時刻 ${Object.entries(r.period_times ?? {})
+                      Object.values(r.period_times ?? {}).some((t) => t.start || t.end) && `時刻 ${Object.entries(r.period_times ?? {})
+                        .filter(([, t]) => t.start || t.end)
                         .sort(([a], [b]) => Number(a) - Number(b))
                         .map(([p, t]) => `${p}限 ${t.start ?? ''}〜${t.end ?? ''}`).join('・')}`,
+                      Object.values(r.period_times ?? {}).some((t) => t.room) && `教室 ${Object.entries(r.period_times ?? {})
+                        .filter(([, t]) => t.room)
+                        .sort(([a], [b]) => Number(a) - Number(b))
+                        .map(([p, t]) => `${p}限 ${t.room}`).join('・')}`,
                       r.classroom && `教室 ${r.classroom}`,
                       targetName(r.course_code) && `対象 ${targetName(r.course_code)}`,
                       r.note,
@@ -363,7 +379,10 @@ export default function AdminClassExceptions({ onChanged }: { onChanged?: () => 
                   既定値：
                   {usual?.wday ? `${WEEKDAY_LABELS[usual.wday]}曜 ` : '曜日未設定 '}
                   {usual?.periods.length ? `${usual.periods.join('・')}限` : '時限未設定'}
-                  <span className="ml-2 font-normal text-fg-muted">教室 {usual?.classroom || '未設定'}</span>
+                  {/* 教室が時限ごとに違うときは、下の時限ごとの行に出す */}
+                  {usual && new Set(usual.periods.map((p) => usualRoomOf(usual, p))).size <= 1 && (
+                    <span className="ml-2 font-normal text-fg-muted">教室 {usual.classroom || usualRoomOf(usual, usual.periods[0]) || '未設定'}</span>
+                  )}
                 </p>
                 {!!usual?.periods.length && (
                   <p className="mt-0.5 flex flex-wrap gap-x-3 text-fg-muted tabular-nums">
@@ -374,6 +393,7 @@ export default function AdminClassExceptions({ onChanged }: { onChanged?: () => 
                       return (
                         <span key={p} className="whitespace-nowrap">
                           {p}限 <span className={shifted ? 'text-warn font-semibold' : ''}>{t?.start}〜{t?.end}</span>
+                          {new Set(usual.periods.map((x) => usualRoomOf(usual, x))).size > 1 && <span className="ml-1">{usualRoomOf(usual, p) || '教室未設定'}</span>}
                         </span>
                       );
                     })}
@@ -426,30 +446,30 @@ export default function AdminClassExceptions({ onChanged }: { onChanged?: () => 
               {/* 5. 時刻（時限ごと。いつもの時刻が入っている）と教室。変えたところだけ登録する */}
               {draft.kind !== 'cancel' && selected.length > 0 && (
                 <fieldset>
-                  <legend className="text-sm font-semibold text-fg mb-1">時刻</legend>
+                  <legend className="text-sm font-semibold text-fg mb-1">時刻・教室</legend>
                   <div className="space-y-1.5">
                     {selected.map((p) => {
                       const t = draft.times[p] ?? usualTimeOf(usual, p, draft?.kind === 'extra');
                       const u = usualTimeOf(usual, p, draft?.kind === 'extra');
                       return (
-                        <div key={p} className="flex flex-wrap items-center gap-x-2 gap-y-0.5">
-                          <span className="w-10 text-sm font-bold text-accent">{p}限</span>
-                          <input type="time" aria-label={`${p}限の開始`} value={t.start} onChange={(e) => setTime(p, 'start', e.target.value)} className={`w-[6.75rem] ${inputClass} tabular-nums ${timeChanged(p, 'start') ? '!border-warn !bg-warn-soft' : ''}`} />
-                          <span className="text-fg-muted">〜</span>
-                          <input type="time" aria-label={`${p}限の終了`} value={t.end} onChange={(e) => setTime(p, 'end', e.target.value)} className={`w-[6.75rem] ${inputClass} tabular-nums ${timeChanged(p, 'end') ? '!border-warn !bg-warn-soft' : ''}`} />
-                          <span className="basis-full sm:basis-auto pl-12 sm:pl-0 text-xs text-fg-subtle tabular-nums">{usual?.times[p] ? '既定' : '本来'} {u.start}〜{u.end}</span>
+                        // 1 行目: 時限と時刻、2 行目: 教室（時限ごと）と既定値
+                        <div key={p} className="space-y-1">
+                          <div className="flex items-center gap-1.5">
+                            <span className="w-9 flex-shrink-0 text-sm font-bold text-accent">{p}限</span>
+                            <input type="time" aria-label={`${p}限の開始`} value={t.start} onChange={(e) => setTime(p, 'start', e.target.value)} className={`w-[6.5rem] min-w-0 ${inputClass} tabular-nums ${timeChanged(p, 'start') ? '!border-warn !bg-warn-soft' : ''}`} />
+                            <span className="text-fg-muted">〜</span>
+                            <input type="time" aria-label={`${p}限の終了`} value={t.end} onChange={(e) => setTime(p, 'end', e.target.value)} className={`w-[6.5rem] min-w-0 ${inputClass} tabular-nums ${timeChanged(p, 'end') ? '!border-warn !bg-warn-soft' : ''}`} />
+                          </div>
+                          <div className="flex items-center gap-1.5 pl-[2.625rem]">
+                            <span className="text-xs text-fg-muted">教室</span>
+                            <input aria-label={`${p}限の教室`} value={draft.rooms[p] ?? usualRoomOf(usual, p)} maxLength={50} onChange={(e) => setRoom(p, e.target.value)} placeholder="教室" className={`w-20 !h-8 ${inputClass} ${roomChanged(p) ? '!border-warn !bg-warn-soft' : ''}`} />
+                            <span className="ml-1 text-xs text-fg-subtle tabular-nums">{usual?.times[p] ? '既定' : '本来'} {u.start}〜{u.end}・{usualRoomOf(usual, p) || '教室未設定'}</span>
+                          </div>
                         </div>
                       );
                     })}
                   </div>
                 </fieldset>
-              )}
-              {draft.kind !== 'cancel' && (
-                <div>
-                  <label htmlFor="ex-room" className="block text-sm font-semibold text-fg mb-1">教室</label>
-                  <input id="ex-room" value={draft.classroom} maxLength={50} onChange={(e) => changeDraft({ classroom: e.target.value })} placeholder="例: 401" className={`${inputClass} w-32 ${draft.classroom.trim() !== usualRoom ? '!border-warn !bg-warn-soft' : ''}`} />
-                  <span className="ml-2 text-xs text-fg-muted">既定 {usualRoom || '未設定'}</span>
-                </div>
               )}
               {draft.kind !== 'cancel' && <p className="text-xs text-fg-subtle">既定値と違う欄は黄色になります。登録されるのは、既定値と違うところだけです。</p>}
 

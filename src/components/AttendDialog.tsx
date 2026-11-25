@@ -5,10 +5,10 @@
  * 送ったあと LMS を読み直して、記録できたかを確かめる。記録できた回は端末に覚えておき「出席済み」と出す。
  * 確かめられないときは出席ページへのリンクを出す（今までどおり LMS で入れられる）。
  */
-import { useEffect, useState } from 'react';
+import { lazy, Suspense, useEffect, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { useQueryClient } from '@tanstack/react-query';
-import { FiCheckCircle, FiExternalLink } from 'react-icons/fi';
+import { FiCamera, FiCheckCircle, FiExternalLink } from 'react-icons/fi';
 import { BsQrCodeScan } from 'react-icons/bs';
 import { getLmsSession } from '../lib/lms';
 import { submitAttendance } from '../lib/attendanceMark';
@@ -20,6 +20,9 @@ const doneKey = (cmid: number) => `fms_attended_${cmid}`;
 const todayStr = () => new Date().toLocaleDateString('sv-SE');
 const readDone = (cmid: number) => { try { return localStorage.getItem(doneKey(cmid)) === todayStr(); } catch { return false; } };
 const writeDone = (cmid: number) => { try { localStorage.setItem(doneKey(cmid), todayStr()); } catch { /* 覚えられなくても記録は LMS にある */ } };
+
+// カメラで QR・黒板のパスワードを読む画面（開いたときだけ読み込む）
+const TextScanner = lazy(() => import('./TextScanner'));
 
 const LmsLink = ({ url }: { url: string }) => (
   <a href={url} target="_blank" rel="noopener noreferrer" className="inline-flex items-center gap-1 text-sm font-semibold text-link hover:underline">
@@ -39,23 +42,36 @@ export function AttendForm({ target, inline = false, onScan, onDone }: { target:
   const [status, setStatus] = useState('');
   const [sending, setSending] = useState(false);
   const [done, setDone] = useState(() => !isDebugAttend() && readDone(target.cmid));
-  const [error, setError] = useState<'password' | 'unknown' | null>(null);
+  const [error, setError] = useState<'password' | 'unknown' | 'closed' | null>(null);
   // この画面で出席を送れた回（読み直しが終わるまでのあいだも、入力を出さない）
   const [sentSessid, setSentSessid] = useState<number | null>(null);
+  // カメラ（QR・黒板のパスワード）を開いているか
+  const [readingText, setReadingText] = useState(false);
+  const textScanner = readingText && (
+    <Suspense fallback={null}>
+      <TextScanner onPick={(text) => { setPassword(text); setError(null); }} onClose={() => setReadingText(false)} />
+    </Suspense>
+  );
 
   const submit = async () => {
     const debug = isDebugAttend();
-    if (!open.data || (!token && !debug)) return;
+    if (!token && !debug) return;
     setSending(true);
     setError(null);
     try {
+      // 受付前に送ったときは、その場でもう一度確かめる（ちょうど受け付けが始まっていれば、そのまま送る）
+      const current = open.data && open.data.session.sessid !== sentSessid ? open.data : (await open.refetch()).data;
+      if (!current || current.session.sessid === sentSessid) {
+        setError('closed');
+        return;
+      }
       // 見た目を試しているときは LMS に送らない（覚えもしない）
       const r = debug
         ? await debugSubmit(password.trim())
-        : await submitAttendance(token!, open.data.session, open.data.form, { password: password.trim(), status: status || undefined });
+        : await submitAttendance(token!, current.session, current.form, { password: password.trim(), status: status || undefined });
       if (r.ok) {
         if (!debug) writeDone(target.cmid);
-        setSentSessid(open.data.session.sessid);
+        setSentSessid(current.session.sessid);
         setDone(true);
         queryClient.invalidateQueries({ queryKey: ['attendance'] });
         queryClient.invalidateQueries({ queryKey: ['attendOpen', target.cmid] });
@@ -69,12 +85,16 @@ export function AttendForm({ target, inline = false, onScan, onDone }: { target:
   };
 
   // 受け付け中の回があれば入力を出す（同じ日に別の回が開いたときも入れられるように、「出席済み」より優先）
-  const form = open.data?.form;
-  if (form && open.data && open.data.session.sessid !== sentSessid) {
+  const isOpen = !!open.data && open.data.session.sessid !== sentSessid;
+  const form = isOpen ? open.data!.form : { needsPassword: true, statuses: [] as { id: string; label: string }[] };
+  // 時間割の行の中: 出席の時間帯（10 分前〜授業中）は、受付前でもいつもバーを出す（元の「出席する」と同じ時間帯）。
+  // 受付前は色を付けず、送ったときにまだ受け付けていなければそう出す。出席済みなら「出席済み」
+  const showInline = inline && (isOpen || (!done && (!!token || isDebugAttend())));
+  if (isOpen || showInline) {
     const canSend = (!form.needsPassword || password.trim() !== '') && (form.statuses.length === 0 || status !== '');
     const onSubmit = (e: React.FormEvent) => { e.preventDefault(); if (canSend && !sending) submit(); };
-    // 時間割の行の中: 1 本の入力バー。点滅する点・「出席パスワード」・色の付いた枠で「受付中」を表し、
-    // 右端に QR（アイコン）と「出席」を置く
+    // 時間割の行の中: 1 本の入力バー。受付中は点滅する点と色の付いた枠で表す（受付前は灰色の点・灰色の枠）。
+    // 右端にカメラ（QR・パスワード）と「出席」を置く
     if (inline) {
       return (
         <form onSubmit={onSubmit} className="mt-2">
@@ -90,18 +110,18 @@ export function AttendForm({ target, inline = false, onScan, onDone }: { target:
             </fieldset>
           )}
           <div
-            title={open.data.session.label ? `出席受付中 ${open.data.session.label}` : '出席受付中'}
-            // パスワードは半角 10 文字ほどなので、横幅いっぱいにはせず 10 文字が入る幅にとどめる
-            className={`flex items-center w-full max-w-[15.5rem] h-10 pl-3 pr-1 rounded-lg border-[1.5px] bg-surface transition-colors focus-within:ring-2 focus-within:ring-accent/30 ${error === 'password' ? 'border-down' : 'border-accent'}`}
+            title={isOpen ? `出席受付中${open.data!.session.label ? ` ${open.data!.session.label}` : ''}` : '出席の受け付け前'}
+            // パスワードは半角 10 文字ほどなので、横幅いっぱいにはせず 10 文字とカメラのアイコンが入る幅にとどめる
+            className={`flex items-center w-full max-w-[15.5rem] h-10 pl-3 pr-1 rounded-lg border-[1.5px] bg-surface transition-colors focus-within:ring-2 focus-within:ring-accent/30 ${error === 'password' ? 'border-down' : isOpen ? 'border-accent' : 'border-line-strong'}`}
           >
             <span className="relative flex w-2 h-2 flex-shrink-0" aria-hidden="true">
-              <span className="absolute inline-flex w-full h-full rounded-full bg-accent opacity-60 animate-ping" />
-              <span className="relative inline-flex w-2 h-2 rounded-full bg-accent" />
+              {isOpen && <span className="absolute inline-flex w-full h-full rounded-full bg-accent opacity-60 animate-ping" />}
+              <span className={`relative inline-flex w-2 h-2 rounded-full ${isOpen ? 'bg-accent' : 'bg-line-strong'}`} />
             </span>
             {form.needsPassword ? (
               <input
                 type="text"
-                aria-label="出席パスワード（出席受付中）"
+                aria-label={isOpen ? '出席パスワード（出席受付中）' : '出席パスワード（受け付け前）'}
                 placeholder="パスワード"
                 autoComplete="off"
                 autoCapitalize="off"
@@ -116,11 +136,10 @@ export function AttendForm({ target, inline = false, onScan, onDone }: { target:
             ) : (
               <span className="flex-1 pl-2 text-sm font-semibold text-accent">出席受付中</span>
             )}
-            {onScan && (
-              <button type="button" onClick={onScan} aria-label="QR を読み取る" className="w-8 h-8 flex-shrink-0 rounded-md flex items-center justify-center text-fg-muted hover:bg-surface-3 transition-colors">
-                <BsQrCodeScan size={16} aria-hidden="true" />
-              </button>
-            )}
+            {/* カメラ（QR コードも黒板のパスワードも、ここから読む） */}
+            <button type="button" onClick={() => setReadingText(true)} aria-label="カメラで読み取る（QR・パスワード）" title="カメラで読み取る（QR・パスワード）" className="w-8 h-8 flex-shrink-0 rounded-md flex items-center justify-center text-fg-muted hover:bg-surface-3 transition-colors">
+              <FiCamera size={17} aria-hidden="true" />
+            </button>
             <button
               type="submit"
               disabled={!canSend || sending}
@@ -131,7 +150,9 @@ export function AttendForm({ target, inline = false, onScan, onDone }: { target:
             </button>
           </div>
           {error === 'password' && <p className="mt-1 text-xs font-semibold text-down">パスワードが違います</p>}
+          {error === 'closed' && <p className="mt-1 text-xs font-semibold text-warn">まだ出席を受け付けていません</p>}
           {error === 'unknown' && <p className="mt-1 text-xs font-semibold text-down">記録できたか確かめられませんでした。 <LmsLink url={target.url} /></p>}
+          {textScanner}
         </form>
       );
     }
@@ -143,7 +164,7 @@ export function AttendForm({ target, inline = false, onScan, onDone }: { target:
         <p className="flex items-center gap-1.5 text-sm font-bold text-accent">
           <span className="w-2 h-2 rounded-full bg-accent animate-pulse" aria-hidden="true" />
           出席受付中
-          {open.data.session.label && <span className="font-normal text-fg-muted tabular-nums">{open.data.session.label.replace(/^\d{4}\/\d{1,2}\/\d{1,2}\s*\([^)]*\)\s*/, '')}</span>}
+          {open.data?.session.label && <span className="font-normal text-fg-muted tabular-nums">{open.data.session.label.replace(/^\d{4}\/\d{1,2}\/\d{1,2}\s*\([^)]*\)\s*/, '')}</span>}
         </p>
         {form.statuses.length > 0 && (
           <fieldset className="flex flex-wrap gap-2">
@@ -186,6 +207,11 @@ export function AttendForm({ target, inline = false, onScan, onDone }: { target:
         {error === 'unknown' && (
           <p className="mt-1.5 text-[13px] font-semibold text-down">記録できたか確かめられませんでした。 <LmsLink url={target.url} /></p>
         )}
+        <button type="button" onClick={() => setReadingText(true)} className="inline-flex items-center justify-center gap-2 h-10 rounded-full border border-line-strong text-fg hover:bg-surface-3 transition-colors">
+          <FiCamera size={16} aria-hidden="true" />
+          <span className="text-sm font-bold">カメラで読み取る（QR・パスワード）</span>
+        </button>
+        {textScanner}
       </form>
     );
   }
@@ -197,7 +223,7 @@ export function AttendForm({ target, inline = false, onScan, onDone }: { target:
       </p>
     );
   }
-  // 受け付けていないとき（時間割の行の中）: QR の読み取りだけ出す
+  // 時間割の行の中で LMS に接続していないとき: QR の読み取りだけ出す
   if (inline) {
     return onScan ? (
       <button type="button" onClick={onScan} className="mt-2 inline-flex items-center gap-1.5 h-8 px-3.5 rounded-full border border-line-strong text-fg hover:bg-surface-3 transition-colors">
@@ -207,14 +233,21 @@ export function AttendForm({ target, inline = false, onScan, onDone }: { target:
     ) : null;
   }
 
-  // ダイアログ: 受け付けていない・読めないときの説明
-  if (!token) return <p className="text-sm text-fg-muted">LMS に接続していないため、FMS からは出席を入れられません。 <LmsLink url={target.url} /></p>;
+  // ダイアログ: 受け付けていない・読めないときの説明。QR の出欠のこともあるので、QR の読み取りも出す
+  const qrButton = onScan && (
+    <button type="button" onClick={onScan} className="mt-2 w-full inline-flex items-center justify-center gap-2 h-10 rounded-full border border-line-strong text-fg hover:bg-surface-3 transition-colors">
+      <BsQrCodeScan size={15} aria-hidden="true" />
+      <span className="text-sm font-bold">QR を読み取る</span>
+    </button>
+  );
+  if (!token) return <div><p className="text-sm text-fg-muted">LMS に接続していないため、FMS からは出席を入れられません。 <LmsLink url={target.url} /></p>{qrButton}</div>;
   if (open.isLoading) return <p className="py-6 text-center text-sm text-fg-muted">出欠を確かめています...</p>;
-  if (open.isError) return <p className="text-sm text-fg-muted">出欠を読み込めませんでした（LMS のログインが切れている可能性があります）。 <LmsLink url={target.url} /></p>;
+  if (open.isError) return <div><p className="text-sm text-fg-muted">出欠を読み込めませんでした（LMS のログインが切れている可能性があります）。 <LmsLink url={target.url} /></p>{qrButton}</div>;
   return (
     <div className="flex flex-col gap-2">
       <p className="text-sm text-fg-muted">今は出席を受け付けていません。受け付けが始まると、ここにパスワードの欄が出ます（1 分ごとに確かめます）。</p>
       <LmsLink url={target.url} />
+      {qrButton}
     </div>
   );
 }
@@ -238,14 +271,9 @@ export default function AttendDialog({ target, onScan, onClose }: { target: Atte
       >
         {target.subtitle && <p className="text-sm font-semibold text-accent">{target.subtitle}</p>}
         <h2 id="attend-dialog-title" className="mt-1 mb-4 text-lg font-extrabold text-fg leading-snug">{target.name}</h2>
-        <AttendForm target={target} />
+        {/* 受付中はカメラのボタン（QR・パスワード）が中にあるので、QR だけのボタンは受け付けていないときだけ出す */}
+        <AttendForm target={target} onScan={onScan ? () => { onClose(); onScan(); } : undefined} />
         <div className="mt-4 flex flex-col gap-1">
-          {onScan && (
-            <button type="button" onClick={() => { onClose(); onScan(); }} className="inline-flex items-center justify-center gap-2 h-10 rounded-full border border-line-strong text-fg hover:bg-surface-3 transition-colors">
-              <BsQrCodeScan size={15} aria-hidden="true" />
-              <span className="text-sm font-bold">QR を読み取る</span>
-            </button>
-          )}
           <button type="button" onClick={onClose} className="h-10 rounded-full text-fg-muted hover:bg-surface-3 transition-colors">
             <span className="text-sm font-semibold">閉じる</span>
           </button>
