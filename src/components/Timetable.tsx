@@ -10,7 +10,7 @@ import React, { Suspense, lazy, useCallback, useEffect, useMemo, useState } from
 import { createPortal } from 'react-dom';
 import { AnimatePresence, motion } from 'framer-motion';
 import { Link, useSearchParams } from 'react-router-dom';
-import { FiArrowRight, FiExternalLink, FiFileText, FiClock, FiCoffee, FiCheckCircle, FiAlertTriangle, FiMapPin, FiUser, FiChevronLeft, FiChevronRight } from 'react-icons/fi';
+import { FiArrowRight, FiExternalLink, FiClock, FiCoffee, FiCheckCircle, FiAlertTriangle, FiMapPin, FiUser, FiChevronLeft, FiChevronRight } from 'react-icons/fi';
 import ChapterFrame, { CENTER_PANEL, LIST_GROUP, LIST_GROUP_HEADING, PAGE_GRID, SIDE_TITLE, SIDE_WIDGET } from './ChapterFrame';
 import { supabase } from '../lib/supabaseClient';
 import CourseDetail from './CourseDetail';
@@ -102,7 +102,9 @@ function useNow() {
 
 type TimelineItem =
   | { kind: 'class'; subject: Subject }
-  | { kind: 'gap'; label: string; from: string; to: string };
+  | { kind: 'gap'; label: string; from: string; to: string }
+  /** 最初の授業より前・最後の授業より後の、授業のない時限（と昼休み）。小さく薄く出して、その日の中での位置が分かるようにする */
+  | { kind: 'empty'; label: string; from: string };
 
 /** 授業の間に、空き時間（空いた時限・昼休み・休み）を挟んだ並びを作る（実際の時刻で求める） */
 function buildTimeline(subjects: Subject[]): TimelineItem[] {
@@ -132,6 +134,28 @@ function buildTimeline(subjects: Subject[]): TimelineItem[] {
     }
     items.push({ kind: 'class', subject: s });
   });
+  // 最初の授業より前と、最後の授業より後（5 限まで）の、授業のない時限と昼休みを小さく足す
+  // （例: 4 限だけの日に、4 限が一番上に来て一日の中での位置が分からなくならないように）
+  if (sorted.length > 0) {
+    const first = toMin(sorted[0].t.start);
+    const last = toMin(sorted[sorted.length - 1].t.end);
+    const lastPeriod = Math.max(5, ...sorted.map((x) => x.s.period));
+    const slot = (from: number, label: string) => ({ kind: 'empty' as const, label, from: hm(from) });
+    const before: TimelineItem[] = [];
+    const after: TimelineItem[] = [];
+    for (const p of PERIODS.filter((x) => x.period <= lastPeriod)) {
+      const ps = toMin(p.start), pe = toMin(p.end);
+      if (pe <= first) before.push(slot(ps, `${p.period}限`));
+      else if (ps >= last) after.push(slot(ps, `${p.period}限`));
+    }
+    // 昼休み（12:25〜13:20）が丸ごと授業の外にあれば、時刻の順に入れる
+    const lunch = slot(LUNCH.from, '昼休み');
+    if (LUNCH.to <= first) before.push(lunch);
+    else if (LUNCH.from >= last) after.push(lunch);
+    const byTime = (a: TimelineItem, b: TimelineItem) =>
+      (a.kind === 'empty' && b.kind === 'empty' ? toMin({ h: +a.from.split(':')[0], m: +a.from.split(':')[1] }) - toMin({ h: +b.from.split(':')[0], m: +b.from.split(':')[1] }) : 0);
+    return [...before.sort(byTime), ...items, ...after.sort(byTime)];
+  }
   return items;
 }
 
@@ -158,7 +182,7 @@ function ExceptionBadge({ status, compact = false, personal = false }: { status:
  * 今日の授業を、X のタイムラインのように区切り線で並べる（箱で囲まない）。
  * 左に時刻、右に時限・教室・先生、授業名、出席率と課題。授業中の行は淡く色付けし、終わった授業は薄くする。
  */
-function TodayTimeline({ subjects, now, assignmentCount, attendance }: { subjects: Subject[]; now: Date; assignmentCount: (name: string) => number; attendance: AttendanceMap }) {
+function TodayTimeline({ subjects, now, attendance }: { subjects: Subject[]; now: Date; attendance: AttendanceMap }) {
   // 休講の授業は「授業中・次の授業」の対象にしない
   const focus = focusSubject(subjects.filter(x => x.status !== 'cancel'), now);
   const items = buildTimeline(subjects);
@@ -176,7 +200,7 @@ function TodayTimeline({ subjects, now, assignmentCount, attendance }: { subject
   }
 
   // 続く空きコマ・昼休みは 1 行にまとめる（帯を何本も並べない）
-  const rows: ({ kind: 'gaps'; gaps: Extract<TimelineItem, { kind: 'gap' }>[] } | Extract<TimelineItem, { kind: 'class' }>)[] = [];
+  const rows: ({ kind: 'gaps'; gaps: Extract<TimelineItem, { kind: 'gap' }>[] } | Extract<TimelineItem, { kind: 'class' | 'empty' }>)[] = [];
   for (const item of items) {
     const last = rows[rows.length - 1];
     if (item.kind === 'gap') {
@@ -188,6 +212,15 @@ function TodayTimeline({ subjects, now, assignmentCount, attendance }: { subject
   return (
     <ol className="divide-y divide-line">
       {rows.map((row, i) => {
+        // 授業のない時限（最初の授業より前・最後の授業より後）: 小さく薄い 1 行
+        if (row.kind === 'empty') {
+          return (
+            <li key={`empty-${i}`} className="flex items-center gap-4 px-4 sm:px-5 py-1.5 text-fg-subtle">
+              <span className="w-12 flex-shrink-0 text-right text-[11px] tabular-nums">{row.from}</span>
+              <span className="text-xs">{row.label}{row.label !== '昼休み' && <span className="ml-2">授業なし</span>}</span>
+            </li>
+          );
+        }
         if (row.kind === 'gaps') {
           // 続く空き時間は 1 つにまとめ、授業と同じ並び（左に時刻）で「空き ○時間○分」と大きめに出す
           const from = row.gaps[0].from;
@@ -220,7 +253,6 @@ function TodayTimeline({ subjects, now, assignmentCount, attendance }: { subject
         const state = cancelled ? 'after' : periodState(t, now);
         const isFocus = focus?.subject.id === s.id;
         const left = minutesLeft(t, now);
-        const count = assignmentCount(s.name);
         const summary = s.attendanceId ? attendance[s.attendanceId] : undefined;
         // 時刻の色（週の表と同じ 2 色）: その日だけ変わった → オレンジ、そもそも本来の時限と違う → アクセント
         const dayChanged = !!(s.timeChanged || s.periodMoved);
@@ -283,11 +315,6 @@ function TodayTimeline({ subjects, now, assignmentCount, attendance }: { subject
                   <span className="inline-flex items-center gap-1 text-fg-muted">
                     <FiUser size={12} className="text-fg-subtle" aria-hidden="true" />{s.teacher}
                   </span>
-                )}
-                {count > 0 && (
-                  <Link to="?tab=assignments" className="inline-flex items-center gap-1 font-semibold text-warn hover:underline">
-                    <FiFileText size={12} aria-hidden="true" />課題 {count}件
-                  </Link>
                 )}
               </div>
               {/* イレギュラーな授業回のメモ（例: 第5回の振替） */}
@@ -694,7 +721,7 @@ type MyCourse = { course_id: number; name: string; fullname: string; attendance_
  * それ以外（お知らせ用など授業ではないコース・時間割に出さないコース）は「その他のコース」にまとめる。
  * 押すと、FMS の中でコースの内容（課題・お知らせ・資料）を見る画面を開く
  */
-function CourseList({ weeklySubjects, attendance, assignmentCount, assignments }: { weeklySubjects: Record<Day, Subject[]>; attendance: AttendanceMap; assignmentCount: (name: string) => number; assignments: UnifiedAssignmentItem[] }) {
+function CourseList({ weeklySubjects, attendance, assignments }: { weeklySubjects: Record<Day, Subject[]>; attendance: AttendanceMap; assignments: UnifiedAssignmentItem[] }) {
   const user = useCurrentUser();
   // 開いているコース（FMS の中でコースの内容を見る）
   const [opened, setOpened] = useState<MyCourse | null>(null);
@@ -747,7 +774,6 @@ function CourseList({ weeklySubjects, attendance, assignmentCount, assignments }
   const row = (c: MyCourse) => {
     const slot = slots.get(c.course_id);
     const summary = c.attendance_id ? attendance[c.attendance_id] : undefined;
-    const count = assignmentCount(c.name);
     return (
       <li key={c.course_id}>
         <button
@@ -762,7 +788,6 @@ function CourseList({ weeklySubjects, attendance, assignmentCount, assignments }
               {summary && summary.percent !== null && (
                 <span className="inline-flex items-center gap-1"><FiCheckCircle size={12} className="text-up" aria-hidden="true" />出席率 {Math.round(summary.percent)}%</span>
               )}
-              {count > 0 && <span className="inline-flex items-center gap-1 font-semibold text-warn"><FiFileText size={12} aria-hidden="true" />課題 {count}件</span>}
             </div>
           </div>
           <FiChevronRight size={18} className="mt-1 flex-shrink-0 text-fg-subtle" aria-hidden="true" />
@@ -855,7 +880,6 @@ export const TimetableContainer: React.FC<TimetableContainerProps> = ({
   const lmsIssue = useLmsIssue();
   // 出席率（LMS の出欠）。1 日 1 回取得し、端末にキャッシュする
   const attendance = useAttendance(useMemo(() => Object.values(weeklySubjects).flat(), [weeklySubjects]));
-  const assignmentCount = (name: string) => items.filter(a => !a.done && a.subject_name === name).length;
 
   const wd = ['日', '月', '火', '水', '木', '金', '土'][now.getDay()];
   // 今が何限か（1〜6限の授業時間中だけ出す）
@@ -904,7 +928,7 @@ export const TimetableContainer: React.FC<TimetableContainerProps> = ({
         <div className={CENTER_PANEL}>
           {lmsIssue && <div className="px-3 pt-3"><LmsIssueNotice issue={lmsIssue} /></div>}
           {showCourses ? (
-            <CourseList weeklySubjects={regularWeek} attendance={attendance} assignmentCount={assignmentCount} assignments={items} />
+            <CourseList weeklySubjects={regularWeek} attendance={attendance} assignments={items} />
           ) : isWeeklyView ? (
             <>
               {/* 週の切り替え（前の週・次の週・今週） */}
@@ -930,7 +954,7 @@ export const TimetableContainer: React.FC<TimetableContainerProps> = ({
               <WeekGrid weeklySubjects={shownWeek} now={now} dates={shownDates} isCurrentWeek={weekOffset === 0} />
             </>
           ) : (
-            <TodayTimeline subjects={todaySubjects} now={now} assignmentCount={assignmentCount} attendance={attendance} />
+            <TodayTimeline subjects={todaySubjects} now={now} attendance={attendance} />
           )}
         </div>
       </div>
