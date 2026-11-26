@@ -138,6 +138,8 @@ const Assignments: React.FC<AssignmentsProps> = ({ subject }) => {
   }, []);
   // 完了した課題は普段は畳んでおく
   const [showDone, setShowDone] = useState(false);
+  // 締切での絞り込み（すべて / 期限切れ / 24時間以内 / 1週間以内 / それ以降 / 完了）
+  const [deadlineFilter, setDeadlineFilter] = useState<AssignmentGroupKey | 'all'>('all');
   // 見出しのタブ: 一覧 / カレンダー。カレンダーで選んでいる日（日本時間の YYYY-MM-DD）
   const [view, setView] = useState<'list' | 'calendar'>('list');
   const [calendarDay, setCalendarDay] = useState(() => jstYmd(new Date()));
@@ -538,14 +540,10 @@ const Assignments: React.FC<AssignmentsProps> = ({ subject }) => {
         }`}
       >
 
-        {/* 「⋮」はカードの右端・上下中央に */}
-        {moreMenu && <div className="absolute right-2 top-1/2 -translate-y-1/2">{moreMenu}</div>}
-
         {/* 左: 完了チェック（カードの上下中央） */}
         <div className="self-center">{doneCheck}</div>
 
-        {/* 右端の「⋮」と重ならないよう、本文全体の右側を空ける */}
-        <div className={`flex-1 min-w-0 transition-opacity duration-300 ${moreMenu ? 'pr-9' : ''} ${isDone ? 'opacity-70' : ''}`}>
+        <div className={`flex-1 min-w-0 transition-opacity duration-300 ${isDone ? 'opacity-70' : ''}`}>
           {/* 1行目: 科目・種別・締切・残り時間 */}
           <div className="flex flex-wrap items-center gap-x-2.5 gap-y-1 text-sm">
             {/* 科目名の色で課題の種類（公式＝青緑、個人＝紫） */}
@@ -563,20 +561,24 @@ const Assignments: React.FC<AssignmentsProps> = ({ subject }) => {
             )}
           </div>
 
-          {/* 2行目: 課題名（リンクがあれば押すと開く） */}
-          {assignment.url ? (
-            <a
-              href={assignment.url}
-              target="_blank"
-              rel="noopener noreferrer"
-              className={`mt-2 inline-flex items-start gap-1.5 hover:text-link hover:underline ${titleClass}`}
-            >
-              <span className="line-clamp-2">{title}</span>
-              <FiExternalLink size={14} className="mt-1.5 flex-shrink-0 text-fg-subtle" aria-label="新しいタブで開く" />
-            </a>
-          ) : (
-            <p className={`mt-2 line-clamp-2 ${titleClass}`}>{title}</p>
-          )}
+          {/* 2行目: 課題名（リンクがあれば押すと開く）と、右端に「⋮」（自分で足した課題・公式課題の編集・削除）。
+              「⋮」を 1 行目の右に置くと、その分だけ「あと ○ 日」が左にずれるので、課題名の行に置く */}
+          <div className="mt-2 flex items-start gap-2">
+            {assignment.url ? (
+              <a
+                href={assignment.url}
+                target="_blank"
+                rel="noopener noreferrer"
+                className={`min-w-0 inline-flex items-start gap-1.5 hover:text-link hover:underline ${titleClass}`}
+              >
+                <span className="line-clamp-2">{title}</span>
+                <FiExternalLink size={14} className="mt-1.5 flex-shrink-0 text-fg-subtle" aria-label="新しいタブで開く" />
+              </a>
+            ) : (
+              <p className={`min-w-0 line-clamp-2 ${titleClass}`}>{title}</p>
+            )}
+            {moreMenu && <div className="ml-auto -my-1.5 -mr-2 flex-shrink-0">{moreMenu}</div>}
+          </div>
 
           {/* 3行目: 説明（1行）と添付 */}
           {((assignment.isLms && assignment.description) || hasAttachments) && (
@@ -759,11 +761,19 @@ const Assignments: React.FC<AssignmentsProps> = ({ subject }) => {
                   })}
                 </div>
                 <ul className="mt-3 flex flex-wrap xl:flex-col gap-x-5 gap-y-1.5 xl:gap-y-2 text-sm text-fg-muted">
+                  {/* 押すと、その締切の課題だけに絞り込む（もう一度押すと戻す） */}
                   {SUMMARY_ORDER.map(key => (
-                    <li key={key} className="inline-flex items-center gap-1.5">
-                      <span className={`w-2.5 h-2.5 rounded-full ${GROUP_STYLE[key].bar}`} />
-                      {ASSIGNMENT_GROUP_LABELS[key]}
-                      <span className="font-semibold text-fg">{groupCounts[key]}</span>
+                    <li key={key}>
+                      <button
+                        type="button"
+                        onClick={() => setDeadlineFilter(f => (f === key ? 'all' : key))}
+                        aria-pressed={deadlineFilter === key}
+                        className={`inline-flex items-center gap-1.5 -mx-1 px-1 rounded hover:text-fg ${deadlineFilter === key ? 'text-fg font-semibold underline underline-offset-4' : ''}`}
+                      >
+                        <span className={`w-2.5 h-2.5 rounded-full ${GROUP_STYLE[key].bar}`} />
+                        {ASSIGNMENT_GROUP_LABELS[key]}
+                        <span className="font-semibold text-fg">{groupCounts[key]}</span>
+                      </button>
                     </li>
                   ))}
                 </ul>
@@ -847,8 +857,35 @@ const Assignments: React.FC<AssignmentsProps> = ({ subject }) => {
         </div>
       ) : (
         <>
-        {displayGroups.map(group => {
-          const collapsed = group.key === 'done' && !showDone;
+        {/* 締切での絞り込み（件数のある区分だけ出す。選んでいる区分は 0 件でも出す） */}
+        <div role="group" aria-label="締切で絞り込む" className="flex flex-wrap gap-1.5 px-4 sm:px-5 py-2.5 border-b border-line">
+          {(['all', 'overdue', 'today', 'week', 'later', 'done'] as const)
+            .filter(key => key === 'all' || key === deadlineFilter || groupCounts[key] > 0)
+            .map(key => {
+              const on = deadlineFilter === key;
+              return (
+                <button
+                  key={key}
+                  type="button"
+                  onClick={() => setDeadlineFilter(key)}
+                  aria-pressed={on}
+                  className={`flex-shrink-0 inline-flex items-center gap-1.5 h-8 px-3 rounded-full border text-[13px] font-semibold transition-colors ${
+                    on ? 'bg-fg text-surface border-fg' : 'border-line-strong text-fg hover:bg-surface-3'
+                  }`}
+                >
+                  {key !== 'all' && <span className={`w-2 h-2 rounded-full ${GROUP_STYLE[key].bar}`} aria-hidden="true" />}
+                  <span className="pill-text">{key === 'all' ? 'すべて' : ASSIGNMENT_GROUP_LABELS[key]}</span>
+                  <span className={`pill-text tabular-nums ${on ? 'opacity-80' : 'text-fg-muted'}`}>{key === 'all' ? unifiedAssignments.length : groupCounts[key]}</span>
+                </button>
+              );
+            })}
+        </div>
+        {deadlineFilter !== 'all' && !displayGroups.some(g => g.key === deadlineFilter) && (
+          <p className="text-center py-12 px-4 text-sm text-fg-muted">{ASSIGNMENT_GROUP_LABELS[deadlineFilter]}の課題はありません</p>
+        )}
+        {displayGroups.filter(group => deadlineFilter === 'all' || group.key === deadlineFilter).map(group => {
+          // 完了で絞り込んだときは、たたまずに出す
+          const collapsed = group.key === 'done' && !showDone && deadlineFilter !== 'done';
           return (
             <section key={group.key} className={LIST_GROUP}>
               {/* まとまりの中見出し（締切の近さ） */}
@@ -856,7 +893,7 @@ const Assignments: React.FC<AssignmentsProps> = ({ subject }) => {
                 <span className={`w-1 h-4 rounded-full ${GROUP_STYLE[group.key].bar}`} aria-hidden="true" />
                 {group.label}
                 <span className="text-sm font-normal text-fg-muted">{group.items.length}件</span>
-                {group.key === 'done' && (
+                {group.key === 'done' && deadlineFilter !== 'done' && (
                   <button
                     type="button"
                     onClick={() => setShowDone(v => !v)}
