@@ -13,13 +13,27 @@ import { BsQrCodeScan } from 'react-icons/bs';
 import { getLmsSession } from '../lib/lms';
 import { submitAttendance } from '../lib/attendanceMark';
 import { debugSubmit, isDebugAttend } from '../lib/debugAttend';
+import { addAttendLog } from '../lib/attendanceLog';
 import { useOpenAttendance, type AttendTarget } from '../hooks/useOpenAttendance';
 
 /** FMS から出席を入れた日（出欠ページごと）。同じ日に開き直しても「出席済み」と出す */
 const doneKey = (cmid: number) => `fms_attended_${cmid}`;
 const todayStr = () => new Date().toLocaleDateString('sv-SE');
-const readDone = (cmid: number) => { try { return localStorage.getItem(doneKey(cmid)) === todayStr(); } catch { return false; } };
-const writeDone = (cmid: number) => { try { localStorage.setItem(doneKey(cmid), todayStr()); } catch { /* 覚えられなくても記録は LMS にある */ } };
+/**
+ * 今日 FMS から出席を入れた回（sessid）。記録したあとも LMS が「出席を送信」ボタンを残すことがあるので、
+ * その回には入力を出さずに「出席済み」と出す。以前の形（日付だけ）なら回は分からないので -1
+ */
+const readDone = (cmid: number): number | null => {
+  try {
+    const [day, sessid] = (localStorage.getItem(doneKey(cmid)) ?? '').split(':');
+    return day === todayStr() ? Number(sessid ?? -1) : null;
+  } catch {
+    return null;
+  }
+};
+const writeDone = (cmid: number, sessid: number) => {
+  try { localStorage.setItem(doneKey(cmid), `${todayStr()}:${sessid}`); } catch { /* 覚えられなくても記録は LMS にある */ }
+};
 
 // カメラで QR・黒板のパスワードを読む画面（開いたときだけ読み込む）
 const TextScanner = lazy(() => import('./TextScanner'));
@@ -41,10 +55,10 @@ export function AttendForm({ target, inline = false, onScan, onDone }: { target:
   const [password, setPassword] = useState('');
   const [status, setStatus] = useState('');
   const [sending, setSending] = useState(false);
-  const [done, setDone] = useState(() => !isDebugAttend() && readDone(target.cmid));
+  const [done, setDone] = useState(() => !isDebugAttend() && readDone(target.cmid) !== null);
   const [error, setError] = useState<'password' | 'unknown' | 'closed' | null>(null);
   // この画面で出席を送れた回（読み直しが終わるまでのあいだも、入力を出さない）
-  const [sentSessid, setSentSessid] = useState<number | null>(null);
+  const [sentSessid, setSentSessid] = useState<number | null>(() => (isDebugAttend() ? null : readDone(target.cmid)));
   // カメラ（QR・黒板のパスワード）を開いているか
   const [readingText, setReadingText] = useState(false);
   const textScanner = readingText && (
@@ -58,6 +72,8 @@ export function AttendForm({ target, inline = false, onScan, onDone }: { target:
     if (!token && !debug) return;
     setSending(true);
     setError(null);
+    // 不具合の調査用に、LMS に送ったときだけ記録する（パスワードは残さない）
+    let sessid: number | null = null;
     try {
       // 受付前に送ったときは、その場でもう一度確かめる（ちょうど受け付けが始まっていれば、そのまま送る）
       const current = open.data && open.data.session.sessid !== sentSessid ? open.data : (await open.refetch()).data;
@@ -66,21 +82,35 @@ export function AttendForm({ target, inline = false, onScan, onDone }: { target:
         return;
       }
       // 見た目を試しているときは LMS に送らない（覚えもしない）
+      sessid = current.session.sessid;
       const r = debug
         ? await debugSubmit(password.trim())
         : await submitAttendance(token!, current.session, current.form, { password: password.trim(), status: status || undefined });
+      if (!debug && 'diag' in r) {
+        addAttendLog({
+          at: new Date().toISOString(), course: target.name, cmid: target.cmid, sessid,
+          result: r.ok ? 'ok' : r.reason, error: r.diag.sendError, diag: r.diag,
+        });
+      }
       if (r.ok) {
-        if (!debug) writeDone(target.cmid);
+        if (!debug) writeDone(target.cmid, current.session.sessid);
         setSentSessid(current.session.sessid);
         setDone(true);
-        queryClient.invalidateQueries({ queryKey: ['attendance'] });
         queryClient.invalidateQueries({ queryKey: ['attendOpen', target.cmid] });
         onDone?.();
       } else setError(r.reason);
-    } catch {
+    } catch (e) {
       setError('unknown');
+      if (!debug) {
+        addAttendLog({
+          at: new Date().toISOString(), course: target.name, cmid: target.cmid, sessid,
+          result: 'error', error: e instanceof Error ? e.message : String(e), diag: null,
+        });
+      }
     } finally {
       setSending(false);
+      // 結果にかかわらず出席率を取り直す（確かめられなかっただけで、LMS には記録されていることがある）
+      if (!isDebugAttend()) queryClient.invalidateQueries({ queryKey: ['attendance'] });
     }
   };
 

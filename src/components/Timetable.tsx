@@ -308,7 +308,7 @@ function TodayTimeline({ subjects, now, assignmentCount, attendance }: { subject
               {summary && (
                 <p className="mt-1 inline-flex flex-wrap items-center gap-1 text-xs text-fg-muted" title="LMS の出欠より">
                   <FiCheckCircle size={12} className="text-up" aria-hidden="true" />
-                  {summary.percent === null ? '出席の記録なし' : `出席率 ${Math.round(summary.percent)}%（${summary.completed}/${summary.total}回）`}
+                  {summary.percent === null ? `出席の記録なし（全 ${summary.total} 回）` : `出席率 ${Math.round(summary.percent)}%（記録 ${summary.completed} / 全 ${summary.total} 回）`}
                 </p>
               )}
             </div>

@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { cmidFromUrl, parseOpenSessions, parseSessionForm } from './attendanceMark';
+import { cmidFromUrl, judgeSubmit, parseOpenSessions, parseSessionForm } from './attendanceMark';
 
 // 実際の LMS の出欠画面（受け付け中の回があるとき）の形
 const VIEW = `<div class="attendance_mobile_view_page">
@@ -55,5 +55,30 @@ describe('cmidFromUrl', () => {
   it('出席ページの URL から id を取り出す', () => {
     expect(cmidFromUrl('https://lms-tokyo.iput.ac.jp/mod/attendance/view.php?id=104960')).toBe(104960);
     expect(cmidFromUrl('https://lms-tokyo.iput.ac.jp/course/view.php?id=4135')).toBeNull();
+  });
+});
+
+describe('judgeSubmit（送ったあと、記録できたか）', () => {
+  // 出欠画面: 記録された回の数（completed）と、その回のボタンがあるか（open）
+  const view = (completed: number, open: boolean, extra = '') => `<div>${open ? `<ion-item><ion-label><h2>x</h2><ion-button method="mobile_user_form" [args]="{cmid: 1, courseid: 2, sessid: 9, timestamp: 3}"></ion-button></ion-label></ion-item>` : ''}
+    <ion-item><ion-label><ion-grid>
+      <ion-row><ion-col>{{ 'plugin.mod_attendance.sessionscompleted' | translate }}</ion-col><ion-col>${completed}</ion-col></ion-row>
+      <ion-row><ion-col>{{ 'plugin.mod_attendance.sessionstotal' | translate }}</ion-col><ion-col>4</ion-col></ion-row>
+    </ion-grid></ion-label></ion-item>${extra}</div>`;
+
+  it('記録したあともボタンが残る LMS でも、記録された回の数が増えれば記録できた', () => {
+    expect(judgeSubmit(view(1, true), view(2, true), view(2, true), 9)).toEqual({ ok: true });
+  });
+  it('返事に「記録しました」の文言があれば記録できた', () => {
+    expect(judgeSubmit(view(1, true), view(1, true, "{{ 'plugin.mod_attendance.attendancesuccess' | translate }}"), view(1, true), 9)).toEqual({ ok: true });
+  });
+  it('その回のボタンが消えれば記録できた', () => {
+    expect(judgeSubmit('', view(1, false), view(1, false), 9)).toEqual({ ok: true });
+  });
+  it('パスワードの誤りは、回の数やボタンより先に決める', () => {
+    expect(judgeSubmit(view(1, true), view(1, true, "{{ 'plugin.mod_attendance.incorrectpasswordshort' | translate }}"), view(1, true), 9)).toEqual({ ok: false, reason: 'password' });
+  });
+  it('どれにも当てはまらなければ、確かめられなかった', () => {
+    expect(judgeSubmit(view(1, true), view(1, true), view(1, true), 9)).toEqual({ ok: false, reason: 'unknown' });
   });
 });
