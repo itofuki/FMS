@@ -142,7 +142,8 @@ export function mergeAssignments({
       id: event.uid,
       name: event.summary,
       deadline: event.end || event.start,
-      done: manualDone ?? event.submissionStatus === 'submitted',
+      // LMS で提出済みなら、手動のチェックに関係なく完了。まだのものは手動のチェックで完了にできる
+      done: event.submissionStatus === 'submitted' || (manualDone ?? false),
       classification: 'official' as const,
       user_id: null,
       // 科目名: 時間割の授業 → 以前の科目の表 → LMS のコース名（括弧より前）。分からなければ空（画面では科目を出さない）
@@ -219,17 +220,23 @@ export function groupAssignments(items: UnifiedAssignment[], now: Date = new Dat
 }
 
 /** 締切での絞り込み。範囲は入れ子で、広い範囲は狭い範囲を含む（1ヶ月以内 ⊃ 1週間以内 ⊃ 24時間以内） */
-export type DeadlineRange = 'all' | 'overdue' | 'day' | 'week' | 'month';
-export const DEADLINE_RANGES: DeadlineRange[] = ['all', 'day', 'week', 'month', 'overdue'];
+export type DeadlineRange = 'all' | 'overdue' | 'day' | 'week' | 'month' | 'done';
+export const DEADLINE_RANGES: DeadlineRange[] = ['all', 'day', 'week', 'month', 'overdue', 'done'];
 export const DEADLINE_RANGE_LABELS: Record<DeadlineRange, string> = {
-  all: 'すべて', overdue: '期限切れ', day: '24時間以内', week: '1週間以内', month: '1ヶ月以内',
+  all: 'すべて', overdue: '期限切れ', day: '24時間以内', week: '1週間以内', month: '1ヶ月以内', done: '完了',
 };
 const RANGE_DAYS = { day: 1, week: 7, month: 31 } as const;
 
-/** 締切が範囲に入るか（期限切れ以外は、いまから締切までの残りで決める） */
-export function inDeadlineRange(deadline: string, range: DeadlineRange, now: number = Date.now()): boolean {
+/**
+ * 絞り込みに入るか。
+ *   完了     : 完了した課題だけ
+ *   期限切れ : 締切を過ぎた、まだの課題（完了したものは含めない）
+ *   ○○以内  : いまから締切までの残りで決める（完了したものも含め、一覧では「完了」の区切りにたたんで出す）
+ */
+export function inDeadlineRange(a: { deadline: string; done: boolean }, range: DeadlineRange, now: number = Date.now()): boolean {
   if (range === 'all') return true;
-  const remaining = new Date(deadline).getTime() - now;
-  if (range === 'overdue') return remaining < 0;
+  if (range === 'done') return a.done;
+  const remaining = new Date(a.deadline).getTime() - now;
+  if (range === 'overdue') return !a.done && remaining < 0;
   return remaining >= 0 && remaining <= RANGE_DAYS[range] * DAY_MS;
 }

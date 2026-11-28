@@ -76,7 +76,7 @@ const SECTIONS: { id: string; label: string; group: SettingGroup }[] = [
   { id: 'settings-admin-extra', label: '臨時授業', group: 'admin' },
   { id: 'settings-root-menus', label: 'メニューの表示', group: 'root' },
   { id: 'settings-root-roles', label: '権限の管理', group: 'root' },
-  { id: 'settings-root-attendlog', label: '出席の送信の記録', group: 'root' },
+  { id: 'settings-root-attendlog', label: '送信の記録', group: 'root' },
 ];
 
 
@@ -494,7 +494,7 @@ export default function Setting({ onSettingsSaved }: SettingProps) {
             <SettingsCard id="settings-root-roles" title="権限の管理" description="アカウントを管理者にしたり、管理者から外したりします。">
               <RootRoles />
             </SettingsCard>
-            <SettingsCard id="settings-root-attendlog" title="出席の送信の記録" description="FMS から LMS の出欠に出席を送ったときの記録です（この端末の直近 20 件。不具合の調査用）。パスワードとログイン用のトークンは残していません。">
+            <SettingsCard id="settings-root-attendlog" title="送信の記録" description="FMS から LMS に出席や課題の提出を送ったときの記録です（この端末の直近 20 件。不具合の調査用）。パスワード・ログイン用のトークン・ファイルの中身は残していません。">
               <AttendanceLogView />
             </SettingsCard>
             </>

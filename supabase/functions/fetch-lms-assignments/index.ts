@@ -161,7 +161,9 @@ serve(async (req) => {
       const result = freshResults[i];
       if (result.status === "fulfilled" && !result.value.exception) {
         const attempt = result.value.lastattempt;
-        submissionStatus = attempt?.submission?.status ?? attempt?.teamsubmission?.status ?? null;
+        // グループで提出する課題は、グループの提出（teamsubmission）が本当の状態。
+        // 個人の提出（submission）は「new」のまま残ることがあるので、グループの提出を先に見る
+        submissionStatus = attempt?.teamsubmission?.status ?? attempt?.submission?.status ?? null;
       }
       return buildEvent(assignment, submissionStatus);
     });

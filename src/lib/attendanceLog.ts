@@ -1,5 +1,5 @@
 /* src/lib/attendanceLog.ts
- * FMS から LMS の出欠に出席を送ったときの記録（不具合の調査用）。この端末にだけ、直近 20 件を残す。
+ * FMS から LMS に送ったとき（出欠への出席・課題の提出）の記録（不具合の調査用）。この端末にだけ、直近 20 件を残す。
  * パスワードとログイン用のトークンは残さない。残すのは、いつ・どの授業のどの回か・結果・LMS のエラー・
  * LMS の返事に含まれていた文言の名前・送る前と後の「記録された回の数」と「出席を送信」ボタンの有無。
  */
@@ -18,6 +18,8 @@ export type SubmitDiag = {
 };
 
 export type AttendLogEntry = {
+  /** 何を送ったか（以前の記録には無い = 出席） */
+  kind?: 'attendance' | 'assignment';
   at: string;
   course: string;
   cmid: number;
@@ -26,6 +28,8 @@ export type AttendLogEntry = {
   /** 送信の前後で起きたエラー（LMS のエラー・通信のエラー） */
   error: string | null;
   diag: SubmitDiag | null;
+  /** 課題の提出のときの、くわしい内容（手順・LMS の警告・期待したファイル・送ったあとの状態） */
+  assignDiag?: import('./assignSubmit').SubmitDiag;
 };
 
 const KEY = 'fms_attendance_log';

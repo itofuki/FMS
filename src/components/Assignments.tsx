@@ -1,6 +1,6 @@
 /* src/components/Assignments.tsx */
 
-import React, { useState, useMemo, useRef, useEffect } from 'react';
+import React, { useState, useMemo, useRef, useEffect, lazy, Suspense } from 'react';
 import { dbErrorText } from '../lib/dbError';
 import { supabase } from '../lib/supabaseClient';
 import ChapterFrame, { CENTER_PANEL, LIST_GROUP, LIST_GROUP_HEADING, PAGE_GRID, SIDE_TITLE, SIDE_WIDGET } from './ChapterFrame';
@@ -8,7 +8,7 @@ import AssignmentCalendar from './AssignmentCalendar';
 import { KIND_STYLE, kindOf } from '../lib/assignmentKind';
 import { jstYmd } from '../lib/schedule';
 import { PageSkeleton } from './Skeleton';
-import { FiPlus, FiTrash2, FiInbox, FiTool, FiLink, FiEdit2, FiX, FiInfo, FiRefreshCw, FiPaperclip, FiPlay, FiExternalLink, FiMoreVertical, FiAlertTriangle, FiCheck, FiFilter, FiChevronDown } from 'react-icons/fi';
+import { FiPlus, FiTrash2, FiInbox, FiTool, FiLink, FiEdit2, FiX, FiInfo, FiRefreshCw, FiPaperclip, FiPlay, FiExternalLink, FiMoreVertical, FiAlertTriangle, FiUpload, FiCheck, FiFilter, FiChevronDown } from 'react-icons/fi';
 import { format, formatDistanceToNowStrict } from 'date-fns';
 import { ja } from 'date-fns/locale';
 import { TextInput, Select, Button, Group, SimpleGrid, Menu, ActionIcon } from '@mantine/core';
@@ -23,10 +23,13 @@ import { useUserProfile } from '../hooks/useUserProfile';
 import { useLmsEvents } from '../hooks/useLmsEvents';
 import { useDbAssignments, useDbSubjects, useLmsStatuses } from '../hooks/useAssignmentSources';
 import { withLmsToken } from '../lib/lms';
+import { assignCmidFromUrl } from '../lib/assignSubmit';
 import { DEADLINE_RANGES, DEADLINE_RANGE_LABELS, inDeadlineRange, type DeadlineRange } from '../lib/assignments';
+// 課題の提出の欄（開いたときだけ読み込む）
+const SubmitPanel = lazy(() => import('./SubmitPanel'));
 import {
   getDeadlineStatus, mergeAssignments, groupAssignments, ASSIGNMENT_GROUP_LABELS, type AssignmentGroupKey,
-  type Assignment, type Subject, type LmsStatus, type UnifiedAssignment,
+  type Assignment, type Subject, type LmsStatus, type UnifiedAssignment, type LmsEvent,
 } from '../lib/assignments';
 
 /** 課題の科目の「その他」（科目なしとして保存する） */
@@ -107,12 +110,17 @@ const GROUP_STYLE: Record<AssignmentGroupKey, { bar: string }> = {
 const SUMMARY_ORDER: AssignmentGroupKey[] = ['overdue', 'today', 'week', 'later'];
 
 
+// 課題の絞り込みを覚えておく場所
+const FILTER_STORAGE_KEY = 'fms_assignments_filter';
+
 const Assignments: React.FC<AssignmentsProps> = ({ subject }) => {
   const queryClient = useQueryClient();
 
   // --- ローカルステート ---
   const [isAdminMode, setIsAdminMode] = useState(false);
   const [editingId, setEditingId] = useState<number | null>(null);
+  // 提出の欄を開いている課題（カードの下にアコーディオンで伸ばす。1 つだけ開く）
+  const [openSubmitKey, setOpenSubmitKey] = useState<string | null>(null);
   const formRef = useRef<HTMLDivElement>(null);
 
   const [newName, setNewName] = useState('');
@@ -124,6 +132,8 @@ const Assignments: React.FC<AssignmentsProps> = ({ subject }) => {
   const [isFormOpen, setIsFormOpen] = useState(false);
   // 完了にした直後の課題を、元のグループにしばらく残す（押した結果を目で確かめられるように）
   const LINGER_MS = 1200;
+  // 提出できたあと、欄を閉じるまで（「提出しました」を目で確かめられるように）
+  const CLOSE_AFTER_SUBMIT_MS = 1000;
   const [lingering, setLingering] = useState<Set<string>>(() => new Set());
   const lingerTimers = useRef(new Map<string, number>());
   useEffect(() => {
@@ -138,8 +148,20 @@ const Assignments: React.FC<AssignmentsProps> = ({ subject }) => {
   }, []);
   // 完了した課題は普段は畳んでおく
   const [showDone, setShowDone] = useState(false);
-  // 締切での絞り込み（すべて / 24時間以内 / 1週間以内 / 1ヶ月以内 / 期限切れ）。最初は 1週間以内
-  const [deadlineFilter, setDeadlineFilter] = useState<DeadlineRange>('week');
+  // 絞り込み（すべて / 24時間以内 / 1週間以内 / 1ヶ月以内 / 期限切れ / 完了）
+  // 前回選んだ絞り込みを覚えておく（この端末の中だけ）。初めてはすべて
+  const [deadlineFilter, setDeadlineFilterState] = useState<DeadlineRange>(() => {
+    try {
+      const saved = localStorage.getItem(FILTER_STORAGE_KEY);
+      return DEADLINE_RANGES.includes(saved as DeadlineRange) ? (saved as DeadlineRange) : 'all';
+    } catch {
+      return 'all';
+    }
+  });
+  const setDeadlineFilter = (r: DeadlineRange) => {
+    setDeadlineFilterState(r);
+    try { localStorage.setItem(FILTER_STORAGE_KEY, r); } catch { /* 保存できなくても絞り込みは効く */ }
+  };
   // 見出しのタブ: 一覧 / カレンダー。カレンダーで選んでいる日（日本時間の YYYY-MM-DD）
   const [view, setView] = useState<'list' | 'calendar'>('list');
   const [calendarDay, setCalendarDay] = useState(() => jstYmd(new Date()));
@@ -386,6 +408,23 @@ const Assignments: React.FC<AssignmentsProps> = ({ subject }) => {
     }
   };
 
+  // FMS から提出できたとき: 通知を出し、すぐ✓にする。1 秒ほどで欄を閉じ、完了チェックと同じく少し残してから完了へ移す
+  const handleSubmitted = (assignment: UnifiedAssignment) => {
+    const key = String(assignment.id);
+    toast.success(`「${assignment.name.replace(/[「」]|の提出期限/g, "")}」を提出しました`);
+    queryClient.setQueriesData<LmsEvent[]>({ queryKey: ['lmsEvents'] }, old =>
+      old?.map(e => (e.uid === key ? { ...e, submissionStatus: 'submitted' } : e)));
+    setLingering(prev => new Set(prev).add(key));
+    const old = lingerTimers.current.get(key);
+    if (old) window.clearTimeout(old);
+    window.setTimeout(() => setOpenSubmitKey(k => (k === key ? null : k)), CLOSE_AFTER_SUBMIT_MS);
+    lingerTimers.current.set(key, window.setTimeout(() => {
+      stopLingering(key);
+      // LMS の課題一覧（提出の状態）を取り直す
+      queryClient.invalidateQueries({ queryKey: ['lmsEvents'] });
+    }, CLOSE_AFTER_SUBMIT_MS + LINGER_MS));
+  };
+
   const handleForceRefreshLms = forceFullRefresh;
 
   // 添付ファイルのURLにはトークンを保存していないため、開く直前に付与する
@@ -453,16 +492,23 @@ const Assignments: React.FC<AssignmentsProps> = ({ subject }) => {
   // 進み具合は絞り込みに合わせる（いま選んでいる締切の範囲に入る課題だけで数える）
   const groupCounts = Object.fromEntries(
     (['overdue', 'today', 'week', 'later', 'done'] as AssignmentGroupKey[]).map(k => [
-      k, groups.find(g => g.key === k)?.items.filter(a => inDeadlineRange(a.deadline, deadlineFilter, nowTick)).length ?? 0,
+      k, groups.find(g => g.key === k)?.items.filter(a => inDeadlineRange(a, deadlineFilter, nowTick)).length ?? 0,
     ]),
   ) as Record<AssignmentGroupKey, number>;
   const pendingTotal = SUMMARY_ORDER.reduce((n, k) => n + groupCounts[k], 0);
+  // 進み具合に出す区分（「完了」で絞り込んだときは、完了した件数を出す）
+  const summaryDone = deadlineFilter === 'done';
+  const summaryKeys: AssignmentGroupKey[] = summaryDone ? ['done'] : SUMMARY_ORDER;
+  const summaryTotal = summaryDone ? groupCounts.done : pendingTotal;
+  const summaryLabel = summaryDone ? '完了' : '未完了';
+  // 完了だけを出すときは、バーを緑（済んだ）にする
+  const summaryBar = (key: AssignmentGroupKey) => (summaryDone ? 'bg-up' : GROUP_STYLE[key].bar);
   // 絞り込んだ一覧（区切りはそのまま、範囲に入る課題だけ残す）
   const rangeCounts = Object.fromEntries(
-    DEADLINE_RANGES.map(r => [r, unifiedAssignments.filter(a => inDeadlineRange(a.deadline, r, nowTick)).length]),
+    DEADLINE_RANGES.map(r => [r, unifiedAssignments.filter(a => inDeadlineRange(a, r, nowTick)).length]),
   ) as Record<DeadlineRange, number>;
   const filteredGroups = displayGroups
-    .map(g => ({ ...g, items: g.items.filter(a => inDeadlineRange(a.deadline, deadlineFilter, nowTick)) }))
+    .map(g => ({ ...g, items: g.items.filter(a => inDeadlineRange(a, deadlineFilter, nowTick)) }))
     .filter(g => g.items.length > 0);
   const showForm = isFormOpen || editingId !== null;
   // LMS を最後に取得できた時刻（「2分前」のように表示。キャッシュ表示中はまだ取得していない）
@@ -488,18 +534,23 @@ const Assignments: React.FC<AssignmentsProps> = ({ subject }) => {
     const subjectName = assignment.subject_name || 'その他';
     const title = cleanTitle(assignment.name);
     const hasAttachments = assignment.isLms && !!assignment.attachments?.length;
+    // LMS の課題（ファイルで出すもの）なら、FMS から提出できる
+    const submitCmid = assignment.isLms && !isAdminMode ? assignCmidFromUrl(assignment.url) : null;
     const tag = isDone ? null : deadlineTag(assignment.deadline);
     const titleClass = `text-base font-bold leading-snug break-words ${isDone ? 'text-fg-subtle line-through' : 'text-fg'}`;
 
     // 左の丸いチェック（ToDo の定番の形）。見た目は 24px、押せる範囲は 44px 四方
+    // LMS で提出済みの課題は、提出の状態で完了になっている（チェックを外しても未完了には戻らない）ので押せなくする
+    const lockedDone = assignment.isLms && assignment.submissionStatus === 'submitted';
     const doneCheck = (
       <button
         type="button"
         onClick={() => handleCheck(assignment)}
+        disabled={lockedDone}
         aria-pressed={isDone}
-        aria-label={isDone ? `${title} を未完了に戻す` : `${title} を完了にする`}
-        title={isDone ? '未完了に戻す' : '完了にする'}
-        className="group/check flex-shrink-0 -m-2.5 p-2.5 rounded-full"
+        aria-label={lockedDone ? `${title}（LMS で提出済み）` : isDone ? `${title} を未完了に戻す` : `${title} を完了にする`}
+        title={lockedDone ? 'LMS で提出済み' : isDone ? '未完了に戻す' : '完了にする'}
+        className="group/check flex-shrink-0 -m-2.5 p-2.5 rounded-full disabled:cursor-default"
       >
         {/* 押した瞬間: 緑に塗られて一度ふくらみ、チェックの線が描かれる */}
         <motion.span
@@ -522,6 +573,27 @@ const Assignments: React.FC<AssignmentsProps> = ({ subject }) => {
       </button>
     );
 
+    // 提出のボタン（完了チェックと同じ場所・同じ大きさの丸）。提出済みなら緑のチェック。押すと提出の画面
+    const submitted = assignment.submissionStatus === 'submitted';
+    const submitButton = submitCmid ? (
+      <button
+        type="button"
+        onClick={() => setOpenSubmitKey((k) => (k === key ? null : key))}
+        aria-expanded={openSubmitKey === key}
+        aria-label={submitted ? `${title}（提出済み）の提出を確かめる・変更する` : `${title} を提出する`}
+        title={submitted ? '提出済み（押すと確認・変更）' : '提出する'}
+        // 完了チェックと同じ大きさ（見た目 24px、押せる範囲 44px 四方）。文字は付けずアイコンだけ
+        className="group/submit flex-shrink-0 -m-2.5 p-2.5 rounded-full"
+      >
+        {/* 見た目は完了チェックとそろえる（同じ大きさ・同じ灰色の枠）。中の小さな矢印だけで提出のボタンと分かるようにする */}
+        <span className={`flex items-center justify-center w-6 h-6 rounded-full border-2 transition-colors ${
+          submitted ? 'bg-up border-up text-white' : 'border-line-strong text-fg-subtle group-hover/submit:border-accent group-hover/submit:text-accent group-hover/submit:bg-accent-soft'
+        }`}>
+          {submitted ? <FiCheck size={14} strokeWidth={3.5} aria-hidden="true" /> : <FiUpload size={11} strokeWidth={2.5} aria-hidden="true" />}
+        </span>
+      </button>
+    ) : null;
+
     const moreMenu = canDelete ? (
       <Menu position="bottom-end" withinPortal shadow="md" width={140}>
         <Menu.Target>
@@ -543,17 +615,21 @@ const Assignments: React.FC<AssignmentsProps> = ({ subject }) => {
         exit={{ opacity: 0, scale: 0.96, transition: { duration: 0.25 } }}
         transition={{ layout: { duration: 0.3, ease: 'easeOut' } }}
         // X のタイムラインと同じく、箱で囲まずに区切り線で並べる（編集中・チェック直後だけ色を付ける）
-        className={`relative flex items-start gap-3.5 px-4 sm:px-5 py-4 border-b border-line transition-colors duration-300 ${
+        className={`relative px-4 sm:px-5 py-4 border-b border-line transition-colors duration-300 ${
           editingId === assignment.id ? 'bg-accent-soft'
           : isLingering ? 'bg-up-soft'
+          // 提出の欄を開いている間は、カード全体を少し色付けして、欄がカードの一部だと分かるようにする
+          : openSubmitKey === key ? 'bg-surface-2'
           : 'hover:bg-surface-2'
         }`}
       >
 
-        {/* 左: 完了チェック（カードの上下中央） */}
-        <div className="self-center">{doneCheck}</div>
+        {/* 課題の行（左の丸と中身）。提出の欄はこの行の下に伸びるので、開いても丸の位置は動かない */}
+        <div className="flex items-start gap-3.5">
+        {/* 左（行の上下中央）: FMS から提出できる LMS の課題は提出のボタン（提出済みが完了）、ほかは完了チェック */}
+        <div className="self-center">{submitCmid ? submitButton : doneCheck}</div>
 
-        <div className={`flex-1 min-w-0 transition-opacity duration-300 ${isDone ? 'opacity-70' : ''}`}>
+        <div className={`flex-1 min-w-0 transition-opacity duration-300 ${isDone && openSubmitKey !== key ? 'opacity-70' : ''}`}>
           {/* 1行目: 科目・種別・締切・残り時間 */}
           <div className="flex flex-wrap items-center gap-x-2.5 gap-y-1 text-sm">
             {/* 科目名の色で課題の種類（公式＝青緑、個人＝紫） */}
@@ -639,6 +715,31 @@ const Assignments: React.FC<AssignmentsProps> = ({ subject }) => {
             </div>
           )}
         </div>
+        </div>
+        {/* 提出の欄（課題の行の下に、カードの左端から横いっぱいに伸びる） */}
+        <AnimatePresence initial={false}>
+          {submitCmid && openSubmitKey === key && (
+            <motion.div
+              key="submit"
+              initial={{ height: 0, opacity: 0 }}
+              animate={{ height: 'auto', opacity: 1 }}
+              exit={{ height: 0, opacity: 0 }}
+              transition={{ duration: 0.22, ease: 'easeOut' }}
+              className="overflow-hidden"
+            >
+              <Suspense fallback={<p className="mt-3 text-sm text-fg-muted">読み込み中...</p>}>
+                <SubmitPanel
+                  cmid={submitCmid}
+                  title={title}
+                  url={assignment.url!}
+                  // 提出したら、LMS の課題一覧（提出の状態）を取り直す
+                  onSubmitted={() => handleSubmitted(assignment)}
+                  onCancel={() => setOpenSubmitKey(null)}
+                />
+              </Suspense>
+            </motion.div>
+          )}
+        </AnimatePresence>
 
       </motion.li>
     );
@@ -761,20 +862,20 @@ const Assignments: React.FC<AssignmentsProps> = ({ subject }) => {
                 <div className="flex items-baseline justify-between gap-3 mb-3">
                   <span className={SIDE_TITLE}>進み具合</span>
                   <span className="text-sm text-fg-muted">
-                    未完了 <span className="text-2xl font-bold text-fg">{pendingTotal}</span>件
+                    {summaryLabel} <span className="text-2xl font-bold text-fg">{summaryTotal}</span>件
                   </span>
                 </div>
-                <div className="flex h-3 w-full overflow-hidden rounded-full bg-surface-3" role="img" aria-label={`未完了${pendingTotal}件`}>
-                  {pendingTotal > 0 && SUMMARY_ORDER.map(key => {
+                <div className="flex h-3 w-full overflow-hidden rounded-full bg-surface-3" role="img" aria-label={`${summaryLabel}${summaryTotal}件`}>
+                  {summaryTotal > 0 && summaryKeys.map(key => {
                     const n = groupCounts[key];
-                    return n > 0 ? <div key={key} className={`${GROUP_STYLE[key].bar} transition-[width] duration-500 ease-out`} style={{ width: `${(n / pendingTotal) * 100}%` }} /> : null;
+                    return n > 0 ? <div key={key} className={`${summaryBar(key)} transition-[width] duration-500 ease-out`} style={{ width: `${(n / summaryTotal) * 100}%` }} /> : null;
                   })}
                 </div>
                 <ul className="mt-3 flex flex-wrap xl:flex-col gap-x-5 gap-y-1.5 xl:gap-y-2 text-sm text-fg-muted">
                   {/* 絞り込みの範囲に入らない区分（0 件）は出さない */}
-                  {SUMMARY_ORDER.filter(key => groupCounts[key] > 0).map(key => (
+                  {summaryKeys.filter(key => groupCounts[key] > 0).map(key => (
                     <li key={key} className="inline-flex items-center gap-1.5">
-                      <span className={`w-2.5 h-2.5 rounded-full ${GROUP_STYLE[key].bar}`} />
+                      <span className={`w-2.5 h-2.5 rounded-full ${summaryBar(key)}`} />
                       {ASSIGNMENT_GROUP_LABELS[key]}
                       <span className="font-semibold text-fg">{groupCounts[key]}</span>
                     </li>
@@ -893,7 +994,7 @@ const Assignments: React.FC<AssignmentsProps> = ({ subject }) => {
         )}
         {filteredGroups.map(group => {
           // 絞り込んでいるときは、完了もたたまずに出す
-          const collapsed = group.key === 'done' && !showDone && deadlineFilter === 'all';
+          const collapsed = group.key === 'done' && !showDone && deadlineFilter !== 'done';
           return (
             <section key={group.key} className={LIST_GROUP}>
               {/* まとまりの中見出し（締切の近さ） */}
@@ -901,7 +1002,7 @@ const Assignments: React.FC<AssignmentsProps> = ({ subject }) => {
                 <span className={`w-1 h-4 rounded-full ${GROUP_STYLE[group.key].bar}`} aria-hidden="true" />
                 {group.label}
                 <span className="text-sm font-normal text-fg-muted">{group.items.length}件</span>
-                {group.key === 'done' && deadlineFilter === 'all' && (
+                {group.key === 'done' && deadlineFilter !== 'done' && (
                   <button
                     type="button"
                     onClick={() => setShowDone(v => !v)}

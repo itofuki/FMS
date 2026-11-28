@@ -42,12 +42,21 @@ export default function AttendanceLogView() {
           <li key={i} className="px-3 py-2 text-sm">
             <p className="flex flex-wrap items-baseline gap-x-2">
               <span className="tabular-nums text-fg-muted">{timeText(e.at)}</span>
+              <span className="text-xs px-1.5 rounded bg-surface-3 text-fg-muted">{e.kind === 'assignment' ? '課題の提出' : '出席'}</span>
               <span className="font-semibold text-fg">{e.course}</span>
               <span className={`font-bold ${RESULT_CLASS[e.result]}`}>{RESULT_LABEL[e.result]}</span>
             </p>
             <div className="mt-0.5 text-xs text-fg-muted space-y-0.5 break-all">
-              <p>出欠ページ {e.cmid}・回 {e.sessid ?? '-'}</p>
+              <p>{e.kind === 'assignment' ? `課題ページ ${e.cmid}` : `出欠ページ ${e.cmid}・回 ${e.sessid ?? '-'}`}</p>
               {e.error && <p className="text-down">LMS のエラー: {e.error}</p>}
+              {e.assignDiag && (
+                <>
+                  <p>手順: {e.assignDiag.steps.join(' → ') || 'なし'}</p>
+                  {e.assignDiag.warnings.length > 0 && <p className="text-warn">LMS の警告: {e.assignDiag.warnings.join(' / ')}</p>}
+                  <p>提出するファイル: {e.assignDiag.expected.join(', ') || 'なし'}</p>
+                  <p>送ったあと: {e.assignDiag.after ? `${e.assignDiag.after.status}・${e.assignDiag.after.files.join(', ') || 'ファイルなし'}` : '読めなかった'}</p>
+                </>
+              )}
               {e.diag && (
                 <>
                   <p>返事の文言: {e.diag.keys.length ? e.diag.keys.join(', ') : 'なし'}</p>

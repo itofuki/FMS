@@ -34,18 +34,19 @@ describe('mergeAssignments', () => {
     expect(result.map((a) => a.id)).toEqual([1]);
   });
 
-  it('LMS課題は手動チェックを Moodle の提出状況より優先する', () => {
+  it('LMS で提出済みの課題は、手動のチェックに関係なく完了。まだのものは手動のチェックで完了にできる', () => {
     const result = mergeAssignments({
       ...base,
       lmsEvents: [
         lmsEvent({ uid: 'a', submissionStatus: 'submitted' }),
         lmsEvent({ uid: 'b', submissionStatus: 'submitted' }),
         lmsEvent({ uid: 'c', submissionStatus: 'new' }),
+        lmsEvent({ uid: 'd', submissionStatus: 'new' }),
       ],
-      lmsStatuses: [{ lms_uid: 'a', done: false }],
+      lmsStatuses: [{ lms_uid: 'a', done: false }, { lms_uid: 'd', done: true }],
     });
     const done = Object.fromEntries(result.map((a) => [a.id, a.done]));
-    expect(done).toEqual({ a: false, b: true, c: false });
+    expect(done).toEqual({ a: true, b: true, c: false, d: true });
   });
 
   it('LMS課題を category_code で科目と紐付け、URL がなければ科目ページを使う', () => {
@@ -167,7 +168,7 @@ describe('LMS 課題の科目（コースの id で時間割の授業と結び�
 
 describe('inDeadlineRange（締切での絞り込み）', () => {
   const now = new Date('2026-11-28T12:00:00+09:00').getTime();
-  const after = (h: number) => new Date(now + h * 3600_000).toISOString();
+  const after = (h: number, done = false) => ({ deadline: new Date(now + h * 3600_000).toISOString(), done });
   it('広い範囲は狭い範囲を含む（1ヶ月以内 ⊃ 1週間以内 ⊃ 24時間以内）', () => {
     expect(['day', 'week', 'month'].map(r => inDeadlineRange(after(3), r as 'day', now))).toEqual([true, true, true]);
     expect(['day', 'week', 'month'].map(r => inDeadlineRange(after(72), r as 'day', now))).toEqual([false, true, true]);
@@ -179,5 +180,11 @@ describe('inDeadlineRange（締切での絞り込み）', () => {
     expect(inDeadlineRange(after(-1), 'month', now)).toBe(false);
     expect(inDeadlineRange(after(1), 'overdue', now)).toBe(false);
     expect(inDeadlineRange(after(-1), 'all', now)).toBe(true);
+    expect(inDeadlineRange(after(-1, true), 'overdue', now)).toBe(false);
+  });
+  it('完了は完了した課題だけ', () => {
+    expect(inDeadlineRange(after(3, true), 'done', now)).toBe(true);
+    expect(inDeadlineRange(after(-3, true), 'done', now)).toBe(true);
+    expect(inDeadlineRange(after(3), 'done', now)).toBe(false);
   });
 });
