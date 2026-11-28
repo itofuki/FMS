@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { mergeAssignments, getDeadlineStatus, getSubjectCategoryType, toDeadlineSyncItems, groupAssignments, type Assignment, type LmsEvent, type DbSubject } from './assignments';
+import { mergeAssignments, getDeadlineStatus, getSubjectCategoryType, toDeadlineSyncItems, groupAssignments, inDeadlineRange, type Assignment, type LmsEvent, type DbSubject } from './assignments';
 
 const NOW = new Date('2026-11-16T12:00:00+09:00');
 const hoursFromNow = (h: number) => new Date(NOW.getTime() + h * 3600_000).toISOString();
@@ -162,5 +162,22 @@ describe('LMS 課題の科目（コースの id で時間割の授業と結び�
       subjects: [{ id: 4139, name: 'データベース' }],
     });
     expect(a.subject_name).toBe('データベース');
+  });
+});
+
+describe('inDeadlineRange（締切での絞り込み）', () => {
+  const now = new Date('2026-11-28T12:00:00+09:00').getTime();
+  const after = (h: number) => new Date(now + h * 3600_000).toISOString();
+  it('広い範囲は狭い範囲を含む（1ヶ月以内 ⊃ 1週間以内 ⊃ 24時間以内）', () => {
+    expect(['day', 'week', 'month'].map(r => inDeadlineRange(after(3), r as 'day', now))).toEqual([true, true, true]);
+    expect(['day', 'week', 'month'].map(r => inDeadlineRange(after(72), r as 'day', now))).toEqual([false, true, true]);
+    expect(['day', 'week', 'month'].map(r => inDeadlineRange(after(24 * 20), r as 'day', now))).toEqual([false, false, true]);
+    expect(inDeadlineRange(after(24 * 40), 'month', now)).toBe(false);
+  });
+  it('期限切れは期限切れだけに入る', () => {
+    expect(inDeadlineRange(after(-1), 'overdue', now)).toBe(true);
+    expect(inDeadlineRange(after(-1), 'month', now)).toBe(false);
+    expect(inDeadlineRange(after(1), 'overdue', now)).toBe(false);
+    expect(inDeadlineRange(after(-1), 'all', now)).toBe(true);
   });
 });

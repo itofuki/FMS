@@ -217,3 +217,19 @@ export function groupAssignments(items: UnifiedAssignment[], now: Date = new Dat
     .filter((key) => buckets[key].length > 0)
     .map((key) => ({ key, label: ASSIGNMENT_GROUP_LABELS[key], items: buckets[key] }));
 }
+
+/** 締切での絞り込み。範囲は入れ子で、広い範囲は狭い範囲を含む（1ヶ月以内 ⊃ 1週間以内 ⊃ 24時間以内） */
+export type DeadlineRange = 'all' | 'overdue' | 'day' | 'week' | 'month';
+export const DEADLINE_RANGES: DeadlineRange[] = ['all', 'day', 'week', 'month', 'overdue'];
+export const DEADLINE_RANGE_LABELS: Record<DeadlineRange, string> = {
+  all: 'すべて', overdue: '期限切れ', day: '24時間以内', week: '1週間以内', month: '1ヶ月以内',
+};
+const RANGE_DAYS = { day: 1, week: 7, month: 31 } as const;
+
+/** 締切が範囲に入るか（期限切れ以外は、いまから締切までの残りで決める） */
+export function inDeadlineRange(deadline: string, range: DeadlineRange, now: number = Date.now()): boolean {
+  if (range === 'all') return true;
+  const remaining = new Date(deadline).getTime() - now;
+  if (range === 'overdue') return remaining < 0;
+  return remaining >= 0 && remaining <= RANGE_DAYS[range] * DAY_MS;
+}

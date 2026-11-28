@@ -1,7 +1,7 @@
 /* src/components/StudyRoom.tsx
  * 自習室・談話室。課題ページと同じ考え方で作る:
  *   - 1日分（1〜6限 × 自習室・談話室）の一覧表。今の時限を強調し、終わった時限は薄く
- *   - 曜日のボタンでほかの日も見られる（土日は次の週を表示）
+ *   - 曜日のボタン（月〜土）でほかの日も見られる（日曜は次の週を表示）
  *   - 右の列（広い画面）に「今使える部屋」（時間外は次に開く部屋）と、元の時間割 PDF へのリンク
  *   - PDF の大きな埋め込み表示はやめ、リンクにする
  */
@@ -13,8 +13,23 @@ import { SkeletonBar, TableSkeleton } from './Skeleton';
 import { supabase } from '../lib/supabaseClient';
 import {
   PERIODS, WEEKDAYS, WEEKDAY_LABELS, formatHm, formatMinutes, mondayOf, nowInJst,
-  toYmd, weekdayOf, type PeriodState, type Weekday,
+  toYmd, type PeriodState,
 } from '../lib/schedule';
+
+// 自習室は土曜も開くので、授業の曜日（月〜金）に土曜を足す
+const DAYS = [...WEEKDAYS, 'Sat'] as const;
+type Day = (typeof DAYS)[number];
+const DAY_LABELS: Record<Day, string> = { ...WEEKDAY_LABELS, Sat: '土' };
+/** 今日の曜日（月〜土）。日曜は null */
+const dayOf = (d: Date): Day | null => (d.getDay() === 0 ? null : DAYS[d.getDay() - 1]);
+/** 表示する週の月曜。土曜はその週（今日を見られるように）、日曜は次の週 */
+const weekMondayOf = (d: Date): Date => {
+  if (d.getDay() !== 6) return mondayOf(d);
+  const x = new Date(d);
+  x.setHours(0, 0, 0, 0);
+  x.setDate(x.getDate() - 5);
+  return x;
+};
 
 // 自習室・談話室の時間枠。授業の時限と同じだが、6限の枠は閉館の 21:30 まで使える（表示も「6限～」）
 const ROOM_SLOTS = PERIODS.map(p => (p.period === 6 ? { ...p, end: { h: 21, m: 30 }, label: '6限～' } : { ...p, label: `${p.period}限` }));
@@ -49,19 +64,19 @@ function useNow() {
 
 const StudyRoom = () => {
   const now = useNow();
-  const todayKey = weekdayOf(now);
-  const monday = useMemo(() => mondayOf(now), [now]);
-  const dateOf = (d: Weekday) => {
+  const todayKey = dayOf(now);
+  const monday = useMemo(() => weekMondayOf(now), [now]);
+  const dateOf = (d: Day) => {
     const x = new Date(monday);
-    x.setDate(monday.getDate() + WEEKDAYS.indexOf(d));
+    x.setDate(monday.getDate() + DAYS.indexOf(d));
     return x;
   };
-  const [selected, setSelected] = useState<Weekday>(todayKey ?? 'Mon');
+  const [selected, setSelected] = useState<Day>(todayKey ?? 'Mon');
   const isTodaySelected = selected === todayKey;
 
-  // その週（月〜金）の部屋の割り当て
+  // その週（月〜土）の部屋の割り当て
   const weekStart = toYmd(monday);
-  const weekEnd = toYmd(dateOf('Fri'));
+  const weekEnd = toYmd(dateOf('Sat'));
   const { data: week, isLoading } = useQuery({
     queryKey: ['roomSchedulesWeek', weekStart],
     queryFn: async () => {
@@ -111,20 +126,20 @@ const StudyRoom = () => {
   });
 
   // 見出しの「何限」も自習室の枠で数える（19:50〜21:30 は「6限～」）
-  const periodLabel = weekdayOf(now) ? ROOM_SLOTS.find(p => slotState(p.period, now) === 'current')?.label ?? null : null;
+  const periodLabel = todayKey ? ROOM_SLOTS.find(p => slotState(p.period, now) === 'current')?.label ?? null : null;
   const fmtDate = (ymd: string) => { const [, m, d] = ymd.split('-'); return `${Number(m)}/${Number(d)}`; };
 
   // 列の見出しの下線タブ: 曜日（今日の曜日には小さな点）
-  const dayTabs = WEEKDAYS.map(d => ({
+  const dayTabs = DAYS.map(d => ({
     key: d,
-    label: <span className="relative">{WEEKDAY_LABELS[d]}{d === todayKey && <span className="absolute -right-2 top-0 w-1.5 h-1.5 rounded-full bg-accent" aria-label="今日" />}</span>,
+    label: <span className="relative">{DAY_LABELS[d]}{d === todayKey && <span className="absolute -right-2 top-0 w-1.5 h-1.5 rounded-full bg-accent" aria-label="今日" />}</span>,
     active: selected === d,
     onSelect: () => setSelected(d),
   }));
   // 列の見出しの補足: 表示中の日付（今日なら時刻と何限かも）
   const headerMeta = (
     <span className="text-[15px] font-bold text-fg tabular-nums whitespace-nowrap">
-      {fmtDate(toYmd(dateOf(selected)))}（{WEEKDAY_LABELS[selected]}）
+      {fmtDate(toYmd(dateOf(selected)))}（{DAY_LABELS[selected]}）
       {isTodaySelected && <span className="ml-2 text-fg-muted">{String(now.getHours()).padStart(2, '0')}:{String(now.getMinutes()).padStart(2, '0')}</span>}
       {isTodaySelected && periodLabel && <span className="ml-2 text-accent">{periodLabel}</span>}
     </span>
